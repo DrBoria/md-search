@@ -33,15 +33,7 @@ const rightAnim = keyframes`
 `
 
 export default function SearchReplaceView({
-  status: {
-    running,
-    completed,
-    total,
-    numMatches,
-    numFilesWithMatches,
-    numFilesWithErrors,
-    numFilesThatWillChange,
-  },
+  status,
   values,
   onValuesChange,
   onReplaceAllClick,
@@ -52,6 +44,15 @@ export default function SearchReplaceView({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   onReplaceAllClick: (e: React.SyntheticEvent<any>) => unknown
 }): React.ReactElement {
+  const {
+    running,
+    completed,
+    total,
+    numMatches,
+    numFilesWithMatches,
+    numFilesWithErrors,
+    numFilesThatWillChange,
+  } = status
   const handleUseFindReplaceClick = React.useCallback(() => {
     onValuesChange({ useTransformFile: false })
   }, [])

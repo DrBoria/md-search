@@ -43,6 +43,7 @@ const paramsInConfig: (keyof Params)[] = [
 
 export class AstxExtension {
   isProduction: boolean
+  replacing = false
 
   channel: vscode.OutputChannel = vscode.window.createOutputChannel('astx')
   runner: AstxRunner
@@ -345,7 +346,17 @@ export class AstxExtension {
     )
   }
 
+  async replace(): Promise<void> {
+    this.replacing = true
+    try {
+      await this.runner.replace()
+    } finally {
+      this.replacing = false
+    }
+  }
+
   handleFsChange = (uri: vscode.Uri): void => {
+    if (this.replacing) return
     const { transformFile } = this.getParams()
     if (
       transformFile &&
@@ -353,11 +364,12 @@ export class AstxExtension {
     ) {
       this.runner.restartSoon()
     } else if (this.searchReplaceViewProvider.visible) {
-      this.runner.runSoon()
+      this.runner.handleChange(uri)
     }
   }
 
   handleTextDocumentChange = (e: vscode.TextDocumentChangeEvent): void => {
+    if (this.replacing) return
     const { transformFile } = this.getParams()
     if (
       this.searchReplaceViewProvider.visible &&
@@ -366,7 +378,7 @@ export class AstxExtension {
         e.document.uri.toString() !==
           this.resolveFsPath(transformFile).toString())
     ) {
-      this.runner.runSoon()
+      this.runner.handleChange(e.document.uri)
     }
   }
 }

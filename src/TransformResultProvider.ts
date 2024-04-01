@@ -23,7 +23,19 @@ export default class TransformResultProvider
     runner.on('result', (event: TransformResultEvent) => {
       const { file } = event
       const uri = file.with({ scheme: 'file' })
-      this.results.set(uri.toString(), event)
+      if (
+        event.matches?.length ||
+        event.reports?.length ||
+        event.error ||
+        (event.transformed && event.transformed !== event.source)
+      ) {
+        this.results.set(uri.toString(), event)
+      } else {
+        if (!this.results.has(uri.toString())) {
+          return
+        }
+        this.results.delete(uri.toString())
+      }
       const uris = [
         event.file.with({ scheme: ASTX_RESULT_SCHEME }),
         event.file.with({ scheme: ASTX_REPORTS_SCHEME }),

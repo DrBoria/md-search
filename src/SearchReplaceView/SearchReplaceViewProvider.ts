@@ -62,7 +62,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
           break
         }
         case 'replace': {
-          this.runner.replace()
+          this.extension.replace()
           break
         }
       }

@@ -10,7 +10,7 @@ import { AstxExtension } from '../extension'
 export class MatchesViewProvider implements vscode.TreeDataProvider<TreeNode> {
   static viewType = 'astx.MatchesView'
 
-  folders: Map<string, { files: FileNodeProps[] }> = new Map()
+  folders: Map<string, { files: Map<string, FileNodeProps> }> = new Map()
 
   private fireChange = throttle(() => this._onDidChangeTreeData.fire(), 250)
 
@@ -24,16 +24,21 @@ export class MatchesViewProvider implements vscode.TreeDataProvider<TreeNode> {
       const workspaceFolder =
         vscode.workspace.getWorkspaceFolder(event.file)?.name || '<other>'
       let forFolder = this.folders.get(workspaceFolder)
-      if (!forFolder) {
-        this.folders.set(workspaceFolder, (forFolder = { files: [] }))
-      }
       if (
         event.matches?.length ||
         event.reports?.length ||
         event.error ||
-        event.transformed
+        (event.transformed && event.transformed !== event.source)
       ) {
-        forFolder.files.push(event)
+        if (!forFolder) {
+          this.folders.set(workspaceFolder, (forFolder = { files: new Map() }))
+        }
+        forFolder.files.set(event.file.toString(), event)
+      } else if (forFolder) {
+        forFolder.files.delete(event.file.toString())
+        if (!forFolder.files.size) {
+          this.folders.delete(workspaceFolder)
+        }
       }
       this.fireChange()
     })

@@ -1,4 +1,4 @@
-import { Transform } from 'astx'
+import { AstxConfig, Transform } from 'astx'
 import type { IpcMatch, AstxWorkerPool } from 'astx/node'
 import type * as AstxNodeTypes from 'astx/node'
 import { TypedEmitter } from 'tiny-typed-emitter'
@@ -7,6 +7,7 @@ import { debounce, isEqual } from 'lodash'
 import { convertGlobPattern, joinPatterns } from './glob/convertGlobPattern'
 import { AstxExtension, Params } from './extension'
 import fs from 'fs/promises'
+import { Fs } from 'astx/node/runTransformOnFile'
 
 export type TransformResultEvent = {
   file: vscode.Uri
@@ -43,6 +44,7 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
   private astxNode: typeof AstxNodeTypes = undefined as any
   private abortController: AbortController | undefined
   private pool: AstxWorkerPool = undefined as any
+  private processedFiles: Set<string> = new Set()
   private transformResults: Map<
     string,
     {
@@ -50,6 +52,8 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
       transformed: string
     }
   > = new Map()
+  private fs: Fs | undefined
+  private config: AstxConfig | undefined
   private startupPromise: Promise<void> = Promise.reject(
     new Error('not started')
   )
@@ -133,6 +137,75 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
   }
 
   debouncedRun: () => void = debounce(() => this.run(), 250)
+
+  async handleChange(fileUri: vscode.Uri): Promise<void> {
+    const { pool, fs, config } = this
+    const { find, replace } = this.params
+    const file = fileUri.fsPath
+    if (
+      !this.abortController?.signal.aborted &&
+      pool &&
+      fs &&
+      config &&
+      this.processedFiles.has(file)
+    ) {
+      const { useTransformFile } = this.params
+      let { transformFile } = this.params
+
+      if (transformFile) {
+        transformFile = this.extension.resolveFsPath(transformFile).fsPath
+      }
+
+      const transform: Transform = {
+        find,
+        replace,
+      }
+
+      try {
+        const result = await pool.runTransformOnFile({
+          ...(useTransformFile ? { transformFile } : { transform }),
+          file,
+          source: await fs.readFile(file, 'utf8'),
+          config,
+        })
+
+        this.handleResult(result)
+      } catch (error) {
+        if (this.abortController?.signal.aborted) return
+        if (error instanceof Error && pool === this.pool) {
+          this.extension.logError(error)
+          this.emit('error', error)
+        }
+      }
+    }
+  }
+
+  handleResult(result: AstxNodeTypes.IpcTransformResult): void {
+    const { file, source = '', transformed, matches, reports, error } = result
+    this.processedFiles.add(result.file)
+
+    if (this.abortController?.signal.aborted) {
+      return
+    }
+
+    if (transformed != null && transformed !== source) {
+      this.transformResults.set(file, {
+        source,
+        transformed,
+      })
+    } else {
+      this.transformResults.delete(file)
+    }
+    const event: TransformResultEvent = {
+      file: vscode.Uri.file(file),
+      source,
+      transformed,
+      reports,
+      matches: matches || [],
+      error: error ? this.astxNode.invertIpcError(error) : undefined,
+    }
+    this.emit('result', event)
+  }
 
   run(): void {
     this.stop()
@@ -218,7 +291,19 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
       },
       realpath: fs.realpath,
     }
-
+    this.fs = Fs
+    const config = {
+      parser,
+      parserOptions:
+        parser === 'babel' || parser === 'babel/auto'
+          ? {
+              preserveFormat: babelGeneratorHack ? 'generatorHack' : undefined,
+            }
+          : undefined,
+      prettier,
+      preferSimpleReplacement,
+    }
+    this.config = config
     ;(async () => {
       try {
         await this.startupPromise
@@ -226,19 +311,7 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
           paths: [include],
           exclude,
           ...(useTransformFile ? { transformFile } : { transform }),
-          config: {
-            parser,
-            parserOptions:
-              parser === 'babel' || parser === 'babel/auto'
-                ? {
-                    preserveFormat: babelGeneratorHack
-                      ? 'generatorHack'
-                      : undefined,
-                  }
-                : undefined,
-            prettier,
-            preferSimpleReplacement,
-          },
+          config,
           fs: Fs,
         })) {
           if (signal?.aborted) return
@@ -250,32 +323,7 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
             })
             continue
           }
-          const {
-            result: { file, source = '', transformed, matches, reports, error },
-          } = next
-          if (
-            !matches?.length &&
-            !reports?.length &&
-            !error &&
-            (transformed == null || transformed === source)
-          ) {
-            continue
-          }
-          if (transformed != null && transformed !== source) {
-            this.transformResults.set(file, {
-              source,
-              transformed,
-            })
-          }
-          const event: TransformResultEvent = {
-            file: vscode.Uri.file(file),
-            source,
-            transformed,
-            reports,
-            matches: matches || [],
-            error: error ? this.astxNode.invertIpcError(error) : undefined,
-          }
-          this.emit('result', event)
+          this.handleResult(next.result)
         }
         if (signal?.aborted) return
         this.emit('done')
@@ -311,6 +359,7 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
     }
     await vscode.workspace.applyEdit(edit)
     this.transformResults.clear()
+    this.processedFiles.clear()
     this.emit('stop')
   }
 }
