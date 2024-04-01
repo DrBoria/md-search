@@ -137,6 +137,8 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
   run(): void {
     this.stop()
 
+    const pool = this.pool
+
     const abortController = new AbortController()
     this.abortController = abortController
     const { signal } = abortController
@@ -220,7 +222,7 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
     ;(async () => {
       try {
         await this.startupPromise
-        for await (const next of this.pool.runTransform({
+        for await (const next of pool.runTransform({
           paths: [include],
           exclude,
           ...(useTransformFile ? { transformFile } : { transform }),
@@ -279,12 +281,14 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
         this.emit('done')
       } catch (error) {
         if (signal?.aborted) return
-        if (error instanceof Error) {
+        if (error instanceof Error && pool === this.pool) {
           this.extension.logError(error)
           this.emit('error', error)
         }
       } finally {
-        this.extension.channel.appendLine('run ended')
+        if (pool === this.pool) {
+          this.extension.channel.appendLine('run ended')
+        }
         abortController.abort()
         if (this.abortController === abortController) {
           this.abortController = undefined

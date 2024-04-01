@@ -358,9 +358,13 @@ export class AstxExtension {
   }
 
   handleTextDocumentChange = (e: vscode.TextDocumentChangeEvent): void => {
+    const { transformFile } = this.getParams()
     if (
       this.searchReplaceViewProvider.visible &&
-      e.document.uri.scheme === 'file'
+      e.document.uri.scheme === 'file' &&
+      (!transformFile ||
+        e.document.uri.toString() !==
+          this.resolveFsPath(transformFile).toString())
     ) {
       this.runner.runSoon()
     }
