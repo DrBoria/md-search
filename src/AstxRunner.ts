@@ -6,6 +6,7 @@ import * as vscode from 'vscode'
 import { debounce, isEqual } from 'lodash'
 import { convertGlobPattern, joinPatterns } from './glob/convertGlobPattern'
 import { AstxExtension, Params } from './extension'
+import Path from 'path'
 import fs from 'fs/promises'
 import { Fs } from 'astx/node/runTransformOnFile'
 
@@ -310,6 +311,13 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
         for await (const next of pool.runTransform({
           paths: [include],
           exclude,
+          getResolveAgainstDir: (filename: string) => {
+            return (
+              workspaceFolders.find(
+                (f) => !Path.relative(f, filename).startsWith('.')
+              ) || process.cwd()
+            )
+          },
           ...(useTransformFile ? { transformFile } : { transform }),
           config,
           fs: Fs,
