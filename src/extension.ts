@@ -4,7 +4,6 @@ import * as vscode from 'vscode'
 import os from 'os'
 import { AstxRunner } from './AstxRunner'
 import { ASTX_REPORTS_SCHEME, ASTX_RESULT_SCHEME } from './constants'
-import { MatchesViewProvider } from './MatchesView/MatchesViewProvider'
 import { SearchReplaceViewProvider } from './SearchReplaceView/SearchReplaceViewProvider'
 import TransformResultProvider from './TransformResultProvider'
 import type * as AstxNodeTypes from 'astx/node'
@@ -32,6 +31,9 @@ export type Params = {
   prettier?: boolean
   babelGeneratorHack?: boolean
   preferSimpleReplacement?: boolean
+  searchMode: 'text' | 'regex' | 'astx'
+  matchCase: boolean
+  wholeWord: boolean
 }
 
 const paramsInConfig: (keyof Params)[] = [
@@ -49,7 +51,6 @@ export class AstxExtension {
   runner: AstxRunner
   transformResultProvider: TransformResultProvider
   searchReplaceViewProvider: SearchReplaceViewProvider
-  matchesViewProvider: MatchesViewProvider | undefined
   fsWatcher: vscode.FileSystemWatcher | undefined
 
   private params: Params
@@ -58,7 +59,12 @@ export class AstxExtension {
 
   constructor(public context: vscode.ExtensionContext) {
     const config = vscode.workspace.getConfiguration('astx')
-    this.params = Object.fromEntries(paramsInConfig.map((p) => [p, config[p]]))
+    this.params = {
+      searchMode: 'text',
+      matchCase: false,
+      wholeWord: false,
+      ...Object.fromEntries(paramsInConfig.map((p) => [p, config[p]])),
+    } as Params
     this.isProduction =
       context.extensionMode === vscode.ExtensionMode.Production
     this.runner = new AstxRunner(this)
@@ -290,19 +296,7 @@ export class AstxExtension {
     context.subscriptions.push(
       vscode.window.registerWebviewViewProvider(
         SearchReplaceViewProvider.viewType,
-        this.searchReplaceViewProvider,
-        {
-          webviewOptions: {
-            retainContextWhenHidden: true,
-          },
-        }
-      )
-    )
-    this.matchesViewProvider = new MatchesViewProvider(this)
-    context.subscriptions.push(
-      vscode.window.registerTreeDataProvider(
-        MatchesViewProvider.viewType,
-        this.matchesViewProvider
+        this.searchReplaceViewProvider
       )
     )
 

@@ -171,15 +171,12 @@
           "type": "webview",
           "id": "astx.SearchReplaceView",
           "name": "Search"
-        },
-        {
-          "id": "astx.MatchesView",
-          "name": "Matches"
         }
       ]
     }
   },
   "scripts": {
+    "compile": "tsc -p ./",
     "lint": "eslint $npm_package_config_lint",
     "lint:fix": "eslint $npm_package_config_lint",
     "prettier": "prettier --write $npm_package_config_prettier",
@@ -368,6 +365,7 @@
     "@emotion/styled": "^11.10.4",
     "@repeaterjs/repeater": "^3.0.4",
     "@vscode/codicons": "^0.0.32",
+    "@vscode/ripgrep": "^1.15.11",
     "@vscode/webview-ui-toolkit": "^1.2.2",
     "astx": "3.0.0-beta.29",
     "babel-parse-wild-code": "^1.2.0",

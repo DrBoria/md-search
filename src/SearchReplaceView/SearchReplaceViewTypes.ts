@@ -9,24 +9,36 @@ export type SearchReplaceViewStatus = {
   numFilesWithErrors: number
 }
 
+// Represents the data received from the extension host for a single file result
+// Note: `file` is a string representation of the URI
+export type SerializedTransformResultEvent = {
+  file: string
+  source?: string
+  transformed?: string
+  matches?: Array<{ start: number; end: number }>
+  reports?: any[]
+  error?: any
+}
+
 export type AstxParser =
   | 'babel'
   | 'babel/auto'
   | 'recast/babel'
   | 'recast/babel/auto'
 
-export type SearchReplaceViewValues = {
+export interface SearchReplaceViewValues {
   find: string
   replace: string
-  useTransformFile?: boolean
-  transformFile: string
-  paused?: boolean
+  paused: boolean
   include: string
   exclude: string
-  parser?: AstxParser
-  prettier?: boolean
-  babelGeneratorHack?: boolean
-  preferSimpleReplacement?: boolean
+  parser: string
+  prettier: boolean
+  babelGeneratorHack: boolean
+  preferSimpleReplacement: boolean
+  searchMode: 'astx' | 'text' | 'regex'
+  matchCase: boolean
+  wholeWord: boolean
 }
 
 export type MessageToWebview =
@@ -37,6 +49,13 @@ export type MessageToWebview =
   | {
       type: 'values'
       values: Partial<SearchReplaceViewValues>
+    }
+  | {
+      type: 'addResult'
+      data: SerializedTransformResultEvent
+    }
+  | {
+      type: 'clearResults'
     }
 
 export type MessageFromWebview =
@@ -52,4 +71,15 @@ export type MessageFromWebview =
     } & SearchReplaceViewValues)
   | {
       type: 'replace'
+    }
+  | {
+      type: 'openFile'
+      filePath: string // String URI of the file to open
+      range?: { start: number; end: number } // Optional range (character offsets)
+    }
+  | {
+      type: 'log'
+      level: 'info' | 'warn' | 'error'
+      message: string
+      data?: any // Optional structured data
     }

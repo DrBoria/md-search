@@ -7,6 +7,9 @@ import {
 } from '../AstxRunner'
 import { AstxExtension, Params } from '../extension'
 import {
+  ASTX_RESULT_SCHEME
+} from '../constants'
+import {
   MessageFromWebview,
   SearchReplaceViewStatus,
 } from './SearchReplaceViewTypes'
@@ -44,28 +47,89 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     webviewView.webview.onDidReceiveMessage((_message: any) => {
       const message: MessageFromWebview = _message
-      switch (message.type) {
-        case 'mount': {
-          webviewView.webview.postMessage({
-            type: 'values',
-            values: this.extension.getParams(),
-          })
-          webviewView.webview.postMessage({
-            type: 'status',
-            status,
-          })
+      // Make the message handler async to allow await for file operations
+      const handleMessage = async (message: MessageFromWebview) => { 
+        switch (message.type) {
+          case 'mount': {
+            webviewView.webview.postMessage({
+              type: 'values',
+              values: this.extension.getParams(),
+            })
+            webviewView.webview.postMessage({
+              type: 'status',
+              status,
+            })
 
-          break
-        }
-        case 'values': {
-          this.extension.setParams(message.values)
-          break
-        }
-        case 'replace': {
-          this.extension.replace()
-          break
+            break
+          }
+          case 'values': {
+            this.extension.setParams(message.values)
+            break
+          }
+          case 'replace': {
+            this.extension.replace()
+            break
+          }
+          case 'openFile': {
+            const uri = vscode.Uri.parse(message.filePath)
+            const range = message.range
+              ? new vscode.Range(
+                  // Placeholder positions - will be recalculated if possible
+                  new vscode.Position(0, 0), 
+                  new vscode.Position(0, 0) 
+                )
+              : undefined
+
+            // Check if there's a transformed version available to show a diff
+            const result = this.extension.transformResultProvider.results.get(uri.toString());
+            if (result && result.transformed && result.transformed !== result.source) {
+              const transformedUri = uri.with({ scheme: ASTX_RESULT_SCHEME });
+              const filename = uri.path.substring(uri.path.lastIndexOf('/') + 1);
+              vscode.commands.executeCommand('vscode.diff', uri, transformedUri, `${filename} ↔ Changes`);
+            } else {
+              if (message.range?.start !== undefined) {
+                try {
+                  const document = await vscode.workspace.openTextDocument(uri);
+                  const textUpToStart = document.getText(new vscode.Range(new vscode.Position(0, 0), document.positionAt(message.range.start)));
+                  const lineNumber = textUpToStart.split('\n').length - 1; 
+                  const calculatedRange = new vscode.Range(
+                      new vscode.Position(lineNumber, 0),
+                      new vscode.Position(lineNumber, 0)
+                  );
+                  vscode.window.showTextDocument(uri, { selection: calculatedRange });
+                } catch (error) {
+                  this.extension.logError(error instanceof Error ? error : new Error(`Failed to calculate position: ${error}`));
+                  vscode.window.showTextDocument(uri);
+                }
+              } else {
+                 vscode.window.showTextDocument(uri);
+              }
+            }
+            break
+          }
+          // Add case to handle logging messages from webview
+          case 'log': {
+            const level = message.level.toUpperCase();
+            const logMessage = `[Webview ${level}] ${message.message}`;
+            if (message.data) {
+                try {
+                    // Attempt to stringify data for logging, handle potential errors
+                    const dataString = JSON.stringify(message.data, null, 2);
+                    this.extension.channel.appendLine(`${logMessage}\nData: ${dataString}`);
+                } catch (e) {
+                    this.extension.channel.appendLine(`${logMessage} (Failed to stringify data)`);
+                }
+            } else {
+                this.extension.channel.appendLine(logMessage);
+            }
+            break;
+          }
         }
       }
+      // Execute the async handler
+      handleMessage(message).catch(error => {
+          this.extension.logError(error instanceof Error ? error : new Error(`Error handling webview message: ${error}`));
+      });
     })
 
     const listeners = {
@@ -81,7 +145,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
         if (e.transformed && e.transformed !== e.source) {
           status.numFilesThatWillChange++
         }
-        if (e.matches.length) {
+        if (e.matches?.length) {
           status.numMatches += e.matches.length
           status.numFilesWithMatches++
         }
@@ -92,6 +156,17 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
           type: 'status',
           status,
         })
+        // Send the result data to the webview
+        const stringifiedEvent = {
+          file: e.file.toString(), // Convert URI first
+          source: e.source,
+          transformed: e.transformed,
+          matches: e.matches || [], // Ensure matches is always an array
+          reports: e.reports,
+          // Serialize error properly for postMessage
+          error: e.error ? { message: e.error.message, name: e.error.name, stack: e.error.stack } : undefined,
+        }
+        webviewView.webview.postMessage({ type: 'addResult', data: stringifiedEvent })
       },
       start: () => {
         status.running = true
@@ -110,6 +185,8 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
           type: 'status',
           status,
         })
+        // Clear results in the webview
+        webviewView.webview.postMessage({ type: 'clearResults' })
       },
       done: () => {
         status.running = false

@@ -2,6 +2,7 @@ import * as React from 'react'
 import {
   MessageFromWebview,
   MessageToWebview,
+  SerializedTransformResultEvent,
   SearchReplaceViewStatus,
   SearchReplaceViewValues,
 } from './SearchReplaceViewTypes'
@@ -64,8 +65,9 @@ export default function SearchReplaceViewController({
     replace: '',
     include: '',
     exclude: '',
-    transformFile: '',
   })
+
+  const [results, setResults] = React.useState<SerializedTransformResultEvent[]>([])
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   useEventListener(window, 'message', (message: any) => {
@@ -77,6 +79,29 @@ export default function SearchReplaceViewController({
         break
       case 'values':
         setValues((v) => ({ ...v, ...data.values }))
+        break
+      case 'addResult':
+        // Send received data to extension host for logging in Output Channel
+        try {
+          vscode.postMessage({ 
+              type: 'log', 
+              level: 'info', 
+              message: 'Received addResult data:', 
+              // Only send key info to avoid large objects/circular refs
+              data: { 
+                  file: data.data.file, 
+                  matchesCount: data.data.matches?.length ?? 0, 
+                  hasError: data.data.error != null 
+              } 
+          });
+        } catch (e) {
+            // Handle potential errors during message creation/posting
+            vscode.postMessage({ type: 'log', level: 'error', message: 'Error trying to log received data' });
+        }
+        setResults((prevResults) => [...prevResults, data.data])
+        break
+      case 'clearResults':
+        setResults([])
         break
     }
   })
@@ -105,8 +130,10 @@ export default function SearchReplaceViewController({
     <SearchReplaceView
       status={status}
       values={values}
+      results={results}
       onValuesChange={handleValuesChange}
       onReplaceAllClick={handleReplaceAllClick}
+      vscode={vscode}
     />
   )
 }
