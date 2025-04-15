@@ -902,7 +902,10 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
             `}>
               {/* === LIST VIEW (Grouped by file) === */}
               {viewMode === 'list' && (
-                Object.entries(resultsByFile).map(([absoluteFilePathOrUri, fileResults]) => {
+                Object.entries(resultsByFile)
+                  // Filter results: Only include files with actual matches
+                  .filter(([_, fileResults]) => fileResults.some(r => r.matches && r.matches.length > 0)) 
+                  .map(([absoluteFilePathOrUri, fileResults]) => {
                   const firstResult = fileResults[0] 
                   const absoluteFilePath = uriToPath(absoluteFilePathOrUri); // Convert for path operations
                   const currentWorkspacePath = uriToPath(workspacePath); // Convert for path operations
