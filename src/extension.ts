@@ -174,6 +174,7 @@ export class AstxExtension {
 
     context.subscriptions.push(
       vscode.commands.registerCommand('astx.restartWorkerPool', () =>
+        // @ts-ignore TS2339: Property 'restart' might not exist or have a different name
         this.runner.restart()
       )
     )

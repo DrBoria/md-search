@@ -63,30 +63,42 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
   constructor(private extension: AstxExtension) {
     super()
     this.params = extension.getParams()
-    this.startupPromise = this.startup().catch(err => {
-      this.extension.logError(new Error(`AstxRunner initial startup failed: ${err}`))
+    this.startupPromise = this.startup().catch((err) => {
+      this.extension.logError(
+        new Error(`AstxRunner initial startup failed: ${err}`)
+      )
       throw err
     })
   }
 
   async startup(): Promise<void> {
     if (this.astxNode && this.pool) {
-      this.extension.channel.appendLine('Startup skipped: astxNode and pool already initialized.')
+      this.extension.channel.appendLine(
+        'Startup skipped: astxNode and pool already initialized.'
+      )
       return
     }
 
     const currentStartupPromise = (async () => {
-      this.extension.channel.appendLine('Starting AstxRunner startup sequence...')
+      this.extension.channel.appendLine(
+        'Starting AstxRunner startup sequence...'
+      )
       this.extension.channel.appendLine('Importing astx/node...')
       this.astxNode = await this.extension.importAstxNode()
       this.extension.channel.appendLine('Creating/Recreating AstxWorkerPool...')
       const oldPool = this.pool
       if (oldPool) {
         this.extension.channel.appendLine('Ending previous worker pool...')
-        oldPool.end().catch(e => this.extension.channel.appendLine(`Error ending previous pool: ${e}`))
+        oldPool
+          .end()
+          .catch((e) =>
+            this.extension.channel.appendLine(
+              `Error ending previous pool: ${e}`
+            )
+          )
       }
       if (!this.astxNode) {
-        throw new Error("Failed to load astx/node, cannot create worker pool.")
+        throw new Error('Failed to load astx/node, cannot create worker pool.')
       }
       this.pool = new this.astxNode.AstxWorkerPool()
       this.extension.channel.appendLine('AstxWorkerPool created/recreated.')
@@ -96,9 +108,13 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
 
     try {
       await this.startupPromise
-      this.extension.channel.appendLine('AstxRunner startup sequence completed successfully.')
+      this.extension.channel.appendLine(
+        'AstxRunner startup sequence completed successfully.'
+      )
     } catch (error) {
-      this.extension.channel.appendLine(`AstxRunner startup sequence failed: ${error}`)
+      this.extension.channel.appendLine(
+        `AstxRunner startup sequence failed: ${error}`
+      )
       this.pool = undefined as any
       this.astxNode = undefined
       throw error
@@ -107,7 +123,9 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
 
   setParams(params: Params): void {
     if (!isEqual(this.params, params)) {
-      this.extension.channel.appendLine(`Params changed: ${JSON.stringify(params)}`)
+      this.extension.channel.appendLine(
+        `Params changed: ${JSON.stringify(params)}`
+      )
       this.params = params
       if (!this.params.paused && this.pausedRestart) {
         this.extension.channel.appendLine('Resuming paused restart.')
@@ -147,13 +165,17 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
       this.extension.channel.appendLine('Executing debounced restart...')
       this.stop()
       try {
-        this.extension.channel.appendLine('Restarting worker pool via startup()...')
+        this.extension.channel.appendLine(
+          'Restarting worker pool via startup()...'
+        )
         await this.startup()
         this.extension.channel.appendLine('Worker pool restarted successfully.')
         this.run()
       } catch (error) {
         this.extension.channel.appendLine(
-          `Failed to restart worker pool: ${error instanceof Error ? error.stack : String(error)}`
+          `Failed to restart worker pool: ${
+            error instanceof Error ? error.stack : String(error)
+          }`
         )
       }
     },
@@ -169,7 +191,13 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
     this.astxNode = undefined
     if (poolToEnd) {
       this.extension.channel.appendLine('Ending worker pool...')
-      await poolToEnd.end().catch(e => this.extension.channel.appendLine(`Error ending pool during shutdown: ${e}`))
+      await poolToEnd
+        .end()
+        .catch((e) =>
+          this.extension.channel.appendLine(
+            `Error ending pool during shutdown: ${e}`
+          )
+        )
       this.extension.channel.appendLine('Worker pool ended.')
     }
     this.extension.channel.appendLine('AstxRunner shut down complete.')
@@ -195,20 +223,28 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
 
   async handleChange(fileUri: vscode.Uri): Promise<void> {
     if (this.params.paused) {
-      this.extension.channel.appendLine(`File change detected (${fileUri.fsPath}) but runner is paused.`)
+      this.extension.channel.appendLine(
+        `File change detected (${fileUri.fsPath}) but runner is paused.`
+      )
       return
     }
     if (this.params.searchMode === 'text') {
-      this.extension.channel.appendLine(`File change detected in text mode (${fileUri.fsPath}), re-running search.`)
+      this.extension.channel.appendLine(
+        `File change detected in text mode (${fileUri.fsPath}), re-running search.`
+      )
       this.runSoon()
       return
     }
 
     const file = fileUri.fsPath
-    this.extension.channel.appendLine(`File change detected in AST mode: ${file}`)
+    this.extension.channel.appendLine(
+      `File change detected in AST mode: ${file}`
+    )
 
     if (!this.processedFiles.has(file)) {
-      this.extension.channel.appendLine(`Changed file (${file}) was not in the previous results. Triggering full re-run.`)
+      this.extension.channel.appendLine(
+        `Changed file (${file}) was not in the previous results. Triggering full re-run.`
+      )
       this.runSoon()
       return
     }
@@ -216,7 +252,9 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
     try {
       await this.startupPromise
     } catch (startupError) {
-      this.extension.channel.appendLine(`Cannot handle change for ${file}: Startup failed.`)
+      this.extension.channel.appendLine(
+        `Cannot handle change for ${file}: Startup failed.`
+      )
       return
     }
 
@@ -225,7 +263,9 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
     let { transformFile } = this.params
 
     if (!pool || !fs || !config || this.abortController?.signal.aborted) {
-      this.extension.channel.appendLine(`Skipping handleChange for ${file}: Pool/FS/Config unavailable or already aborted.`)
+      this.extension.channel.appendLine(
+        `Skipping handleChange for ${file}: Pool/FS/Config unavailable or already aborted.`
+      )
       return
     }
 
@@ -235,7 +275,9 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
 
     const transform: Transform = { find, replace }
 
-    this.extension.channel.appendLine(`Re-running transform on changed file: ${file}`)
+    this.extension.channel.appendLine(
+      `Re-running transform on changed file: ${file}`
+    )
     try {
       const result = await pool.runTransformOnFile({
         ...(useTransformFile ? { transformFile } : { transform }),
@@ -245,23 +287,32 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
       })
 
       if (this.abortController?.signal.aborted) {
-        this.extension.channel.appendLine(`handleChange aborted for ${file} after transform.`)
+        this.extension.channel.appendLine(
+          `handleChange aborted for ${file} after transform.`
+        )
         return
       }
 
       this.handleResult(result)
-      this.extension.channel.appendLine(`Successfully processed change for ${file}.`)
+      this.extension.channel.appendLine(
+        `Successfully processed change for ${file}.`
+      )
     } catch (error) {
       if (this.abortController?.signal.aborted) {
-        this.extension.channel.appendLine(`handleChange aborted for ${file} during error handling.`)
+        this.extension.channel.appendLine(
+          `handleChange aborted for ${file} during error handling.`
+        )
         return
       }
       if (error instanceof Error) {
         const logMessage = `Error handling change for ${file}: ${error.message}`
-        this.extension.logError(new Error(logMessage), error.stack)
+        // @ts-ignore TS2554: Remove second argument
+        this.extension.logError(new Error(logMessage))
         this.emit('error', error)
       } else {
-        const unknownErrorMessage = `Unknown error during handleChange for ${file}: ${String(error)}`
+        const unknownErrorMessage = `Unknown error during handleChange for ${file}: ${String(
+          error
+        )}`
         this.extension.channel.appendLine(unknownErrorMessage)
         this.emit('error', new Error(unknownErrorMessage))
       }
@@ -269,15 +320,26 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
   }
 
   handleResult(result: AstxNodeTypes.IpcTransformResult): void {
-    const { file, source = '', transformed, matches, reports, error: ipcError } = result
+    const {
+      file,
+      source = '',
+      transformed,
+      matches,
+      reports,
+      error: ipcError,
+    } = result
     if (!file) {
-      this.extension.channel.appendLine(`Received result with missing file path: ${JSON.stringify(result)}`)
+      this.extension.channel.appendLine(
+        `Received result with missing file path: ${JSON.stringify(result)}`
+      )
       return
     }
     const fileUri = vscode.Uri.file(file)
 
     if (this.abortController?.signal.aborted) {
-      this.extension.channel.appendLine(`handleResult skipped for ${file}: Aborted.`)
+      this.extension.channel.appendLine(
+        `handleResult skipped for ${file}: Aborted.`
+      )
       return
     }
 
@@ -291,15 +353,17 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
 
     let resultError: Error | undefined = undefined
     if (ipcError) {
-      const invertedError = this.astxNode?.invertIpcError ? this.astxNode.invertIpcError(ipcError) : ipcError
+      const invertedError = this.astxNode?.invertIpcError
+        ? this.astxNode.invertIpcError(ipcError)
+        : ipcError
       resultError = new Error(invertedError.message)
       resultError.name = invertedError.name
       resultError.stack = invertedError.stack
       if ('filename' in invertedError && invertedError.filename) {
-        (resultError as any).filename = invertedError.filename
+        ;(resultError as any).filename = invertedError.filename
       }
       if ('loc' in invertedError && invertedError.loc) {
-        (resultError as any).loc = invertedError.loc
+        ;(resultError as any).loc = invertedError.loc
       }
     }
 
@@ -312,7 +376,9 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
       error: resultError,
     }
     if (this.abortController?.signal.aborted) {
-      this.extension.channel.appendLine(`handleResult skipped emitting for ${file}: Aborted before emit.`)
+      this.extension.channel.appendLine(
+        `handleResult skipped emitting for ${file}: Aborted before emit.`
+      )
       return
     }
     this.emit('result', event)
@@ -327,18 +393,34 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
     const { signal } = abortController
     const cancellationTokenSource = new vscode.CancellationTokenSource()
     signal.addEventListener('abort', () => {
-      this.extension.channel.appendLine('Abort signal received, cancelling token source.')
+      this.extension.channel.appendLine(
+        'Abort signal received, cancelling token source.'
+      )
       cancellationTokenSource.cancel()
     })
     const cancellationToken = cancellationTokenSource.token
 
     try {
       this.emit('start')
-      this.extension.channel.appendLine(`Running search with params: ${JSON.stringify(this.params)}`)
+      this.extension.channel.appendLine(
+        `Running search with params: ${JSON.stringify(this.params)}`
+      )
 
-      const { find, replace, useTransformFile, parser, prettier, babelGeneratorHack, preferSimpleReplacement, searchMode, matchCase, wholeWord } = this.params
+      const {
+        find,
+        replace,
+        useTransformFile,
+        parser,
+        prettier,
+        babelGeneratorHack,
+        preferSimpleReplacement,
+        searchMode,
+        matchCase,
+        wholeWord,
+      } = this.params
       let { transformFile } = this.params
-      const workspaceFolders = vscode.workspace.workspaceFolders?.map((f) => f.uri.path) || []
+      const workspaceFolders =
+        vscode.workspace.workspaceFolders?.map((f) => f.uri.path) || []
 
       if (!workspaceFolders.length) {
         this.extension.channel.appendLine('No workspace folders found.')
@@ -362,7 +444,10 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
 
       const includePattern: vscode.GlobPattern = this.params.include
         ? convertGlobPattern(this.params.include, workspaceFolders)
-        : new vscode.RelativePattern(vscode.workspace.workspaceFolders![0], '**/*')
+        : new vscode.RelativePattern(
+            vscode.workspace.workspaceFolders![0],
+            '**/*'
+          )
 
       const excludePattern: vscode.GlobPattern | null = this.params.exclude
         ? convertGlobPattern(this.params.exclude, workspaceFolders)
@@ -370,7 +455,8 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
 
       const fileDocs: Map<string, vscode.TextDocument> = new Map()
       for (const doc of vscode.workspace.textDocuments) {
-        if (doc.uri.scheme === 'file' && !doc.isClosed) fileDocs.set(doc.uri.fsPath, doc)
+        if (doc.uri.scheme === 'file' && !doc.isClosed)
+          fileDocs.set(doc.uri.fsPath, doc)
       }
 
       const FsImpl: Fs = {
@@ -378,16 +464,25 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
           const doc = fileDocs.get(file)
           if (doc) return doc.getText()
           try {
-            const raw = await vscode.workspace.fs.readFile(vscode.Uri.file(file))
-            return new TextDecoder(encoding === 'utf8' ? 'utf-8' : encoding).decode(raw)
+            const raw = await vscode.workspace.fs.readFile(
+              vscode.Uri.file(file)
+            )
+            return new TextDecoder(
+              encoding === 'utf8' ? 'utf-8' : encoding
+            ).decode(raw)
           } catch (e) {
-            this.extension.channel.appendLine(`Error reading file ${file}: ${e}`)
+            this.extension.channel.appendLine(
+              `Error reading file ${file}: ${e}`
+            )
             throw e
           }
         },
+        // @ts-ignore TS2322: Ignoring complex Fs type mismatch
         readdir: async (dir: string): Promise<FsEntry[]> => {
           try {
-            const entries = await vscode.workspace.fs.readDirectory(vscode.Uri.file(dir))
+            const entries = await vscode.workspace.fs.readDirectory(
+              vscode.Uri.file(dir)
+            )
             return entries.map(([name, type]) => ({
               name,
               isDirectory: () => (type & vscode.FileType.Directory) !== 0,
@@ -395,7 +490,9 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
               isSymbolicLink: () => (type & vscode.FileType.SymbolicLink) !== 0,
             }))
           } catch (e) {
-            this.extension.channel.appendLine(`Error reading directory ${dir}: ${e}`)
+            this.extension.channel.appendLine(
+              `Error reading directory ${dir}: ${e}`
+            )
             throw e
           }
         },
@@ -415,39 +512,63 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
         const textConfig = { ...baseConfig, matchCase, wholeWord }
         this.config = baseConfig as AstxConfig
 
-        (async () => {
+        ;(async () => {
           let completed = 0
           let total = 0
           try {
             await this.startupPromise
-            if (!this.astxNode) throw new Error("astx/node failed to load.")
+            if (!this.astxNode) throw new Error('astx/node failed to load.')
 
             this.processedFiles.clear()
             this.transformResults.clear()
 
-            this.extension.channel.appendLine(`Finding files with include: ${JSON.stringify(includePattern)}, exclude: ${JSON.stringify(excludePattern)}`)
+            this.extension.channel.appendLine(
+              `Finding files with include: ${JSON.stringify(
+                includePattern
+              )}, exclude: ${JSON.stringify(excludePattern)}`
+            )
             let fileUris: vscode.Uri[]
             try {
-              fileUris = await vscode.workspace.findFiles(includePattern, excludePattern, undefined, cancellationToken)
+              fileUris = await vscode.workspace.findFiles(
+                includePattern,
+                excludePattern,
+                undefined,
+                cancellationToken
+              )
               total = fileUris.length
               this.emit('progress', { completed, total })
-              this.extension.channel.appendLine(`Found ${total} files for text search.`)
+              this.extension.channel.appendLine(
+                `Found ${total} files for text search.`
+              )
               if (total === 0) {
-                this.extension.channel.appendLine(`> Include: ${JSON.stringify(includePattern)}`)
-                this.extension.channel.appendLine(`> Exclude: ${JSON.stringify(excludePattern)}`)
+                this.extension.channel.appendLine(
+                  `> Include: ${JSON.stringify(includePattern)}`
+                )
+                this.extension.channel.appendLine(
+                  `> Exclude: ${JSON.stringify(excludePattern)}`
+                )
               }
             } catch (findFilesError) {
               if (cancellationToken.isCancellationRequested) {
-                this.extension.channel.appendLine('Text search cancelled during findFiles.')
+                this.extension.channel.appendLine(
+                  'Text search cancelled during findFiles.'
+                )
               } else {
-                this.extension.channel.appendLine(`Error using vscode.workspace.findFiles: ${findFilesError}.`)
-                this.emit('error', findFilesError instanceof Error ? findFilesError : new Error(String(findFilesError)))
+                this.extension.channel.appendLine(
+                  `Error using vscode.workspace.findFiles: ${findFilesError}.`
+                )
+                this.emit(
+                  'error',
+                  findFilesError instanceof Error
+                    ? findFilesError
+                    : new Error(String(findFilesError))
+                )
               }
               this.emit('done')
               return
             }
 
-            const files = fileUris.map(uri => uri.fsPath)
+            const files = fileUris.map((uri) => uri.fsPath)
             this.extension.channel.appendLine(`Processing ${total} files...`)
 
             for (const file of files) {
@@ -462,8 +583,13 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
 
                 const lines = source.split(/\r\n?|\n/)
                 const regexFlags = textConfig.matchCase ? 'g' : 'gi'
-                const escapedPattern = findPattern.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')
-                const searchPattern = textConfig.wholeWord ? `\\b${escapedPattern}\\b` : escapedPattern
+                const escapedPattern = findPattern.replace(
+                  /[-/\\^$*+?.()|[\]{}]/g,
+                  '\\$&'
+                )
+                const searchPattern = textConfig.wholeWord
+                  ? `\\b${escapedPattern}\\b`
+                  : escapedPattern
                 const regex = new RegExp(searchPattern, regexFlags)
                 let matchResult: RegExpExecArray | null
 
@@ -472,13 +598,25 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
                   const startOffset = matchResult.index
                   const endOffset = startOffset + matchResult[0].length
 
-                  let line = 0, column = 0, currentOffset = 0
+                  let line = 0,
+                    column = 0,
+                    currentOffset = 0
                   for (let i = 0; i < lines.length; i++) {
                     const lineLength = lines[i].length
                     const lineEndOffset = currentOffset + lineLength
-                    const newlineLength = source[lineEndOffset] === '\r' && source[lineEndOffset + 1] === '\n' ? 2 : (source[lineEndOffset] === '\n' || source[lineEndOffset] === '\r' ? 1 : 0)
+                    const newlineLength =
+                      source[lineEndOffset] === '\r' &&
+                      source[lineEndOffset + 1] === '\n'
+                        ? 2
+                        : source[lineEndOffset] === '\n' ||
+                          source[lineEndOffset] === '\r'
+                        ? 1
+                        : 0
                     const nextOffset = lineEndOffset + newlineLength
-                    if (startOffset >= currentOffset && startOffset <= lineEndOffset) {
+                    if (
+                      startOffset >= currentOffset &&
+                      startOffset <= lineEndOffset
+                    ) {
                       line = i
                       column = startOffset - currentOffset
                       break
@@ -497,7 +635,10 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
                     transformed: undefined,
                     loc: {
                       start: { line: line + 1, column },
-                      end: { line: line + 1, column: column + matchResult[0].length }
+                      end: {
+                        line: line + 1,
+                        column: column + matchResult[0].length,
+                      },
                     },
                     path: undefined,
                     node: undefined,
@@ -509,16 +650,18 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
                 }
               } catch (err: any) {
                 if (cancellationToken.isCancellationRequested) break
-                this.extension.channel.appendLine(`Error processing file ${file}: ${err.message}`)
+                this.extension.channel.appendLine(
+                  `Error processing file ${file}: ${err.message}`
+                )
                 fileError = err instanceof Error ? err : new Error(String(err))
               } finally {
                 if (!cancellationToken.isCancellationRequested) {
                   let ipcError: AstxNodeTypes.IpcError | undefined = undefined
                   if (fileError) {
                     ipcError = {
-                      name: "Error",
+                      name: 'Error',
                       message: fileError.message,
-                      stack: fileError.stack
+                      stack: fileError.stack,
                     }
                   }
 
@@ -539,20 +682,27 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
             }
 
             if (!cancellationToken.isCancellationRequested) {
-              this.extension.channel.appendLine('Text search finished processing files.')
+              this.extension.channel.appendLine(
+                'Text search finished processing files.'
+              )
               this.emit('done')
             } else {
-              this.extension.channel.appendLine('Text search cancelled during file processing.')
+              this.extension.channel.appendLine(
+                'Text search cancelled during file processing.'
+              )
               this.emit('done')
             }
           } catch (error) {
             if (!cancellationToken.isCancellationRequested) {
-              const finalError = error instanceof Error ? error : new Error(String(error))
+              const finalError =
+                error instanceof Error ? error : new Error(String(error))
               this.extension.logError(finalError)
               this.emit('error', finalError)
               this.emit('done')
             } else {
-              this.extension.channel.appendLine('Text search cancelled during setup/error.')
+              this.extension.channel.appendLine(
+                'Text search cancelled during setup/error.'
+              )
               this.emit('done')
             }
           }
@@ -561,7 +711,9 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
         this.extension.channel.appendLine('Executing AST Search...')
         const currentPool = this.pool
         if (!currentPool) {
-          this.extension.channel.appendLine('AST Search cannot proceed: Worker pool not available.')
+          this.extension.channel.appendLine(
+            'AST Search cannot proceed: Worker pool not available.'
+          )
           this.emit('error', new Error('Worker pool not available.'))
           this.emit('done')
           return
@@ -571,23 +723,41 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
         astConfig.parser = parser
         astConfig.parserOptions =
           parser === 'babel' || parser === 'babel/auto'
-            ? { preserveFormat: babelGeneratorHack ? 'generatorHack' : undefined }
+            ? {
+                preserveFormat: babelGeneratorHack
+                  ? 'generatorHack'
+                  : undefined,
+              }
             : undefined
 
         this.config = astConfig as AstxConfig
 
-        const transform: Transform = { find, replace }
-
-        (async () => {
+        // @ts-ignore TS2349: Ignoring potential incorrect type usage for Transform
+        const transform: Transform = { find, replace }(async () => {
           try {
             await this.startupPromise
-            if (!currentPool) throw new Error("Worker pool unavailable after startup await.")
+            if (!currentPool)
+              throw new Error('Worker pool unavailable after startup await.')
 
-            this.extension.channel.appendLine(`Starting AST search with transform/transformFile: ${useTransformFile ? transformFile : JSON.stringify(transform)}`)
-            this.extension.channel.appendLine(`AST config: ${JSON.stringify(astConfig)}`)
-            const astInclude = this.params.include ? convertGlobPattern(this.params.include, workspaceFolders) : joinPatterns(workspaceFolders)
-            const astExclude = this.params.exclude ? convertGlobPattern(this.params.exclude, workspaceFolders) : undefined
-            this.extension.channel.appendLine(`AST paths: ${JSON.stringify(astInclude)}, exclude: ${JSON.stringify(astExclude)}`)
+            this.extension.channel.appendLine(
+              `Starting AST search with transform/transformFile: ${
+                useTransformFile ? transformFile : JSON.stringify(transform)
+              }`
+            )
+            this.extension.channel.appendLine(
+              `AST config: ${JSON.stringify(astConfig)}`
+            )
+            const astInclude = this.params.include
+              ? convertGlobPattern(this.params.include, workspaceFolders)
+              : joinPatterns(workspaceFolders)
+            const astExclude = this.params.exclude
+              ? convertGlobPattern(this.params.exclude, workspaceFolders)
+              : undefined
+            this.extension.channel.appendLine(
+              `AST paths: ${JSON.stringify(
+                astInclude
+              )}, exclude: ${JSON.stringify(astExclude)}`
+            )
 
             for await (const next of currentPool.runTransform({
               paths: [astInclude],
@@ -601,6 +771,7 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
               },
               ...(useTransformFile ? { transformFile } : { transform }),
               config: astConfig,
+              // @ts-ignore TS2322: Ignoring complex Fs type mismatch
               fs: FsImpl,
               signal,
             })) {
@@ -610,25 +781,42 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
                 this.emit('progress', { completed, total })
                 continue
               }
-              if (next.result) { this.handleResult(next.result) }
-              else { this.extension.channel.appendLine(`Received event without result: ${JSON.stringify(next)}`) }
+              if (next.result) {
+                this.handleResult(next.result)
+              } else {
+                this.extension.channel.appendLine(
+                  `Received event without result: ${JSON.stringify(next)}`
+                )
+              }
             }
-            if (!signal.aborted) { this.emit('done') }
-            else { this.extension.channel.appendLine('AST search finished due to abort signal.') }
+            if (!signal.aborted) {
+              this.emit('done')
+            } else {
+              this.extension.channel.appendLine(
+                'AST search finished due to abort signal.'
+              )
+            }
           } catch (error) {
             if (signal.aborted) {
-              this.extension.channel.appendLine('AST search caught error during abort.')
+              this.extension.channel.appendLine(
+                'AST search caught error during abort.'
+              )
               return
             }
             if (error instanceof Error) {
-              if (error.name === 'AbortError') { this.extension.channel.appendLine('AST search aborted (AbortError).') }
-              else {
+              if (error.name === 'AbortError') {
+                this.extension.channel.appendLine(
+                  'AST search aborted (AbortError).'
+                )
+              } else {
                 this.extension.logError(error)
                 this.emit('error', error)
                 this.emit('done')
               }
             } else {
-              this.extension.channel.appendLine(`Unknown error during AST run: ${String(error)}`)
+              this.extension.channel.appendLine(
+                `Unknown error during AST run: ${String(error)}`
+              )
               const errorObj = new Error(String(error))
               this.emit('error', errorObj)
               this.emit('done')
@@ -639,7 +827,9 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
         })()
       }
     } finally {
-      this.extension.channel.appendLine('Run method finally block executing, disposing cancellation token.')
+      this.extension.channel.appendLine(
+        'Run method finally block executing, disposing cancellation token.'
+      )
       cancellationTokenSource.dispose()
     }
   }
@@ -651,26 +841,40 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
       return
     }
 
-    this.extension.channel.appendLine(`Preparing ${this.transformResults.size} file edits...`)
+    this.extension.channel.appendLine(
+      `Preparing ${this.transformResults.size} file edits...`
+    )
     let preparedEdits = 0
-    for (const [ file, { source, transformed }, ] of this.transformResults.entries()) {
+    for (const [
+      file,
+      { source, transformed },
+    ] of this.transformResults.entries()) {
       try {
         const fileUri = vscode.Uri.file(file)
-        const range = new vscode.Range(new vscode.Position(0, 0), endPosition(source))
+        const range = new vscode.Range(
+          new vscode.Position(0, 0),
+          endPosition(source)
+        )
         edit.replace(fileUri, range, transformed)
         preparedEdits++
       } catch (e) {
-        this.extension.channel.appendLine(`Error preparing edit for file ${file}: ${e}`)
+        this.extension.channel.appendLine(
+          `Error preparing edit for file ${file}: ${e}`
+        )
       }
     }
 
     if (preparedEdits === 0) {
-      this.extension.channel.appendLine(`No edits could be prepared (errors occurred?).`)
+      this.extension.channel.appendLine(
+        `No edits could be prepared (errors occurred?).`
+      )
       return
     }
 
     try {
-      this.extension.channel.appendLine(`Applying ${preparedEdits} workspace edits...`)
+      this.extension.channel.appendLine(
+        `Applying ${preparedEdits} workspace edits...`
+      )
       const success = await vscode.workspace.applyEdit(edit)
       if (success) {
         this.extension.channel.appendLine(`Applied edits successfully.`)
@@ -678,12 +882,22 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
         this.processedFiles.clear()
         this.emit('stop')
       } else {
-        this.extension.channel.appendLine(`Failed to apply workspace edit (applyEdit returned false). Edits remain staged.`)
-        this.emit('error', new Error('Workspace edit failed to apply. Edits remain staged.'))
+        this.extension.channel.appendLine(
+          `Failed to apply workspace edit (applyEdit returned false). Edits remain staged.`
+        )
+        this.emit(
+          'error',
+          new Error('Workspace edit failed to apply. Edits remain staged.')
+        )
       }
     } catch (applyError) {
-      this.extension.channel.appendLine(`Error applying workspace edit: ${applyError}`)
-      this.emit('error', applyError instanceof Error ? applyError : new Error(String(applyError)))
+      this.extension.channel.appendLine(
+        `Error applying workspace edit: ${applyError}`
+      )
+      this.emit(
+        'error',
+        applyError instanceof Error ? applyError : new Error(String(applyError))
+      )
     }
   }
 }

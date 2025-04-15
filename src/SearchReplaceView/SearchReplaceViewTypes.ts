@@ -18,6 +18,7 @@ export type SerializedTransformResultEvent = {
   matches?: Array<{ start: number; end: number }>
   reports?: any[]
   error?: any
+  data?: unknown
 }
 
 export type AstxParser =
@@ -41,22 +42,39 @@ export interface SearchReplaceViewValues {
   wholeWord: boolean
 }
 
+export type InitialDataFromExtension = {
+  type: 'initialData'
+  values: SearchReplaceViewValues
+  status: SearchReplaceViewStatus
+  workspacePath?: string
+}
+
+export type StatusUpdateFromExtension = {
+  type: 'status'
+  status: Partial<SearchReplaceViewStatus>
+  data: SerializedTransformResultEvent
+}
+
+export type ValuesUpdateFromExtension = {
+  type: 'values'
+  values: Partial<SearchReplaceViewValues>
+}
+
+export type ClearResultsMessage = {
+  type: 'clearResults'
+}
+
+export type AddResultMessage = {
+  type: 'addResult'
+  data: SerializedTransformResultEvent
+}
+
 export type MessageToWebview =
-  | {
-      type: 'status'
-      status: Partial<SearchReplaceViewStatus>
-    }
-  | {
-      type: 'values'
-      values: Partial<SearchReplaceViewValues>
-    }
-  | {
-      type: 'addResult'
-      data: SerializedTransformResultEvent
-    }
-  | {
-      type: 'clearResults'
-    }
+  | ValuesUpdateFromExtension
+  | StatusUpdateFromExtension
+  | ClearResultsMessage
+  | AddResultMessage
+  | InitialDataFromExtension
 
 export type MessageFromWebview =
   | {
@@ -83,3 +101,6 @@ export type MessageFromWebview =
       message: string
       data?: any // Optional structured data
     }
+
+// === Combined Message Type (for use in component) ===
+export type Message = MessageFromWebview | MessageToWebview

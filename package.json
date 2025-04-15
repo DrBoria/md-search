@@ -364,6 +364,9 @@
     "@emotion/css": "^11.10.0",
     "@emotion/styled": "^11.10.4",
     "@repeaterjs/repeater": "^3.0.4",
+    "@types/babel__generator": "^7.27.0",
+    "@types/debug": "^4.1.12",
+    "@types/path-browserify": "^1.0.3",
     "@vscode/codicons": "^0.0.32",
     "@vscode/ripgrep": "^1.15.11",
     "@vscode/webview-ui-toolkit": "^1.2.2",
@@ -374,8 +377,10 @@
     "lodash": "^4.17.21",
     "minimatch": "^5.1.0",
     "p-event": "^4.0.0",
+    "path-browserify": "^1.0.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "tiny-typed-emitter": "^2.1.0"
+    "tiny-typed-emitter": "^2.1.0",
+    "vscode-uri": "^3.1.0"
   }
 }
