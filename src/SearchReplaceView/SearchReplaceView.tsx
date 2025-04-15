@@ -23,6 +23,59 @@ import {
 import path from 'path-browserify' // Use path-browserify for web compatibility
 import { URI } from 'vscode-uri'; // Import URI library
 
+// Helper function to get highlighted match context
+function getHighlightedMatchContext(source: string | undefined, start: number, end: number): React.ReactNode {
+  if (!source || start === undefined || end === undefined) {
+    return `Match at ${start}...${end}`; // Fallback
+  }
+
+  try {
+    // Find the start of the line containing the match start
+    const lineStart = source.lastIndexOf('\n', start - 1) + 1; // Use const
+    // Find the end of the line containing the match start
+    let lineEnd = source.indexOf('\n', start);
+    if (lineEnd === -1) {
+      lineEnd = source.length; // Handle last line
+    }
+
+    const lineText = source.substring(lineStart, lineEnd); // <-- REMOVED .trim()
+
+    // Calculate highlight positions relative to the start of the (trimmed) original line substring
+    const highlightStart = start - lineStart;
+    const highlightEnd = end - lineStart;
+
+    // Ensure highlight indices are within the bounds of the extracted line
+    // Also check that indices make sense relative to each other
+    if (highlightStart < 0 || highlightEnd < 0 || highlightStart > lineText.length || highlightEnd > lineText.length || highlightStart >= highlightEnd) {
+       // Consider logging this case for debugging?
+       // console.warn("Invalid highlight indices calculated", { lineText, start, end, lineStart, lineEnd, highlightStart, highlightEnd });
+       return lineText || `Match at ${start}...${end}`; // Return line without highlight if indices are invalid
+    }
+
+
+    const before = lineText.substring(0, highlightStart);
+    const highlighted = lineText.substring(highlightStart, highlightEnd);
+    const after = lineText.substring(highlightEnd);
+
+    // Return JSX with highlighted span
+    // Use CSS variables for theming
+    return (
+      <>
+        {before}
+        <span style={{
+           backgroundColor: 'var(--vscode-editor-findMatchHighlightBackground)',
+           color: 'var(--vscode-editor-findMatchHighlightForeground)',
+           // fontWeight: 'bold' // Optional: make it bold
+        }}>{highlighted}</span>
+        {after}
+      </>
+    );
+  } catch (e) {
+    // console.error("Error creating highlighted context:", e); // Keep console.error commented out or handle differently
+    return `Match at ${start}...${end}`; // Fallback on error
+  }
+}
+
 // --- Types for File Tree ---
 interface FileTreeNodeBase {
   name: string
@@ -147,6 +200,34 @@ function buildFileTree(
   return root
 }
 
+// --- Helper Function to Filter Tree for Matches ---
+function filterTreeForMatches(node: FileTreeNode): FileTreeNode | null {
+  if (node.type === 'file') {
+    // Keep file only if it has matches
+    const hasMatches = node.results.some(r => r.matches && r.matches.length > 0);
+    return hasMatches ? node : null;
+  } else { // node.type === 'folder'
+    // Recursively filter children
+    const filteredChildren = node.children
+      .map(filterTreeForMatches)
+      .filter(Boolean) as FileTreeNode[]; // Filter out nulls
+
+    // Keep folder only if it has children after filtering
+    if (filteredChildren.length > 0) {
+       // Sort children again after filtering
+       filteredChildren.sort((a, b) => {
+           if (a.type !== b.type) {
+               return a.type === 'folder' ? -1 : 1;
+           }
+           return a.name.localeCompare(b.name);
+       });
+      return { ...node, children: filteredChildren };
+    } else {
+      return null;
+    }
+  }
+}
+
 const leftAnim = keyframes`
   from, 20% {
     left: 0%;
@@ -189,6 +270,7 @@ interface TreeViewNodeProps {
     toggleFileExpansion: (filePath: string) => void;
     handleFileClick: (filePath: string) => void;
     handleResultItemClick: (filePath: string, range?: { start: number; end: number }) => void;
+    logToExtension: (level: 'info' | 'warn' | 'error', message: string, data?: unknown) => void;
 }
 
 const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
@@ -200,6 +282,7 @@ const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
     toggleFileExpansion,
     handleFileClick,
     handleResultItemClick,
+    logToExtension,
 }) => {
     const indent = level * 15 // Indentation level
 
@@ -237,6 +320,7 @@ const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                                 toggleFileExpansion={toggleFileExpansion}
                                 handleFileClick={handleFileClick}
                                 handleResultItemClick={handleResultItemClick}
+                                logToExtension={logToExtension}
                             />
                         ))}
                     </div>
@@ -250,6 +334,15 @@ const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
         const totalMatches = fileResults.reduce((sum, r) => sum + (r.matches?.length || 0), 0);
         const hasError = fileResults.some(r => r.error);
         const canExpand = totalMatches > 0; // Can only expand file if there are matches
+
+        // Log path info for tree node files
+        logToExtension('info', 'Processing file path for tree node:', {
+          fileResults: fileResults[0]?.matches,
+          isExpanded,
+          totalMatches,
+          hasError,
+          canExpand
+        });
 
         return (
             <div key={node.relativePath} className={css` margin-bottom: 1px; `}>
@@ -302,8 +395,8 @@ const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                                     onClick={() => handleResultItemClick(node.absolutePath, { start: match.start, end: match.end })}
                                     title={`Click to open match in ${node.name}`}
                                 >
-                                    {/* TODO: Display actual match context instead of just position */}
-                                    Match at {match.start}...{match.end}
+                                    {/* Display highlighted context */}
+                                    {getHighlightedMatchContext(res.source, match.start, match.end)}
                                 </div>
                             ))
                         ))}
@@ -321,14 +414,40 @@ const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
 });
 TreeViewNode.displayName = 'TreeViewNode';
 
+// --- Helper function to get all folder paths from a tree ---
+function getAllFolderPaths(node: FileTreeNode | null): string[] {
+  if (!node || node.type === 'file') {
+    return [];
+  }
+  // For a folder, return its own path plus paths from all children
+  const childPaths = node.children.flatMap(getAllFolderPaths);
+  // Add current node's path unless it's the root (which has an empty relativePath)
+  return node.relativePath ? [node.relativePath, ...childPaths] : childPaths; 
+}
+
+// --- Helper function to get all file paths from a tree ---
+function getAllFilePaths(node: FileTreeNode | null): string[] {
+  if (!node) {
+    return [];
+  }
+  if (node.type === 'file') {
+    // Return the file's relative path if it's a file node
+    return node.relativePath ? [node.relativePath] : [];
+  }
+  // For a folder, return paths from all children
+  return node.children.flatMap(getAllFilePaths);
+}
+
 export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): React.ReactElement {
     // --- State Initialization using VS Code Webview API ---
     const initialState = vscode.getState() || {};
-    const [values, setValues] = useState<SearchReplaceViewValues>(initialState.values || {
-        // Default values if no state saved
+    const [values, setValues] = useState<SearchReplaceViewValues>({
+        // Default values first
         find: '', replace: '', paused: false, include: '', exclude: '',
         parser: 'babel', prettier: true, babelGeneratorHack: false, preferSimpleReplacement: false,
         searchMode: 'text', matchCase: false, wholeWord: false,
+        // Then override with loaded state if available
+        ...(initialState.values || {}),
     });
     const [status, setStatus] = useState<SearchReplaceViewStatus>(initialState.status || {
         running: false, completed: 0, total: 0, numMatches: 0,
@@ -431,6 +550,14 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     ) => {
         vscode.postMessage({ type: 'log', level, message, data });
     }, [vscode]);
+
+    // --- Log viewMode when results or mode change ---
+    useEffect(() => {
+        const resultsCount = Object.keys(resultsByFile).length;
+        if (resultsCount > 0) { // Only log if there are results
+            logToExtension('info', 'Results view state:', { viewMode, hasResults: true, resultsCount });
+        }
+    }, [viewMode, resultsByFile, logToExtension]); // Dependencies: viewMode, results, and the log function itself
 
     // --- Callbacks ---
     const postValuesChange = useCallback((changed: Partial<SearchReplaceViewValues>) => {
@@ -545,23 +672,51 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     }, [vscode, logToExtension]);
 
     // --- Memoized Data ---
-    // Build file tree structure (used for tree view)
-    const fileTree = useMemo(() => {
-         logToExtension('info', 'Rebuilding file tree', { resultsCount: Object.keys(resultsByFile).length, workspacePath });
+    // Build the initial, unfiltered tree
+    const unfilteredFileTree = useMemo(() => {
+         // logToExtension('info', 'Building unfiltered file tree', { resultsCount: Object.keys(resultsByFile).length, workspacePath });
          return buildFileTree(resultsByFile, workspacePath);
-    }, [resultsByFile, workspacePath, logToExtension]); // Rebuild only when results or workspacePath change
+    }, [resultsByFile, workspacePath]);
+
+    // Filter the tree for nodes with matches
+    const filteredFileTree = useMemo(() => {
+        // logToExtension('info', 'Filtering file tree');
+        // Filter the children of the root node
+        const rootChildren = unfilteredFileTree.children
+          .map(filterTreeForMatches)
+          .filter(Boolean) as FileTreeNode[];
+         // Sort root children again after filtering
+         rootChildren.sort((a, b) => {
+             if (a.type !== b.type) {
+                 return a.type === 'folder' ? -1 : 1;
+             }
+             return a.name.localeCompare(b.name);
+         });
+        // Return a new root node with filtered children
+        return { ...unfilteredFileTree, children: rootChildren }; 
+    }, [unfilteredFileTree]);
 
     // Calculate result counts from status
      const {
         running, completed, total, numMatches, 
         numFilesWithMatches, numFilesWithErrors, numFilesThatWillChange
     } = status;
-    const hasResults = Object.keys(resultsByFile).length > 0;
+    const hasResults = filteredFileTree.children.length > 0;
 
     // --- Derived State ---
     const isAstxMode = currentSearchMode === 'astx';
     const isTextMode = currentSearchMode === 'text';
     const canReplace = isAstxMode && numFilesThatWillChange > 0 && !running;
+
+    // --- Effect to expand all folders AND FILES in FILTERED Tree View by default ---
+    useEffect(() => {
+        if (viewMode === 'tree' && filteredFileTree && filteredFileTree.children.length > 0) {
+            const allFolderPaths = getAllFolderPaths(filteredFileTree);
+            const allFilePaths = getAllFilePaths(filteredFileTree); // <-- Get file paths
+            setExpandedFolders(new Set(allFolderPaths));
+            setExpandedFiles(new Set(allFilePaths)); // <-- Set expanded files
+        }
+    }, [filteredFileTree, viewMode, logToExtension]); // Depend on filteredFileTree
 
     return (
         <div
@@ -569,6 +724,9 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
           className={css`
             display: flex;
             flex-direction: column;
+            height: 100vh; /* Make main container fill viewport height */
+            padding: 5px; /* Add some padding around the whole view */
+            box-sizing: border-box; /* Include padding in height calculation */
           `}
         >
           {/* --- Search/Replace/Actions Row --- */}
@@ -624,27 +782,29 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                 </div>
                 {/* --- Replace Input Row --- */}
                 {isReplaceVisible && (
-                    <VSCodeTextArea
-                        placeholder={isAstxMode ? "replace" : "replace (AST mode only)"}
-                        aria-label="Replace Pattern"
-                        name="replace"
-                        rows={1}
-                        value={values.replace}
-                        onInput={handleReplaceChange}
-                        disabled={!isAstxMode} // Disable if not AST mode
-                    />
+                    <div className={css` display: flex; align-items: center; gap: 2px; `}>
+                        <VSCodeTextArea
+                            placeholder={isAstxMode ? "replace" : "replace"} // Adjusted placeholder
+                            aria-label="Replace Pattern"
+                            name="replace"
+                            rows={1}
+                            value={values.replace}
+                            onInput={handleReplaceChange}
+                            className={css` flex-grow: 1; `} // Make textarea grow
+                        />
+                        {/* Moved Replace All button here */}
+                        <VSCodeButton
+                            appearance="icon"
+                            onClick={handleReplaceAllClick}
+                            disabled={!hasResults || running} // Simplified disabled logic (assuming replace is visible)
+                            title={!hasResults || running ? "Replace All" : `Replace ${values.replace} in ${numFilesWithMatches} files` }
+                            className={css` flex-shrink: 0; `} // Prevent shrinking
+                        >
+                            <span className="codicon codicon-replace-all" />
+                        </VSCodeButton>
+                    </div>
                 )}
             </div>
-            {/* Action Buttons (Replace All) */}
-             <VSCodeButton
-                appearance="icon"
-                onClick={handleReplaceAllClick}
-                disabled={!canReplace} 
-                title={canReplace ? `Replace All (${numFilesThatWillChange} files)` : "Replace All (AST mode only)"}
-                className={css` margin-top: 2px; /* Adjust alignment */ flex-shrink: 0; `}
-              >
-                <span className="codicon codicon-replace-all" />
-              </VSCodeButton>
           </div>
 
           {/* --- Settings Toggle & Result Summary/View Mode --- */}
@@ -736,8 +896,9 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                 margin-top: 5px; // Reduced margin
                 border-top: 1px solid var(--vscode-editorGroup-border, #ccc);
                 padding-top: 8px; // Increased padding
-                max-height: 40vh; // Use viewport height
-                overflow-y: auto;
+                flex: 1; /* Allow container to grow and shrink */
+                min-height: 0; /* Prevent overflow in flex container */
+                overflow-y: auto; /* Keep scrolling */
             `}>
               {/* === LIST VIEW (Grouped by file) === */}
               {viewMode === 'list' && (
@@ -745,6 +906,13 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                   const firstResult = fileResults[0] 
                   const absoluteFilePath = uriToPath(absoluteFilePathOrUri); // Convert for path operations
                   const currentWorkspacePath = uriToPath(workspacePath); // Convert for path operations
+                  // Log paths to the Output channel
+                  logToExtension('info', 'Processing file paths for list view:', {
+                    absoluteFilePathOrUri,
+                    absoluteFilePath, 
+                    workspacePath, 
+                    currentWorkspacePath
+                  });
 
                   // Calculate display path carefully
                   const displayPath = currentWorkspacePath && absoluteFilePath
@@ -795,8 +963,8 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                         onClick={() => handleResultItemClick(absoluteFilePathOrUri, { start: match.start, end: match.end })}
                                         title={`Click to open match in ${fileName}`}
                                     >
-                                        {/* TODO: Display actual match context instead of just position */}
-                                        Match at {match.start}...{match.end}
+                                        {/* Display highlighted context */}
+                                        {getHighlightedMatchContext(res.source, match.start, match.end)}
                                     </div>
                                 ))
                             ))}
@@ -815,8 +983,8 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
               {/* === TREE VIEW (Folder hierarchy) === */}
               {viewMode === 'tree' && (
                  <div>
-                    {fileTree.children.length > 0 ? (
-                        fileTree.children.map(node => (
+                    {filteredFileTree.children.length > 0 ? (
+                        filteredFileTree.children.map(node => (
                             <TreeViewNode
                                 key={node.relativePath} // relativePath is now POSIX
                                 node={node}
@@ -827,10 +995,11 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                 toggleFileExpansion={toggleFileExpansion} // Expects POSIX paths
                                 handleFileClick={handleFileClick} // Expects original URI/path
                                 handleResultItemClick={handleResultItemClick} // Expects original URI/path
+                                logToExtension={logToExtension} // <-- Pass prop down
                             />
                         ))
                     ) : (
-                        <p style={{ paddingLeft: '5px', color: 'var(--vscode-descriptionForeground)' }}>No results found.</p>
+                        <p style={{ paddingLeft: '5px', color: 'var(--vscode-descriptionForeground)' }}>No results found containing matches.</p>
                     )}
                 </div>
               )}

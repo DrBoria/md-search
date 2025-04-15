@@ -45,6 +45,10 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     webviewView.webview.onDidReceiveMessage((_message: any) => {
       const message: MessageFromWebview = _message
+      // Log ALL received messages before the switch
+      this.extension.channel.appendLine(
+        `[Provider] Received message: ${JSON.stringify(message)}`
+      )
       // Make the message handler async to allow await for file operations
       const handleMessage = async (message: MessageFromWebview) => {
         switch (message.type) {
@@ -130,6 +134,10 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
           }
           // Add case to handle logging messages from webview
           case 'log': {
+            // Add logging here to confirm message receipt
+            this.extension.channel.appendLine(
+              '[Provider] Received log message from webview:'
+            )
             const level = message.level.toUpperCase()
             const logMessage = `[Webview ${level}] ${message.message}`
             if (message.data) {

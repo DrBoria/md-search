@@ -342,9 +342,107 @@ export class AstxExtension {
   }
 
   async replace(): Promise<void> {
+    if (this.replacing) return
     this.replacing = true
     try {
-      await this.runner.replace()
+      // Get current parameters
+      const params = this.getParams()
+      if (!params.replace) {
+        // Don't do anything if replace string is empty
+        this.channel.appendLine('Replace cancelled: Replace string is empty.')
+        return
+      }
+
+      if (params.searchMode === 'astx') {
+        // --- AST Mode Replacement (Existing Logic) ---
+        this.channel.appendLine('Starting AST replace...')
+        await this.runner.replace()
+        this.channel.appendLine('AST replace finished.')
+      } else {
+        // --- Text/Regex Mode Replacement (New Logic) ---
+        this.channel.appendLine(`Starting ${params.searchMode} replace...`)
+        const resultsMap = this.transformResultProvider.results
+        const { find, replace, matchCase, wholeWord, searchMode } = params
+
+        if (!find || !resultsMap) {
+          this.channel.appendLine(
+            'Replace cancelled: Missing find pattern or no search results.'
+          )
+          return
+        }
+
+        const modificationPromises: Promise<void>[] = []
+
+        for (const [uriString, result] of resultsMap.entries()) {
+          // Process only files that actually had matches reported by the initial search
+          if (result.matches && result.matches.length > 0) {
+            const uri = vscode.Uri.parse(uriString)
+            modificationPromises.push(
+              (async () => {
+                try {
+                  const contentBytes = await vscode.workspace.fs.readFile(uri)
+                  const originalContent =
+                    Buffer.from(contentBytes).toString('utf8')
+                  let newContent = originalContent
+
+                  // Construct the regex for replacement
+                  let pattern = find
+                  const flags = matchCase ? 'g' : 'gi' // Always global, add 'i' if case-insensitive
+
+                  if (searchMode === 'text') {
+                    pattern = escapeRegExp(find) // Escape special characters for literal search
+                    if (wholeWord) {
+                      pattern = `\\b${pattern}\\b` // Add word boundaries
+                    }
+                  }
+                  // For regex mode, pattern is already a regex string
+
+                  const regex = new RegExp(pattern, flags)
+
+                  // Perform the replacement
+                  newContent = originalContent.replace(regex, replace)
+
+                  // Write back only if content changed
+                  if (newContent !== originalContent) {
+                    this.channel.appendLine(
+                      `Replacing matches in: ${uri.fsPath}`
+                    )
+                    const newContentBytes = Buffer.from(newContent, 'utf8')
+                    await vscode.workspace.fs.writeFile(uri, newContentBytes)
+                  } else {
+                    // Optional: Log if no changes were made despite having matches initially
+                    // this.channel.appendLine(`No changes needed for: ${uri.fsPath}`);
+                  }
+                } catch (error: any) {
+                  this.logError(
+                    new Error(
+                      `Failed to replace in ${uri.fsPath}: ${error.message}`
+                    )
+                  )
+                }
+              })()
+            )
+          }
+        }
+
+        // Wait for all file modifications to complete
+        await Promise.all(modificationPromises)
+
+        // Clear results after text/regex replacement - TODO: Find correct way to clear results
+        // this.transformResultProvider.clear()
+        // Notify the webview to clear its display
+        // Assuming searchReplaceViewProvider has a method or way to trigger clear
+        // This might need adjustment based on SearchReplaceViewProvider implementation
+        // this.searchReplaceViewProvider.clearResults()
+
+        this.channel.appendLine(
+          `${params.searchMode} replace finished. Results may be stale until next search.`
+        )
+        // Optionally show a notification
+        vscode.window.showInformationMessage('Text/Regex replacement complete.')
+      }
+    } catch (error: any) {
+      this.logError(error)
     } finally {
       this.replacing = false
     }
@@ -397,4 +495,9 @@ function normalizeFsPath(uri: vscode.Uri): string {
           : ''
       }${path.relative(folder.uri.path, uri.path)}`
     : uri.fsPath
+}
+
+// Simple regex escaper
+function escapeRegExp(string: string): string {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') // $& means the whole matched string
 }
