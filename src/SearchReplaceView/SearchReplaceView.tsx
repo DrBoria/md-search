@@ -467,6 +467,19 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     const [currentSearchMode, setCurrentSearchMode] = useState<SearchReplaceViewValues['searchMode']>(values.searchMode);
     const [matchCase, setMatchCase] = useState(values.matchCase);
     const [wholeWord, setWholeWord] = useState(values.wholeWord);
+    
+    // --- Nested Search (Find in Found) States ---
+    const [showNestedSearch, setShowNestedSearch] = useState(initialState.showNestedSearch ?? false);
+    const [nestedSearchValues, setNestedSearchValues] = useState<SearchReplaceViewValues>({
+        find: '', replace: '', paused: false, include: '', exclude: '',
+        parser: 'babel', prettier: true, babelGeneratorHack: false, preferSimpleReplacement: false,
+        searchMode: 'text', matchCase: false, wholeWord: false,
+    });
+    const [nestedResultsByFile, setNestedResultsByFile] = useState<Record<string, SerializedTransformResultEvent[]>>({});
+    const [nestedMatchCase, setNestedMatchCase] = useState(false);
+    const [nestedWholeWord, setNestedWholeWord] = useState(false);
+    const [nestedSearchMode, setNestedSearchMode] = useState<SearchReplaceViewValues['searchMode']>('text');
+    const [isNestedReplaceVisible, setIsNestedReplaceVisible] = useState(false);
 
     // --- Save State Effect ---
     useEffect(() => {
@@ -475,9 +488,12 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
             showSettings, viewMode, 
             // Convert Sets to Arrays for storage
             expandedFiles: Array.from(expandedFiles), 
-            expandedFolders: Array.from(expandedFolders), 
+            expandedFolders: Array.from(expandedFolders),
+            // Nested search state
+            showNestedSearch, nestedSearchValues, nestedResultsByFile,
          });
-    }, [values, status, resultsByFile, workspacePath, isReplaceVisible, showSettings, viewMode, expandedFiles, expandedFolders, vscode]);
+    }, [values, status, resultsByFile, workspacePath, isReplaceVisible, showSettings, viewMode, 
+        expandedFiles, expandedFolders, vscode, showNestedSearch, nestedSearchValues, nestedResultsByFile]);
 
     // --- Message Listener ---
     useEffect(() => {
@@ -718,6 +734,125 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
         }
     }, [filteredFileTree, viewMode, logToExtension]); // Depend on filteredFileTree
 
+    // --- Find in Found Handlers ---
+    const handleFindInFound = useCallback(() => {
+        setShowNestedSearch(true);
+        setNestedSearchValues({
+            ...values,
+            find: '',
+            replace: '',
+        });
+        setNestedResultsByFile({});
+        setNestedMatchCase(false);
+        setNestedWholeWord(false);
+        setNestedSearchMode('text');
+        setIsNestedReplaceVisible(false);
+    }, [values]);
+
+    const handleCloseNestedSearch = useCallback(() => {
+        setShowNestedSearch(false);
+        setNestedResultsByFile({});
+    }, []);
+
+    const handleNestedFindChange = useCallback((e: any) => {
+        setNestedSearchValues(prev => ({
+            ...prev,
+            find: e.target.value
+        }));
+    }, []);
+
+    const handleNestedReplaceChange = useCallback((e: any) => {
+        setNestedSearchValues(prev => ({
+            ...prev,
+            replace: e.target.value
+        }));
+    }, []);
+
+    const toggleNestedMatchCase = useCallback(() => {
+        setNestedMatchCase(prev => !prev);
+        setNestedSearchValues(prev => ({
+            ...prev,
+            matchCase: !nestedMatchCase
+        }));
+    }, [nestedMatchCase]);
+
+    const toggleNestedWholeWord = useCallback(() => {
+        setNestedWholeWord(prev => !prev);
+        setNestedSearchValues(prev => ({
+            ...prev,
+            wholeWord: !nestedWholeWord
+        }));
+    }, [nestedWholeWord]);
+
+    const handleNestedModeChange = useCallback((newMode: SearchReplaceViewValues['searchMode']) => {
+        const finalMode = (newMode === nestedSearchMode && newMode !== 'text') ? 'text' : newMode;
+        setNestedSearchMode(finalMode);
+        setNestedSearchValues(prev => ({
+            ...prev,
+            searchMode: finalMode
+        }));
+    }, [nestedSearchMode]);
+
+    const toggleNestedReplace = useCallback(() => {
+        setIsNestedReplaceVisible(prev => !prev);
+    }, []);
+
+    // Perform the nested search when find term changes
+    useEffect(() => {
+        if (showNestedSearch && nestedSearchValues.find) {
+            // Create search regex based on current settings
+            const pattern = nestedSearchMode === 'regex' 
+                ? nestedSearchValues.find 
+                : escapeRegExp(nestedSearchValues.find);
+                
+            const modifiedPattern = nestedWholeWord && nestedSearchMode === 'text' 
+                ? `\\b${pattern}\\b` 
+                : pattern;
+                
+            const flags = nestedMatchCase ? 'g' : 'gi';
+            const regex = new RegExp(modifiedPattern, flags);
+            
+            // Search through existing results
+            const newResults: Record<string, SerializedTransformResultEvent[]> = {};
+            
+            Object.entries(resultsByFile).forEach(([filePath, fileResults]) => {
+                const fileMatches: SerializedTransformResultEvent[] = [];
+                
+                fileResults.forEach(result => {
+                    if (result.source) {
+                        const matches: Array<{ start: number; end: number }> = [];
+                        let match;
+                        
+                        while ((match = regex.exec(result.source)) !== null) {
+                            matches.push({
+                                start: match.index,
+                                end: match.index + match[0].length
+                            });
+                            
+                            // Avoid infinite loop for zero-length matches
+                            if (match.index === regex.lastIndex) {
+                                regex.lastIndex++;
+                            }
+                        }
+                        
+                        if (matches.length > 0) {
+                            fileMatches.push({
+                                ...result,
+                                matches
+                            });
+                        }
+                    }
+                });
+                
+                if (fileMatches.length > 0) {
+                    newResults[filePath] = fileMatches;
+                }
+            });
+            
+            setNestedResultsByFile(newResults);
+        }
+    }, [showNestedSearch, nestedSearchValues.find, nestedMatchCase, nestedWholeWord, nestedSearchMode, resultsByFile]);
+
     return (
         <div
           onKeyDown={handleKeyDown}
@@ -729,293 +864,585 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
             box-sizing: border-box; /* Include padding in height calculation */
           `}
         >
-          {/* --- Search/Replace/Actions Row --- */}
-          <div className={css` display: flex; align-items: flex-start; gap: 4px; `}>
-            {/* Toggle Replace Button */}
-            <VSCodeButton appearance="icon" onClick={toggleReplace} title="Toggle Replace" className={css` margin-top: 5px; flex-shrink: 0; `}>
-                <span className={`codicon codicon-chevron-${isReplaceVisible ? 'down' : 'right'}`}></span>
-            </VSCodeButton>
-            {/* Search/Replace Text Areas & Options */}
-            <div className={css` flex-grow: 1; display: flex; flex-direction: column; gap: 4px; `}>
-                {/* --- Search Input Row with Options --- */}
-                <div className={css` display: flex; align-items: center; gap: 2px; `}>
-                     <VSCodeTextArea
-                        placeholder="search"
-                        aria-label="Search Pattern"
-                        name="search"
-                        rows={1}
-                        value={values.find}
-                        onInput={handleFindChange}
-                        className={css` flex-grow: 1; `} // Make text area grow
-                     />
-                     {/* Search Options Buttons */}
-                     <VSCodeButton 
-                        appearance={matchCase ? "secondary" : "icon"} 
-                        onClick={toggleMatchCase} 
-                        title="Match Case (Aa)"
-                        disabled={!isTextMode} // Only enable in text mode
-                     >
-                         <span className="codicon codicon-case-sensitive" />
-                     </VSCodeButton>
-                     <VSCodeButton 
-                        appearance={wholeWord ? "secondary" : "icon"} 
-                        onClick={toggleWholeWord} 
-                        title="Match Whole Word (Ab)"
-                        disabled={!isTextMode} // Only enable in text mode
-                     >
-                         <span className="codicon codicon-whole-word" />
-                     </VSCodeButton>
-                     <VSCodeButton 
-                        appearance={currentSearchMode === 'regex' ? "secondary" : "icon"} 
-                        onClick={() => handleModeChange('regex')} 
-                        title="Use Regular Expression (.*)"
-                     >
-                         <span className="codicon codicon-regex" />
-                     </VSCodeButton>
-                     <VSCodeButton 
-                        appearance={isAstxMode ? "secondary" : "icon"} 
-                        onClick={() => handleModeChange('astx')} 
-                        title="Use AST Search (<*>)"
-                     >
-                         <span className="codicon codicon-symbol-struct" />{/* Or another suitable icon */}
-                     </VSCodeButton>
-                </div>
-                {/* --- Replace Input Row --- */}
-                {isReplaceVisible && (
-                    <div className={css` display: flex; align-items: center; gap: 2px; `}>
-                        <VSCodeTextArea
-                            placeholder={isAstxMode ? "replace" : "replace"} // Adjusted placeholder
-                            aria-label="Replace Pattern"
-                            name="replace"
-                            rows={1}
-                            value={values.replace}
-                            onInput={handleReplaceChange}
-                            className={css` flex-grow: 1; `} // Make textarea grow
-                        />
-                        {/* Moved Replace All button here */}
-                        <VSCodeButton
-                            appearance="icon"
-                            onClick={handleReplaceAllClick}
-                            disabled={!hasResults || running} // Simplified disabled logic (assuming replace is visible)
-                            title={!hasResults || running ? "Replace All" : `Replace ${values.replace} in ${numFilesWithMatches} files` }
-                            className={css` flex-shrink: 0; `} // Prevent shrinking
-                        >
-                            <span className="codicon codicon-replace-all" />
-                        </VSCodeButton>
-                    </div>
-                )}
-            </div>
-          </div>
-
-          {/* --- Settings Toggle & Result Summary/View Mode --- */}
-          <div className={css` display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 0 5px; `}>
-              <div className={css` display: flex; align-items: center; gap: 4px; `}>
-                 <VSCodeButton appearance="icon" onClick={toggleSettings} title="Toggle Search Details">
-                    <span className={`codicon codicon-ellipsis ${showSettings ? 'codicon-close' : ''}`} /> 
-                 </VSCodeButton>
-                 {hasResults && (
-                    <span className={css` color: var(--vscode-descriptionForeground); `}>
-                        {`${numMatches} results in ${numFilesWithMatches} files`}
-                    </span>
-                 )}
-              </div>
-              {/* View Mode Toggle Buttons - LOGIC SWAPPED */}
-              {hasResults && (
-                 <div className={css` display: flex; align-items: center; gap: 4px; `}>
-                     {/* This button now activates 'tree' mode (folder hierarchy) */}
-                     <VSCodeButton 
-                         appearance={viewMode === 'list' ? 'icon' : 'secondary'} 
-                         onClick={() => setViewMode('tree')} 
-                         title="View as tree"
-                     >
-                         <span className="codicon codicon-list-tree"></span> 
-                     </VSCodeButton>
-                     {/* This button now activates 'list' mode (grouped by file) */}
-                     <VSCodeButton 
-                         appearance={viewMode === 'tree' ? 'icon' : 'secondary'} 
-                         onClick={() => setViewMode('list')} 
-                         title="View as list"
-                     >
-                         <span className="codicon codicon-list-flat"></span>
-                     </VSCodeButton>
-                 </div>
-              )}
-          </div>
-
-          {/* --- Collapsible Settings Panel --- */} 
-          {showSettings && (
-            <div className={css` display: flex; flex-direction: column; gap: 5px; padding: 5px; border-top: 1px solid var(--vscode-divider-background); margin-top: 4px;`}>
-                <VSCodeTextField name="filesToInclude" value={values.include || ''} onInput={handleIncludeChange}> files to include </VSCodeTextField>
-                <VSCodeTextField name="filesToExclude" value={values.exclude || ''} onInput={handleExcludeChange}> files to exclude </VSCodeTextField>
-                <VSCodeCheckbox
-                  checked={!values.paused}
-                  onChange={handleRerunAutomaticallyChange}
-                >
-                  Rerun Automatically
-                </VSCodeCheckbox>
-
-                {/* --- CONDITIONAL Parser and Other Advanced Settings --- */}
-                {isAstxMode && (
-                  <>
-                    <VSCodeDivider />
-                    <p>Parser:</p>
-                    <VSCodeDropdown
-                      position="below"
-                      value={values.parser || 'babel'} // Provide default
-                      onChange={handleParserChange}
-                    >
-                      <VSCodeOption value="babel">babel</VSCodeOption>
-                      <VSCodeOption value="babel/auto">babel/auto</VSCodeOption>
-                      <VSCodeOption value="recast/babel">recast/babel</VSCodeOption>
-                      <VSCodeOption value="recast/babel/auto">recast/babel/auto</VSCodeOption>
-                    </VSCodeDropdown>
-
-                    <VSCodeCheckbox checked={values.prettier} onChange={handlePrettierChange}>
-                      Prettier
-                    </VSCodeCheckbox>
-                    <VSCodeCheckbox
-                      checked={values.babelGeneratorHack}
-                      onChange={handleBabelGeneratorHackChange}
-                    >
-                      Babel Generator Hack
-                    </VSCodeCheckbox>
-                    <VSCodeCheckbox
-                      checked={values.preferSimpleReplacement}
-                      onChange={handlePreferSimpleReplacementChange}
-                    >
-                      Prefer Simple Replacement
-                    </VSCodeCheckbox>
-                  </>
-                )}
-            </div>
-          )}
-
-          {/* --- Results Section --- */}
-          {hasResults && (
+          {/* Show Find in Found Search Interface when activated */}
+          {showNestedSearch && (
             <div className={css`
-                margin-top: 5px; // Reduced margin
-                border-top: 1px solid var(--vscode-editorGroup-border, #ccc);
-                padding-top: 8px; // Increased padding
-                flex: 1; /* Allow container to grow and shrink */
-                min-height: 0; /* Prevent overflow in flex container */
-                overflow-y: auto; /* Keep scrolling */
+              background-color: var(--vscode-editor-background);
+              padding: 5px;
+              border-radius: 3px;
+              margin-bottom: 10px;
+              position: relative;
+              z-index: 10;
+              box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
             `}>
-              {/* === LIST VIEW (Grouped by file) === */}
-              {viewMode === 'list' && (
-                Object.entries(resultsByFile)
-                  // Filter results: Only include files with actual matches
-                  .filter(([_, fileResults]) => fileResults.some(r => r.matches && r.matches.length > 0)) 
-                  .map(([absoluteFilePathOrUri, fileResults]) => {
-                  const firstResult = fileResults[0] 
-                  const absoluteFilePath = uriToPath(absoluteFilePathOrUri); // Convert for path operations
-                  const currentWorkspacePath = uriToPath(workspacePath); // Convert for path operations
-                  // Log paths to the Output channel
-                  logToExtension('info', 'Processing file paths for list view:', {
-                    absoluteFilePathOrUri,
-                    absoluteFilePath, 
-                    workspacePath, 
-                    currentWorkspacePath
-                  });
-
-                  // Calculate display path carefully
-                  const displayPath = currentWorkspacePath && absoluteFilePath
-                      ? path.relative(currentWorkspacePath, absoluteFilePath) 
-                      : absoluteFilePath || absoluteFilePathOrUri; // Fallback
-
-                  // Use POSIX path for internal state keys (expansion)
-                  const posixDisplayPath = (absoluteFilePath ? displayPath.replace(/\\/g, '/') : displayPath);
-
-                  const isExpanded = expandedFiles.has(posixDisplayPath)
-                  const totalMatches = fileResults.reduce((sum, r) => sum + (r.matches?.length || 0), 0)
-                  const hasError = fileResults.some(r => r.error)
-                  const canExpand = totalMatches > 0;
-                  const fileName = getFilename(absoluteFilePathOrUri); // Use helper for consistent display name
-
-                  return (
-                    <div key={absoluteFilePathOrUri} className={css` margin-bottom: 2px; `}>
-                      <div 
-                         className={css` display: flex; align-items: center; gap: 4px; padding: 2px 5px; cursor: pointer; &:hover { background-color: var(--vscode-list-hoverBackground); } `}
-                         onClick={() => canExpand ? toggleFileExpansion(posixDisplayPath) : handleFileClick(absoluteFilePathOrUri)} // Use original URI/path for actions
-                         title={canExpand ? `Click to ${isExpanded ? 'collapse' : 'expand'} matches in ${fileName}` : `Click to open ${fileName}`}
-                      >
-                        <span className={`codicon codicon-chevron-${isExpanded ? 'down' : 'right'}`} style={{ visibility: canExpand ? 'visible' : 'hidden' }}/>
-                        <span className="codicon codicon-file" style={{ marginRight: '4px' }} />
-                        {/* Use original URI/path for click action */}
-                        <span className={css`font-weight: bold; flex-grow: 1; cursor: pointer;`} onClick={(e) => { e.stopPropagation(); handleFileClick(absoluteFilePathOrUri); }} title={`Click to open ${fileName}`}>{fileName}</span> 
-                        <span className={css`color: var(--vscode-descriptionForeground);`}>
-                           {totalMatches > 0 ? `${totalMatches} matches` : (hasError ? 'Error' : 'Changed')}
-                        </span>
-                        {/* Show (Error) indicator only if there are no matches AND there is an error */}
-                        {totalMatches === 0 && hasError && 
-                          <span className={css`margin-left: 8px; color: var(--vscode-errorForeground);`}>(Error)</span>}
-                      </div>
-                      {/* Expanded Matches */}
-                      {isExpanded && canExpand && (
-                        <div className={css` margin-left: 25px; /* Indent */ padding: 2px 0; `}>
-                            {fileResults.map((res, idx) => (
-                                res.matches?.map((match, matchIdx) => (
-                                    <div key={`${idx}-${matchIdx}`}
-                                        className={css`
-                                            padding: 1px 5px;
-                                            cursor: pointer;
-                                            font-family: var(--vscode-editor-font-family);
-                                            font-size: var(--vscode-editor-font-size);
-                                            &:hover { background-color: var(--vscode-list-hoverBackground); }
-                                        `}
-                                        // Use original URI/path for click action
-                                        onClick={() => handleResultItemClick(absoluteFilePathOrUri, { start: match.start, end: match.end })}
-                                        title={`Click to open match in ${fileName}`}
-                                    >
-                                        {/* Display highlighted context */}
-                                        {getHighlightedMatchContext(res.source, match.start, match.end)}
-                                    </div>
-                                ))
-                            ))}
-                            {/* Display error if present (might co-exist with matches in some cases) */}
-                             {hasError && totalMatches === 0 && ( // Only show error text if NO matches were displayed
-                               <div className={css` color: var(--vscode-errorForeground); padding: 1px 5px; `}>
-                                  {String(firstResult.error?.message || firstResult.error || 'Error occurred')}
-                               </div>
-                            )}
-                        </div>
-                      )}
+              {/* Close Button for nested search */}
+              <div className={css`
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 5px;
+              `}>
+                <span className={css`color: var(--vscode-descriptionForeground);`}>
+                  Find in Found Results
+                </span>
+                <VSCodeButton appearance="icon" onClick={handleCloseNestedSearch} title="Close Find in Found">
+                  <span className="codicon codicon-close"></span>
+                </VSCodeButton>
+              </div>
+              
+              {/* Nested Search/Replace Interface */}
+              <div className={css` display: flex; align-items: flex-start; gap: 4px; `}>
+                {/* Toggle Replace Button */}
+                <VSCodeButton appearance="icon" onClick={toggleNestedReplace} title="Toggle Replace" className={css` margin-top: 5px; flex-shrink: 0; `}>
+                    <span className={`codicon codicon-chevron-${isNestedReplaceVisible ? 'down' : 'right'}`}></span>
+                </VSCodeButton>
+                
+                {/* Search/Replace Text Areas & Options */}
+                <div className={css` flex-grow: 1; display: flex; flex-direction: column; gap: 4px; `}>
+                    {/* --- Search Input Row with Options --- */}
+                    <div className={css` display: flex; align-items: center; gap: 2px; `}>
+                         <VSCodeTextArea
+                            placeholder="search within results"
+                            aria-label="Nested Search Pattern"
+                            name="nestedSearch"
+                            rows={1}
+                            value={nestedSearchValues.find}
+                            onInput={handleNestedFindChange}
+                            className={css` flex-grow: 1; `} // Make text area grow
+                         />
+                         {/* Search Options Buttons */}
+                         <VSCodeButton 
+                            appearance={nestedMatchCase ? "secondary" : "icon"} 
+                            onClick={toggleNestedMatchCase} 
+                            title="Match Case (Aa)"
+                         >
+                             <span className="codicon codicon-case-sensitive" />
+                         </VSCodeButton>
+                         <VSCodeButton 
+                            appearance={nestedWholeWord ? "secondary" : "icon"} 
+                            onClick={toggleNestedWholeWord} 
+                            title="Match Whole Word (Ab)"
+                         >
+                             <span className="codicon codicon-whole-word" />
+                         </VSCodeButton>
+                         <VSCodeButton 
+                            appearance={nestedSearchMode === 'regex' ? "secondary" : "icon"} 
+                            onClick={() => handleNestedModeChange('regex')} 
+                            title="Use Regular Expression (.*)"
+                         >
+                             <span className="codicon codicon-regex" />
+                         </VSCodeButton>
+                         <VSCodeButton 
+                            appearance={nestedSearchMode === 'astx' ? "secondary" : "icon"} 
+                            onClick={() => handleNestedModeChange('astx')} 
+                            title="Use AST Search (<*>)"
+                         >
+                             <span className="codicon codicon-symbol-struct" />
+                         </VSCodeButton>
                     </div>
-                  )
-                })
-              )}
-              {/* === TREE VIEW (Folder hierarchy) === */}
-              {viewMode === 'tree' && (
-                 <div>
-                    {filteredFileTree.children.length > 0 ? (
-                        filteredFileTree.children.map(node => (
-                            <TreeViewNode
-                                key={node.relativePath} // relativePath is now POSIX
-                                node={node}
-                                level={0} // Start at level 0 for root children
-                                expandedFolders={expandedFolders}
-                                toggleFolderExpansion={toggleFolderExpansion} // Expects POSIX paths
-                                expandedFiles={expandedFiles}
-                                toggleFileExpansion={toggleFileExpansion} // Expects POSIX paths
-                                handleFileClick={handleFileClick} // Expects original URI/path
-                                handleResultItemClick={handleResultItemClick} // Expects original URI/path
-                                logToExtension={logToExtension} // <-- Pass prop down
+                    
+                    {/* --- Nested Replace Input Row --- */}
+                    {isNestedReplaceVisible && (
+                        <div className={css` display: flex; align-items: center; gap: 2px; `}>
+                            <VSCodeTextArea
+                                placeholder="replace"
+                                aria-label="Nested Replace Pattern"
+                                name="nestedReplace"
+                                rows={1}
+                                value={nestedSearchValues.replace}
+                                onInput={handleNestedReplaceChange}
+                                className={css` flex-grow: 1; `} // Make textarea grow
                             />
-                        ))
-                    ) : (
-                        <p style={{ paddingLeft: '5px', color: 'var(--vscode-descriptionForeground)' }}>No results found containing matches.</p>
+                        </div>
                     )}
                 </div>
-              )}
+              </div>
             </div>
           )}
+          
+          {/* Original Search Interface */}
+          <div className={css`
+            ${showNestedSearch ? 'opacity: 0.7;' : ''}
+            ${showNestedSearch ? 'pointer-events: none;' : ''}
+          `}>
+            {/* --- Search/Replace/Actions Row --- */}
+            <div className={css` display: flex; align-items: flex-start; gap: 4px; `}>
+              {/* Toggle Replace Button */}
+              <VSCodeButton appearance="icon" onClick={toggleReplace} title="Toggle Replace" className={css` margin-top: 5px; flex-shrink: 0; `}>
+                  <span className={`codicon codicon-chevron-${isReplaceVisible ? 'down' : 'right'}`}></span>
+              </VSCodeButton>
+              {/* Search/Replace Text Areas & Options */}
+              <div className={css` flex-grow: 1; display: flex; flex-direction: column; gap: 4px; `}>
+                  {/* --- Search Input Row with Options --- */}
+                  <div className={css` display: flex; align-items: center; gap: 2px; `}>
+                       <VSCodeTextArea
+                          placeholder="search"
+                          aria-label="Search Pattern"
+                          name="search"
+                          rows={1}
+                          value={values.find}
+                          onInput={handleFindChange}
+                          className={css` flex-grow: 1; `} // Make text area grow
+                       />
+                       {/* Search Options Buttons */}
+                       <VSCodeButton 
+                          appearance={matchCase ? "secondary" : "icon"} 
+                          onClick={toggleMatchCase} 
+                          title="Match Case (Aa)"
+                          disabled={!isTextMode} // Only enable in text mode
+                       >
+                           <span className="codicon codicon-case-sensitive" />
+                       </VSCodeButton>
+                       <VSCodeButton 
+                          appearance={wholeWord ? "secondary" : "icon"} 
+                          onClick={toggleWholeWord} 
+                          title="Match Whole Word (Ab)"
+                          disabled={!isTextMode} // Only enable in text mode
+                       >
+                           <span className="codicon codicon-whole-word" />
+                       </VSCodeButton>
+                       <VSCodeButton 
+                          appearance={currentSearchMode === 'regex' ? "secondary" : "icon"} 
+                          onClick={() => handleModeChange('regex')} 
+                          title="Use Regular Expression (.*)"
+                       >
+                           <span className="codicon codicon-regex" />
+                       </VSCodeButton>
+                       <VSCodeButton 
+                          appearance={isAstxMode ? "secondary" : "icon"} 
+                          onClick={() => handleModeChange('astx')} 
+                          title="Use AST Search (<*>)"
+                       >
+                           <span className="codicon codicon-symbol-struct" />{/* Or another suitable icon */}
+                       </VSCodeButton>
+                  </div>
+                  {/* --- Replace Input Row --- */}
+                  {isReplaceVisible && (
+                      <div className={css` display: flex; align-items: center; gap: 2px; `}>
+                          <VSCodeTextArea
+                              placeholder={isAstxMode ? "replace" : "replace"} // Adjusted placeholder
+                              aria-label="Replace Pattern"
+                              name="replace"
+                              rows={1}
+                              value={values.replace}
+                              onInput={handleReplaceChange}
+                              className={css` flex-grow: 1; `} // Make textarea grow
+                          />
+                          {/* Moved Replace All button here */}
+                          <VSCodeButton
+                              appearance="icon"
+                              onClick={handleReplaceAllClick}
+                              disabled={!hasResults || running} // Simplified disabled logic (assuming replace is visible)
+                              title={!hasResults || running ? "Replace All" : `Replace ${values.replace} in ${numFilesWithMatches} files` }
+                              className={css` flex-shrink: 0; `} // Prevent shrinking
+                          >
+                              <span className="codicon codicon-replace-all" />
+                          </VSCodeButton>
+                      </div>
+                  )}
+              </div>
+            </div>
 
-          {/* --- Progress Bar --- */} 
-          {running && (
-            <div className={css` position: relative; width: 100%; height: 4px; background-color: var(--vscode-progress-background, var(--vscode-progressBar-background)); overflow: hidden; margin-top: 5px; `}>
-                <div className={css` position: absolute; top: 0; bottom: 0; left: 0; width: 50%; background: var(--vscode-progressBar-background); animation: ${leftAnim} 2s linear infinite; `} />
-                <div className={css` position: absolute; top: 0; bottom: 0; right: 0; width: 50%; background: var(--vscode-progressBar-background); animation: ${rightAnim} 2s linear infinite; `} />
+            {/* --- Settings Toggle & Result Summary/View Mode --- */}
+            <div className={css` display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 0 5px; `}>
+                <div className={css` display: flex; align-items: center; gap: 4px; `}>
+                   <VSCodeButton appearance="icon" onClick={toggleSettings} title="Toggle Search Details">
+                      <span className={`codicon codicon-ellipsis ${showSettings ? 'codicon-close' : ''}`} /> 
+                   </VSCodeButton>
+                   {hasResults && (
+                      <span className={css` color: var(--vscode-descriptionForeground); `}>
+                          {`${numMatches} results in ${numFilesWithMatches} files`}
+                      </span>
+                   )}
+                </div>
+                {/* View Mode Toggle Buttons + Find in Found Button */}
+                {hasResults && (
+                   <div className={css` display: flex; align-items: center; gap: 4px; `}>
+                       {/* Find in Found Button */}
+                       <VSCodeButton 
+                           appearance="icon" 
+                           onClick={handleFindInFound} 
+                           title="Search within these results"
+                       >
+                           <span className="codicon codicon-search-new-file"></span> 
+                       </VSCodeButton>
+                       {/* Tree View Button */}
+                       <VSCodeButton 
+                           appearance={viewMode === 'list' ? 'icon' : 'secondary'} 
+                           onClick={() => setViewMode('tree')} 
+                           title="View as tree"
+                       >
+                           <span className="codicon codicon-list-tree"></span> 
+                       </VSCodeButton>
+                       {/* List View Button */}
+                       <VSCodeButton 
+                           appearance={viewMode === 'tree' ? 'icon' : 'secondary'} 
+                           onClick={() => setViewMode('list')} 
+                           title="View as list"
+                       >
+                           <span className="codicon codicon-list-flat"></span>
+                       </VSCodeButton>
+                   </div>
+                )}
             </div>
-          )}
+            
+            {/* --- Collapsible Settings Panel --- */} 
+            {!showNestedSearch && showSettings && (
+                <div className={css` display: flex; flex-direction: column; gap: 5px; padding: 5px; border-top: 1px solid var(--vscode-divider-background); margin-top: 4px;`}>
+                    <VSCodeTextField name="filesToInclude" value={values.include || ''} onInput={handleIncludeChange}> files to include </VSCodeTextField>
+                    <VSCodeTextField name="filesToExclude" value={values.exclude || ''} onInput={handleExcludeChange}> files to exclude </VSCodeTextField>
+                    <VSCodeCheckbox
+                      checked={!values.paused}
+                      onChange={handleRerunAutomaticallyChange}
+                    >
+                      Rerun Automatically
+                    </VSCodeCheckbox>
+
+                    {/* --- CONDITIONAL Parser and Other Advanced Settings --- */}
+                    {isAstxMode && (
+                      <>
+                        <VSCodeDivider />
+                        <p>Parser:</p>
+                        <VSCodeDropdown
+                          position="below"
+                          value={values.parser || 'babel'} // Provide default
+                          onChange={handleParserChange}
+                        >
+                          <VSCodeOption value="babel">babel</VSCodeOption>
+                          <VSCodeOption value="babel/auto">babel/auto</VSCodeOption>
+                          <VSCodeOption value="recast/babel">recast/babel</VSCodeOption>
+                          <VSCodeOption value="recast/babel/auto">recast/babel/auto</VSCodeOption>
+                        </VSCodeDropdown>
+
+                        <VSCodeCheckbox checked={values.prettier} onChange={handlePrettierChange}>
+                          Prettier
+                        </VSCodeCheckbox>
+                        <VSCodeCheckbox
+                          checked={values.babelGeneratorHack}
+                          onChange={handleBabelGeneratorHackChange}
+                        >
+                          Babel Generator Hack
+                        </VSCodeCheckbox>
+                        <VSCodeCheckbox
+                          checked={values.preferSimpleReplacement}
+                          onChange={handlePreferSimpleReplacementChange}
+                        >
+                          Prefer Simple Replacement
+                        </VSCodeCheckbox>
+                      </>
+                    )}
+                </div>
+             )}
+          </div>
+
+          {/* --- Results Section --- */}
+          <div className={css`
+                ${running ? 'position: relative;' : ''}
+                padding: 4px;
+                flex-grow: 1;
+                overflow: auto;
+            `}>
+                {/* Progress Indicator (during run) */}
+                {running && (
+                    <div className={css`
+                        position: absolute;
+                        top: 0px;
+                        left: 0px;
+                        width: 100%;
+                        height: 2px;
+                        background-color: var(--vscode-progressBar-background);
+                        overflow: hidden;
+                        z-index: 2;
+                    `}>
+                        <div className={css`
+                            position: absolute;
+                            width: 100%;
+                            height: 2px;
+                            background-color: var(--vscode-progressBar-foreground);
+                            animation: ${leftAnim} 2s infinite ease-in-out,
+                                      ${rightAnim} 2s infinite ease-in-out;
+                        `} />
+                    </div>
+                )}
+
+                {/* Show either nested results or regular results based on state */}
+                {showNestedSearch ? (
+                    // Nested search results view
+                    Object.keys(nestedResultsByFile).length > 0 ? (
+                        <div>
+                            {viewMode === 'tree' ? (
+                                // Tree view for nested results
+                                <div>
+                                    {filteredFileTree.children.length > 0 ? (
+                                        filteredFileTree.children.map(node => (
+                                            <TreeViewNode
+                                                key={node.relativePath}
+                                                node={node}
+                                                level={0}
+                                                expandedFolders={expandedFolders}
+                                                toggleFolderExpansion={toggleFolderExpansion}
+                                                expandedFiles={expandedFiles}
+                                                toggleFileExpansion={toggleFileExpansion}
+                                                handleFileClick={handleFileClick}
+                                                handleResultItemClick={handleResultItemClick}
+                                                logToExtension={logToExtension}
+                                            />
+                                        ))
+                                    ) : (
+                                        <div className={css`
+                                            padding: 10px;
+                                            color: var(--vscode-descriptionForeground);
+                                            text-align: center;
+                                        `}>
+                                            No matches found in tree view.
+                                        </div>
+                                    )}
+                                </div>
+                            ) : (
+                                // List view for nested results
+                                <div>
+                                    {/* Group results by file */}
+                                    {Object.entries(nestedResultsByFile).map(([filePath, results]) => {
+                                        const displayPath = workspacePath 
+                                            ? path.relative(uriToPath(workspacePath) || '', uriToPath(filePath) || filePath)
+                                            : getFilename(filePath);
+                                        
+                                        const totalMatches = results.reduce((sum, r) => sum + (r.matches?.length || 0), 0);
+                                        const filePathKey = filePath; // Use original path as key
+                                        const isExpanded = expandedFiles.has(displayPath);
+                                        
+                                        return (
+                                            <div key={filePathKey} className={css`
+                                                margin-bottom: 8px;
+                                                border-radius: 3px;
+                                                overflow: hidden;
+                                            `}>
+                                                {/* File Header */}
+                                                <div 
+                                                    className={css`
+                                                        display: flex;
+                                                        align-items: center;
+                                                        background-color: var(--vscode-list-dropBackground);
+                                                        padding: 4px 8px;
+                                                        gap: 8px;
+                                                        cursor: pointer;
+                                                        &:hover { background-color: var(--vscode-list-hoverBackground); }
+                                                    `}
+                                                    onClick={() => toggleFileExpansion(displayPath)}
+                                                >
+                                                    <span className={`codicon codicon-chevron-${isExpanded ? 'down' : 'right'}`} />
+                                                    <span 
+                                                        className={css`font-weight: bold; cursor: pointer;`}
+                                                        onClick={(e) => { 
+                                                            e.stopPropagation(); 
+                                                            handleFileClick(filePath); 
+                                                        }}
+                                                        title={`Click to open ${displayPath}`}
+                                                    >
+                                                        {displayPath}
+                                                    </span>
+                                                    <span className={css`
+                                                        margin-left: auto;
+                                                        color: var(--vscode-descriptionForeground);
+                                                    `}>
+                                                        {totalMatches} matches
+                                                    </span>
+                                                </div>
+                                                
+                                                {/* Expanded Matches */}
+                                                {isExpanded && (
+                                                    <div className={css`
+                                                        padding: 4px 0;
+                                                        background-color: var(--vscode-editor-background);
+                                                    `}>
+                                                        {results.map((result, resultIdx) => 
+                                                            result.matches?.map((match, matchIdx) => (
+                                                                <div 
+                                                                    key={`${resultIdx}-${matchIdx}`}
+                                                                    className={css`
+                                                                        padding: 2px 24px;
+                                                                        font-family: var(--vscode-editor-font-family);
+                                                                        font-size: var(--vscode-editor-font-size);
+                                                                        cursor: pointer;
+                                                                        &:hover { background-color: var(--vscode-list-hoverBackground); }
+                                                                    `}
+                                                                    onClick={() => handleResultItemClick(filePath, match)}
+                                                                    title={`Click to open match in ${getFilename(filePath)}`}
+                                                                >
+                                                                    {getHighlightedMatchContext(result.source, match.start, match.end)}
+                                                                </div>
+                                                            ))
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    ) : nestedSearchValues.find ? (
+                        <div className={css`
+                            display: flex;
+                            justify-content: center;
+                            align-items: center;
+                            height: 100px;
+                            color: var(--vscode-descriptionForeground);
+                        `}>
+                            No matches found for "{nestedSearchValues.find}"
+                        </div>
+                    ) : (
+                        <div className={css`
+                            display: flex;
+                            justify-content: center;
+                            align-items: center;
+                            height: 100px;
+                            color: var(--vscode-descriptionForeground);
+                        `}>
+                            Enter a search term to find within the results
+                        </div>
+                    )
+                ) : (
+                    // Original results view
+                    <>
+                        {/* Regular Results View */}
+                        {viewMode === 'tree' ? (
+                            // Tree view of results
+                            <div>
+                                {filteredFileTree.children.length > 0 ? (
+                                    filteredFileTree.children.map(node => (
+                                        <TreeViewNode
+                                            key={node.relativePath}
+                                            node={node}
+                                            level={0}
+                                            expandedFolders={expandedFolders}
+                                            toggleFolderExpansion={toggleFolderExpansion}
+                                            expandedFiles={expandedFiles}
+                                            toggleFileExpansion={toggleFileExpansion}
+                                            handleFileClick={handleFileClick}
+                                            handleResultItemClick={handleResultItemClick}
+                                            logToExtension={logToExtension}
+                                        />
+                                    ))
+                                ) : (
+                                    <div className={css`
+                                        padding: 10px;
+                                        color: var(--vscode-descriptionForeground);
+                                        text-align: center;
+                                    `}>
+                                        No matches found. Try adjusting your search terms or filters.
+                                    </div>
+                                )}
+                            </div>
+                        ) : (
+                            // List view of results
+                            <div>
+                                {Object.entries(resultsByFile).length > 0 ? (
+                                    Object.entries(resultsByFile).map(([filePath, results]) => {
+                                        const displayPath = workspacePath 
+                                            ? path.relative(uriToPath(workspacePath) || '', uriToPath(filePath) || filePath) 
+                                            : getFilename(filePath);
+                                        
+                                        const totalMatches = results.reduce((sum, r) => sum + (r.matches?.length || 0), 0);
+                                        if (totalMatches === 0) return null; // Don't show files without matches
+                                        
+                                        const filePathKey = filePath; // Use original path as key
+                                        const isExpanded = expandedFiles.has(displayPath);
+                                        
+                                        return (
+                                            <div key={filePathKey} className={css`
+                                                margin-bottom: 8px;
+                                                border-radius: 3px;
+                                                overflow: hidden;
+                                            `}>
+                                                {/* File Header */}
+                                                <div 
+                                                    className={css`
+                                                        display: flex;
+                                                        align-items: center;
+                                                        background-color: var(--vscode-list-dropBackground);
+                                                        padding: 4px 8px;
+                                                        gap: 8px;
+                                                        cursor: pointer;
+                                                        &:hover { background-color: var(--vscode-list-hoverBackground); }
+                                                    `}
+                                                    onClick={() => toggleFileExpansion(displayPath)}
+                                                >
+                                                    <span className={`codicon codicon-chevron-${isExpanded ? 'down' : 'right'}`} />
+                                                    <span 
+                                                        className={css`font-weight: bold; cursor: pointer;`}
+                                                        onClick={(e) => { 
+                                                            e.stopPropagation(); 
+                                                            handleFileClick(filePath); 
+                                                        }}
+                                                        title={`Click to open ${displayPath}`}
+                                                    >
+                                                        {displayPath}
+                                                    </span>
+                                                    <span className={css`
+                                                        margin-left: auto;
+                                                        color: var(--vscode-descriptionForeground);
+                                                    `}>
+                                                        {totalMatches} matches
+                                                    </span>
+                                                </div>
+                                                
+                                                {/* Expanded Matches */}
+                                                {isExpanded && (
+                                                    <div className={css`
+                                                        padding: 4px 0;
+                                                        background-color: var(--vscode-editor-background);
+                                                    `}>
+                                                        {results.map((result, resultIdx) => 
+                                                            result.matches?.map((match, matchIdx) => (
+                                                                <div 
+                                                                    key={`${resultIdx}-${matchIdx}`}
+                                                                    className={css`
+                                                                        padding: 2px 24px;
+                                                                        font-family: var(--vscode-editor-font-family);
+                                                                        font-size: var(--vscode-editor-font-size);
+                                                                        cursor: pointer;
+                                                                        &:hover { background-color: var(--vscode-list-hoverBackground); }
+                                                                    `}
+                                                                    onClick={() => handleResultItemClick(filePath, match)}
+                                                                    title={`Click to open match in ${getFilename(filePath)}`}
+                                                                >
+                                                                    {getHighlightedMatchContext(result.source, match.start, match.end)}
+                                                                </div>
+                                                            ))
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })
+                                ) : running ? (
+                                    <div className={css`
+                                        padding: 10px;
+                                        color: var(--vscode-descriptionForeground);
+                                        text-align: center;
+                                    `}>
+                                        Searching... {completed} / {total} files
+                                    </div>
+                                ) : (
+                                    <div className={css`
+                                        padding: 10px;
+                                        color: var(--vscode-descriptionForeground);
+                                        text-align: center;
+                                    `}>
+                                        No matches found. Try adjusting your search terms or filters.
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </>
+                )}
+            </div>
         </div>
     )
+}
+
+// Helper function to escape regex special characters
+function escapeRegExp(string: string): string {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
