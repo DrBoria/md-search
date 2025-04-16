@@ -10,6 +10,7 @@ import { ASTX_RESULT_SCHEME } from '../constants'
 import {
   MessageFromWebview,
   SearchReplaceViewStatus,
+  MessageToWebview,
 } from './SearchReplaceViewTypes'
 export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'astx.SearchReplaceView'
@@ -45,9 +46,9 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     webviewView.webview.onDidReceiveMessage((_message: any) => {
       const message: MessageFromWebview = _message
-      // Log ALL received messages before the switch
+      // Log message type only, without full content
       this.extension.channel.appendLine(
-        `[Provider] Received message: ${JSON.stringify(message)}`
+        `[Provider] Received message type: ${message.type}`
       )
       // Make the message handler async to allow await for file operations
       const handleMessage = async (message: MessageFromWebview) => {
@@ -65,7 +66,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
             break
           }
           case 'values': {
-            // @ts-ignore TS2345: Ignoring parser type incompatibility
+            // @ts-expect-error TS2345: Parser type incompatibility
             this.extension.setParams(message.values)
             break
           }
@@ -140,20 +141,20 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
             )
             const level = message.level.toUpperCase()
             const logMessage = `[Webview ${level}] ${message.message}`
+
+            // Safely log the message without logging sensitive content
+            this.extension.channel.appendLine(logMessage)
+
+            // If there's data, only log safe metadata about it
             if (message.data) {
-              try {
-                // Attempt to stringify data for logging, handle potential errors
-                const dataString = JSON.stringify(message.data, null, 2)
-                this.extension.channel.appendLine(
-                  `${logMessage}\nData: ${dataString}`
-                )
-              } catch (e) {
-                this.extension.channel.appendLine(
-                  `${logMessage} (Failed to stringify data)`
-                )
-              }
-            } else {
-              this.extension.channel.appendLine(logMessage)
+              const dataType = typeof message.data
+              this.extension.channel.appendLine(
+                `Data properties: ${
+                  dataType === 'object' && message.data
+                    ? Object.keys(message.data).join(', ')
+                    : dataType
+                }`
+              )
             }
             break
           }
@@ -318,6 +319,21 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
         }
 			</body>
 			</html>`
+  }
+
+  postMessage(message: MessageToWebview): void {
+    // Log the message type for debugging
+    this.extension.channel.appendLine(
+      `[SearchReplaceView] Sending message of type: ${message.type}`
+    )
+
+    try {
+      this._view?.webview.postMessage(message)
+    } catch (error) {
+      this.extension.channel.appendLine(
+        `Error posting message to webview: ${error}`
+      )
+    }
   }
 }
 

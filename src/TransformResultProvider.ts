@@ -66,7 +66,7 @@ export default class TransformResultProvider
       }
       case ASTX_REPORTS_SCHEME: {
         return (result?.reports || [])
-          ?.map((report) => JSON.stringify(report, null, 2))
+          ?.map((report) => `Report type: ${typeof report}`)
           .join('\n')
       }
     }

@@ -445,7 +445,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
         // Default values first
         find: '', replace: '', paused: false, include: '', exclude: '',
         parser: 'babel', prettier: true, babelGeneratorHack: false, preferSimpleReplacement: false,
-        searchMode: 'text', matchCase: false, wholeWord: false,
+        searchMode: 'text', matchCase: false, wholeWord: false, searchInResults: false,
         // Then override with loaded state if available
         ...(initialState.values || {}),
     });
@@ -473,13 +473,14 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     const [nestedSearchValues, setNestedSearchValues] = useState<SearchReplaceViewValues>({
         find: '', replace: '', paused: false, include: '', exclude: '',
         parser: 'babel', prettier: true, babelGeneratorHack: false, preferSimpleReplacement: false,
-        searchMode: 'text', matchCase: false, wholeWord: false,
+        searchMode: 'text', matchCase: false, wholeWord: false, searchInResults: false,
     });
     const [nestedResultsByFile, setNestedResultsByFile] = useState<Record<string, SerializedTransformResultEvent[]>>({});
     const [nestedMatchCase, setNestedMatchCase] = useState(false);
     const [nestedWholeWord, setNestedWholeWord] = useState(false);
     const [nestedSearchMode, setNestedSearchMode] = useState<SearchReplaceViewValues['searchMode']>('text');
     const [isNestedReplaceVisible, setIsNestedReplaceVisible] = useState(false);
+    const [searchInResults, setSearchInResults] = useState(values.searchInResults || false);
 
     // --- Save State Effect ---
     useEffect(() => {
@@ -499,7 +500,11 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     useEffect(() => {
         const handleMessage = (event: MessageEvent<MessageToWebview>) => {
             const message = event.data;
-            logToExtension('info', 'Received message from extension', message); // Log received message
+            // Only log message type, avoid logging content
+            logToExtension('info', `Received message type: ${message.type}`, {
+                messageType: message.type,
+                hasContent: message.type === 'addResult' ? 'true' : 'false'
+            });
             switch (message.type) {
                 case 'initialData':
                     setStatus(message.status);
@@ -736,23 +741,41 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
 
     // --- Find in Found Handlers ---
     const handleFindInFound = useCallback(() => {
+        logToExtension('info', '[UI Debug] handleFindInFound called!');
+        // Включаем интерфейс поиска в найденных результатах
         setShowNestedSearch(true);
+        // Инициализируем значения для вложенного поиска
         setNestedSearchValues({
             ...values,
             find: '',
-            replace: '',
+            replace: ''
         });
         setNestedResultsByFile({});
         setNestedMatchCase(false);
         setNestedWholeWord(false);
         setNestedSearchMode('text');
         setIsNestedReplaceVisible(false);
-    }, [values]);
+        
+        // Возвращаем этот код для обеспечения работы серверного поиска в найденных
+        // Эта часть кода важна для активации поиска в результатах на сервере
+        setSearchInResults(true);
+        postValuesChange({ searchInResults: true });
+    }, [values, postValuesChange, setSearchInResults, logToExtension]);
 
     const handleCloseNestedSearch = useCallback(() => {
+        logToExtension('info', '[UI Debug] handleCloseNestedSearch called!');
         setShowNestedSearch(false);
         setNestedResultsByFile({});
-    }, []);
+        
+        // Возвращаем сброс флага searchInResults при закрытии вложенного поиска
+        logToExtension('info', '[UI Debug] Attempting to set searchInResults to false.');
+        // Update boolean state
+        setSearchInResults(false);
+        // Update the main values object state
+        setValues(prev => ({ ...prev, searchInResults: false }));
+        // Send message to backend
+        postValuesChange({ searchInResults: false }); 
+    }, [postValuesChange, setSearchInResults, logToExtension, setValues]);
 
     const handleNestedFindChange = useCallback((e: any) => {
         setNestedSearchValues(prev => ({
@@ -852,6 +875,13 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
             setNestedResultsByFile(newResults);
         }
     }, [showNestedSearch, nestedSearchValues.find, nestedMatchCase, nestedWholeWord, nestedSearchMode, resultsByFile]);
+
+    const toggleSearchInResults = useCallback(() => {
+        const next = !searchInResults;
+        setSearchInResults(next); // Update local state immediately
+        postValuesChange({ searchInResults: next });
+    // Add logToExtension to dependency array
+    }, [searchInResults, postValuesChange, logToExtension, setSearchInResults]);
 
     return (
         <div
@@ -1014,6 +1044,15 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                           title="Use AST Search (<*>)"
                        >
                            <span className="codicon codicon-symbol-struct" />{/* Or another suitable icon */}
+                       </VSCodeButton>
+                       <VSCodeButton 
+                          appearance={searchInResults ? "secondary" : "icon"} 
+                          // Restore original onClick handler
+                          onClick={toggleSearchInResults}
+                          title="Search in Found Results"
+                          disabled={!Object.keys(resultsByFile).length} // Disable if no previous results
+                       >
+                           <span className="codicon codicon-search-fuzzy" />
                        </VSCodeButton>
                   </div>
                   {/* --- Replace Input Row --- */}

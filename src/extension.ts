@@ -34,6 +34,7 @@ export type Params = {
   searchMode: 'text' | 'regex' | 'astx'
   matchCase: boolean
   wholeWord: boolean
+  searchInResults?: boolean
 }
 
 const paramsInConfig: (keyof Params)[] = [
@@ -63,6 +64,7 @@ export class AstxExtension {
       searchMode: 'text',
       matchCase: false,
       wholeWord: false,
+      searchInResults: false,
       ...Object.fromEntries(paramsInConfig.map((p) => [p, config[p]])),
     } as Params
     this.isProduction =
@@ -161,6 +163,9 @@ export class AstxExtension {
           config.update(key, params[key], vscode.ConfigurationTarget.Workspace)
         }
       }
+      this.channel.appendLine(
+        `[Debug] Setting params: find="${params.find}", replace="${params.replace}", searchInResults=${params.searchInResults}`
+      )
       this.params = { ...params }
       this.runner.setParams({ ...this.params })
       this.searchReplaceViewProvider.setParams({ ...this.params })

@@ -47,6 +47,7 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
   private abortController: AbortController | undefined
   private pool: AstxWorkerPool = undefined as any
   private processedFiles: Set<string> = new Set()
+  private previousSearchFiles: Set<string> = new Set()
   private transformResults: Map<
     string,
     {
@@ -122,19 +123,35 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
   }
 
   setParams(params: Params): void {
-    if (!isEqual(this.params, params)) {
-      this.extension.channel.appendLine(
-        `Params changed: ${JSON.stringify(params)}`
-      )
+    // Add logging to see if setParams is called and compare params
+    this.extension.channel.appendLine(`[Debug] setParams called.`)
+    this.extension.channel.appendLine(
+      `[Debug]   Params changing: searchMode=${params.searchMode}, searchInResults=${params.searchInResults}, paused=${params.paused}`
+    )
+    const areEqual = isEqual(this.params, params)
+    this.extension.channel.appendLine(`[Debug]   isEqual result: ${areEqual}`)
+
+    if (!areEqual) {
+      this.extension.channel.appendLine(`[Debug] Params changed (not equal).`)
       this.params = params
       if (!this.params.paused && this.pausedRestart) {
-        this.extension.channel.appendLine('Resuming paused restart.')
+        this.extension.channel.appendLine('[Debug] Resuming paused restart.')
         this.pausedRestart = false
         this.restartSoon()
+      } else if (this.params.paused) {
+        this.extension.channel.appendLine(
+          '[Debug] Params changed, but runner is paused. Skipping runSoon.'
+        )
       } else {
-        this.extension.channel.appendLine('Params changed, running soon.')
+        this.extension.channel.appendLine(
+          '[Debug] Params changed, calling runSoon.'
+        )
         this.runSoon()
       }
+    } else {
+      this.extension.channel.appendLine(
+        '[Debug] Params are equal, no action taken in setParams.'
+      )
     }
   }
 
@@ -146,8 +163,11 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
     }
     this.transformResults.clear()
     this.processedFiles.clear()
+    this.previousSearchFiles.clear()
     this.emit('stop')
-    this.extension.channel.appendLine('Run stopped, results cleared.')
+    this.extension.channel.appendLine(
+      'Run stopped, results cleared (preserved previous search files).'
+    )
   }
 
   restartSoon: () => void = () => {
@@ -222,15 +242,26 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
   )
 
   async handleChange(fileUri: vscode.Uri): Promise<void> {
+    // Log entry into handleChange
+    this.extension.channel.appendLine(
+      `[Debug] handleChange called for ${Path.basename(
+        fileUri.fsPath
+      )}. Current previousSearchFiles.size: ${this.previousSearchFiles.size}`
+    )
+
     if (this.params.paused) {
       this.extension.channel.appendLine(
-        `File change detected (${fileUri.fsPath}) but runner is paused.`
+        `File change detected (${Path.basename(
+          fileUri.fsPath
+        )}) but runner is paused.`
       )
       return
     }
     if (this.params.searchMode === 'text') {
       this.extension.channel.appendLine(
-        `File change detected in text mode (${fileUri.fsPath}), re-running search.`
+        `File change detected in text mode (${Path.basename(
+          fileUri.fsPath
+        )}), re-running search.`
       )
       this.runSoon()
       return
@@ -238,12 +269,14 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
 
     const file = fileUri.fsPath
     this.extension.channel.appendLine(
-      `File change detected in AST mode: ${file}`
+      `File change detected in AST mode: ${Path.basename(file)}`
     )
 
     if (!this.processedFiles.has(file)) {
       this.extension.channel.appendLine(
-        `Changed file (${file}) was not in the previous results. Triggering full re-run.`
+        `Changed file (${Path.basename(
+          file
+        )}) was not in the previous results. Triggering full re-run.`
       )
       this.runSoon()
       return
@@ -253,7 +286,7 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
       await this.startupPromise
     } catch (startupError) {
       this.extension.channel.appendLine(
-        `Cannot handle change for ${file}: Startup failed.`
+        `Cannot handle change for ${Path.basename(file)}: Startup failed.`
       )
       return
     }
@@ -264,7 +297,9 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
 
     if (!pool || !fs || !config || this.abortController?.signal.aborted) {
       this.extension.channel.appendLine(
-        `Skipping handleChange for ${file}: Pool/FS/Config unavailable or already aborted.`
+        `Skipping handleChange for ${Path.basename(
+          file
+        )}: Pool/FS/Config unavailable or already aborted.`
       )
       return
     }
@@ -276,7 +311,7 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
     const transform: Transform = { find, replace }
 
     this.extension.channel.appendLine(
-      `Re-running transform on changed file: ${file}`
+      `Re-running transform on changed file: ${Path.basename(file)}`
     )
     try {
       const result = await pool.runTransformOnFile({
@@ -288,31 +323,35 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
 
       if (this.abortController?.signal.aborted) {
         this.extension.channel.appendLine(
-          `handleChange aborted for ${file} after transform.`
+          `handleChange aborted for ${Path.basename(file)} after transform.`
         )
         return
       }
 
       this.handleResult(result)
       this.extension.channel.appendLine(
-        `Successfully processed change for ${file}.`
+        `Successfully processed change for ${Path.basename(file)}.`
       )
     } catch (error) {
       if (this.abortController?.signal.aborted) {
         this.extension.channel.appendLine(
-          `handleChange aborted for ${file} during error handling.`
+          `handleChange aborted for ${Path.basename(
+            file
+          )} during error handling.`
         )
         return
       }
       if (error instanceof Error) {
-        const logMessage = `Error handling change for ${file}: ${error.message}`
+        const logMessage = `Error handling change for ${Path.basename(file)}: ${
+          error.message
+        }`
         // @ts-ignore TS2554: Remove second argument
         this.extension.logError(new Error(logMessage))
         this.emit('error', error)
       } else {
-        const unknownErrorMessage = `Unknown error during handleChange for ${file}: ${String(
-          error
-        )}`
+        const unknownErrorMessage = `Unknown error during handleChange for ${Path.basename(
+          file
+        )}: ${String(error)}`
         this.extension.channel.appendLine(unknownErrorMessage)
         this.emit('error', new Error(unknownErrorMessage))
       }
@@ -330,7 +369,7 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
     } = result
     if (!file) {
       this.extension.channel.appendLine(
-        `Received result with missing file path: ${JSON.stringify(result)}`
+        `Received result with missing file path.`
       )
       return
     }
@@ -338,7 +377,7 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
 
     if (this.abortController?.signal.aborted) {
       this.extension.channel.appendLine(
-        `handleResult skipped for ${file}: Aborted.`
+        `handleResult skipped for ${Path.basename(file)}: Aborted.`
       )
       return
     }
@@ -377,7 +416,9 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
     }
     if (this.abortController?.signal.aborted) {
       this.extension.channel.appendLine(
-        `handleResult skipped emitting for ${file}: Aborted before emit.`
+        `handleResult skipped emitting for ${Path.basename(
+          file
+        )}: Aborted before emit.`
       )
       return
     }
@@ -386,7 +427,43 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
 
   run(): void {
     this.extension.channel.appendLine('Run method invoked.')
-    this.stop()
+
+    // Uncomment stop() but remove the previousSearchFiles.clear() inside it temporarily
+    if (this.abortController) {
+      this.extension.channel.appendLine('Aborting current run...')
+      this.abortController.abort()
+      this.abortController = undefined
+    }
+    this.transformResults.clear()
+    this.processedFiles.clear()
+    // IMPORTANT: Don't clear previousSearchFiles here!
+    this.emit('stop')
+    this.extension.channel.appendLine(
+      'Run stopped, results cleared (preserved previous search files).'
+    )
+
+    // Add detailed log about previousSearchFiles
+    this.extension.channel.appendLine(
+      `[Debug] BEFORE run logic: previousSearchFiles.size = ${this.previousSearchFiles.size}`
+    )
+    if (this.previousSearchFiles.size > 0) {
+      this.extension.channel.appendLine(
+        `[Debug] First few files in previousSearchFiles: ${Array.from(
+          this.previousSearchFiles
+        )
+          .slice(0, 3)
+          .map((f) => Path.basename(f))
+          .join(', ')}...`
+      )
+    }
+
+    // Add logging for initial parameters
+    this.extension.channel.appendLine(
+      `[Debug] Initial params in run(): searchMode=${this.params.searchMode}, searchInResults=${this.params.searchInResults}, paused=${this.params.paused}`
+    )
+    this.extension.channel.appendLine(
+      `[Debug] Find pattern: "${this.params.find}", Replace: "${this.params.replace}"`
+    )
 
     const abortController = new AbortController()
     this.abortController = abortController
@@ -403,7 +480,7 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
     try {
       this.emit('start')
       this.extension.channel.appendLine(
-        `Running search with params: ${JSON.stringify(this.params)}`
+        `Running search with searchMode=${this.params.searchMode}, searchInResults=${this.params.searchInResults}, matchCase=${this.params.matchCase}, wholeWord=${this.params.wholeWord}`
       )
 
       const {
@@ -417,6 +494,7 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
         searchMode,
         matchCase,
         wholeWord,
+        searchInResults,
       } = this.params
       let { transformFile } = this.params
       const workspaceFolders =
@@ -440,6 +518,22 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
           this.emit('done')
           return
         }
+      }
+
+      // Add logging right before the check
+      this.extension.channel.appendLine(
+        `[Debug] Checking searchInResults: ${searchInResults}, previousSearchFiles size: ${this.previousSearchFiles.size}`
+      )
+      if (searchInResults && this.previousSearchFiles.size === 0) {
+        // Add logging inside the block
+        this.extension.channel.appendLine(
+          '[Debug] Entered searchInResults && previousSearchFiles.size === 0 block.'
+        )
+        this.extension.channel.appendLine(
+          'No previous search results to search in.'
+        )
+        this.emit('done')
+        return
       }
 
       const includePattern: vscode.GlobPattern = this.params.include
@@ -511,7 +605,6 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
         const findPattern = find || ''
         const textConfig = { ...baseConfig, matchCase, wholeWord }
         this.config = baseConfig as AstxConfig
-
         ;(async () => {
           let completed = 0
           let total = 0
@@ -519,22 +612,46 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
             await this.startupPromise
             if (!this.astxNode) throw new Error('astx/node failed to load.')
 
-            this.processedFiles.clear()
-            this.transformResults.clear()
+            // Log whether we're preserving existing results
+            if (searchInResults) {
+              this.extension.channel.appendLine(
+                `[Debug] SEARCHING IN PREVIOUS RESULTS mode active. Using ${this.previousSearchFiles.size} files from previous search.`
+              )
+            } else {
+              this.extension.channel.appendLine(
+                `[Debug] Normal search mode. Will find files using include/exclude patterns.`
+              )
+              this.processedFiles.clear()
+              this.transformResults.clear()
+            }
 
             this.extension.channel.appendLine(
-              `Finding files with include: ${JSON.stringify(
-                includePattern
-              )}, exclude: ${JSON.stringify(excludePattern)}`
+              `Finding files with include pattern type: ${typeof includePattern}, exclude: ${
+                excludePattern ? 'specified' : 'none'
+              }`
             )
             let fileUris: vscode.Uri[]
             try {
-              fileUris = await vscode.workspace.findFiles(
-                includePattern,
-                excludePattern,
-                undefined,
-                cancellationToken
-              )
+              if (searchInResults) {
+                this.extension.channel.appendLine(
+                  `[Debug] Converting previousSearchFiles to fileUris (${this.previousSearchFiles.size} files)...`
+                )
+                const beforeConversion = this.previousSearchFiles.size
+                fileUris = Array.from(this.previousSearchFiles).map((file) =>
+                  vscode.Uri.file(file)
+                )
+                const afterConversion = fileUris.length
+                this.extension.channel.appendLine(
+                  `[Debug] Conversion complete: ${beforeConversion} -> ${afterConversion} files`
+                )
+              } else {
+                fileUris = await vscode.workspace.findFiles(
+                  includePattern,
+                  excludePattern,
+                  undefined,
+                  cancellationToken
+                )
+              }
               total = fileUris.length
               this.emit('progress', { completed, total })
               this.extension.channel.appendLine(
@@ -542,10 +659,10 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
               )
               if (total === 0) {
                 this.extension.channel.appendLine(
-                  `> Include: ${JSON.stringify(includePattern)}`
+                  `> Include pattern type: ${typeof includePattern}`
                 )
                 this.extension.channel.appendLine(
-                  `> Exclude: ${JSON.stringify(excludePattern)}`
+                  `> Exclude: ${excludePattern ? 'specified' : 'none'}`
                 )
               }
             } catch (findFilesError) {
@@ -571,6 +688,9 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
             const files = fileUris.map((uri) => uri.fsPath)
             this.extension.channel.appendLine(`Processing ${total} files...`)
 
+            // Create a temp collection to store files with matches
+            const filesWithMatches = new Set<string>()
+
             for (const file of files) {
               if (cancellationToken.isCancellationRequested) break
               let source = ''
@@ -580,6 +700,26 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
               try {
                 source = await FsImpl.readFile(file, 'utf8')
                 if (cancellationToken.isCancellationRequested) continue
+
+                // Debugging logs to understand search details
+                this.extension.channel.appendLine(
+                  `[DEBUG] Searching in file: ${Path.basename(file)}`
+                )
+                this.extension.channel.appendLine(
+                  `[DEBUG] Search pattern: "${findPattern}"`
+                )
+                this.extension.channel.appendLine(
+                  `[DEBUG] Source file size: ${source.length} chars`
+                )
+                if (source.length < 200) {
+                  this.extension.channel.appendLine(
+                    `[DEBUG] Source content (short file): ${source}`
+                  )
+                } else {
+                  this.extension.channel.appendLine(
+                    `[DEBUG] Source sample: ${source.substring(0, 100)}...`
+                  )
+                }
 
                 const lines = source.split(/\r\n?|\n/)
                 const regexFlags = textConfig.matchCase ? 'g' : 'gi'
@@ -591,6 +731,9 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
                   ? `\\b${escapedPattern}\\b`
                   : escapedPattern
                 const regex = new RegExp(searchPattern, regexFlags)
+                this.extension.channel.appendLine(
+                  `[DEBUG] Final regex pattern: ${regex}`
+                )
                 let matchResult: RegExpExecArray | null
 
                 while ((matchResult = regex.exec(source)) !== null) {
@@ -665,6 +808,16 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
                     }
                   }
 
+                  // If file has matches, add it to the collection
+                  if (matches.length > 0) {
+                    filesWithMatches.add(file)
+                    this.extension.channel.appendLine(
+                      `[Debug] File with matches: ${Path.basename(file)} (${
+                        matches.length
+                      } matches)`
+                    )
+                  }
+
                   this.handleResult({
                     file,
                     source,
@@ -682,6 +835,19 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
             }
 
             if (!cancellationToken.isCancellationRequested) {
+              // Update previousSearchFiles with only files that had matches
+              if (!searchInResults) {
+                const matchesCount = filesWithMatches.size
+                this.extension.channel.appendLine(
+                  `[Debug] Normal search completed. Saving ${matchesCount} files WITH MATCHES to previousSearchFiles (out of ${files.length} total files searched).`
+                )
+                this.previousSearchFiles = filesWithMatches
+              } else {
+                this.extension.channel.appendLine(
+                  `[Debug] Search-in-results completed. Keeping existing previousSearchFiles set (${this.previousSearchFiles.size} files).`
+                )
+              }
+
               this.extension.channel.appendLine(
                 'Text search finished processing files.'
               )
@@ -704,6 +870,21 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
                 'Text search cancelled during setup/error.'
               )
               this.emit('done')
+            }
+          } finally {
+            // Log the state of previousSearchFiles at the very end
+            this.extension.channel.appendLine(
+              `[Debug] END OF TEXT SEARCH - previousSearchFiles.size: ${this.previousSearchFiles.size}`
+            )
+            if (this.previousSearchFiles.size > 0) {
+              this.extension.channel.appendLine(
+                `[Debug] Sample from previousSearchFiles: ${Array.from(
+                  this.previousSearchFiles
+                )
+                  .slice(0, 3)
+                  .map((f) => Path.basename(f))
+                  .join(', ')}...`
+              )
             }
           }
         })()
@@ -740,28 +921,46 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
               throw new Error('Worker pool unavailable after startup await.')
 
             this.extension.channel.appendLine(
-              `Starting AST search with transform/transformFile: ${
-                useTransformFile ? transformFile : JSON.stringify(transform)
+              `Starting AST search with transform${
+                useTransformFile ? ' file' : ''
               }`
             )
             this.extension.channel.appendLine(
-              `AST config: ${JSON.stringify(astConfig)}`
+              `AST config: parser=${astConfig.parser}, prettier=${astConfig.prettier}, preferSimpleReplacement=${astConfig.preferSimpleReplacement}`
             )
-            const astInclude = this.params.include
-              ? convertGlobPattern(this.params.include, workspaceFolders)
-              : joinPatterns(workspaceFolders)
+
+            let astPaths
+            if (searchInResults) {
+              const previousFilesList = Array.from(this.previousSearchFiles)
+              astPaths = previousFilesList
+              this.extension.channel.appendLine(
+                `AST search in ${previousFilesList.length} previous results`
+              )
+            } else {
+              const astInclude = this.params.include
+                ? convertGlobPattern(this.params.include, workspaceFolders)
+                : joinPatterns(workspaceFolders)
+              astPaths = [astInclude]
+            }
+
             const astExclude = this.params.exclude
               ? convertGlobPattern(this.params.exclude, workspaceFolders)
               : undefined
+
             this.extension.channel.appendLine(
-              `AST paths: ${JSON.stringify(
-                astInclude
-              )}, exclude: ${JSON.stringify(astExclude)}`
+              `AST paths count: ${astPaths.length}, exclude: ${
+                astExclude ? 'specified' : 'none'
+              }`
             )
 
+            if (!searchInResults) {
+              this.processedFiles.clear()
+              this.transformResults.clear()
+            }
+
             for await (const next of currentPool.runTransform({
-              paths: [astInclude],
-              exclude: astExclude,
+              paths: astPaths,
+              exclude: searchInResults ? undefined : astExclude,
               getResolveAgainstDir: (filename: string) => {
                 return (
                   workspaceFolders.find(
@@ -785,10 +984,15 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
                 this.handleResult(next.result)
               } else {
                 this.extension.channel.appendLine(
-                  `Received event without result: ${JSON.stringify(next)}`
+                  `Received event without result type: ${next.type}`
                 )
               }
             }
+
+            if (!searchInResults) {
+              this.previousSearchFiles = new Set(this.processedFiles)
+            }
+
             if (!signal.aborted) {
               this.emit('done')
             } else {
