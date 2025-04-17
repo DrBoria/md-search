@@ -19,6 +19,7 @@ import {
   SearchReplaceViewStatus,
   SearchReplaceViewValues,
   InitialDataFromExtension,
+  SearchLevel,
 } from './SearchReplaceViewTypes'
 import path from 'path-browserify' // Use path-browserify for web compatibility
 import { URI } from 'vscode-uri'; // Import URI library
@@ -468,18 +469,50 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     const [matchCase, setMatchCase] = useState(values.matchCase);
     const [wholeWord, setWholeWord] = useState(values.wholeWord);
     
-    // --- Nested Search (Find in Found) States ---
-    const [showNestedSearch, setShowNestedSearch] = useState(initialState.showNestedSearch ?? false);
-    const [nestedSearchValues, setNestedSearchValues] = useState<SearchReplaceViewValues>({
-        find: '', replace: '', paused: false, include: '', exclude: '',
-        parser: 'babel', prettier: true, babelGeneratorHack: false, preferSimpleReplacement: false,
-        searchMode: 'text', matchCase: false, wholeWord: false, searchInResults: false,
+    // --- Multi-level Nested Search (Find in Found) States ---
+    // Initializing searchLevels as an array of search levels, with the base search as the first level
+    const [searchLevels, setSearchLevels] = useState<SearchLevel[]>(() => {
+        // Check if we have saved search levels in state
+        const savedLevels = initialState.searchLevels || [];
+        
+        if (savedLevels.length === 0) {
+            // Initialize with the base search level only
+            return [{
+                values,
+                resultsByFile,
+                matchCase: values.matchCase,
+                wholeWord: values.wholeWord,
+                searchMode: values.searchMode,
+                isReplaceVisible,
+                expandedFiles: new Set(),
+                expandedFolders: new Set(),
+                label: 'Initial search'
+            }];
+        }
+        
+        // Convert any saved levels from plain objects to proper SearchLevel objects
+        return savedLevels.map((level: any) => ({
+            ...level,
+            // Convert arrays back to Sets for expandedFiles and expandedFolders
+            expandedFiles: level.expandedFiles instanceof Set 
+                ? level.expandedFiles 
+                : new Set(Array.isArray(level.expandedFiles) ? level.expandedFiles : []),
+            expandedFolders: level.expandedFolders instanceof Set 
+                ? level.expandedFolders 
+                : new Set(Array.isArray(level.expandedFolders) ? level.expandedFolders : [])
+        }));
     });
-    const [nestedResultsByFile, setNestedResultsByFile] = useState<Record<string, SerializedTransformResultEvent[]>>({});
-    const [nestedMatchCase, setNestedMatchCase] = useState(false);
-    const [nestedWholeWord, setNestedWholeWord] = useState(false);
-    const [nestedSearchMode, setNestedSearchMode] = useState<SearchReplaceViewValues['searchMode']>('text');
-    const [isNestedReplaceVisible, setIsNestedReplaceVisible] = useState(false);
+    
+    // Convenience flag to check if we're in a nested search
+    const isInNestedSearch = searchLevels.length > 1;
+    
+    // Get current active search level (the last one in the array)
+    const activeSearchLevel = searchLevels[searchLevels.length - 1];
+    
+    // Keep track of whether replace interface is showing in the active nested search
+    const [isNestedReplaceVisible, setIsNestedReplaceVisible] = useState(initialState.isNestedReplaceVisible ?? false);
+    
+    // Flag for server-side search in results
     const [searchInResults, setSearchInResults] = useState(values.searchInResults || false);
 
     // --- Save State Effect ---
@@ -490,11 +523,20 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
             // Convert Sets to Arrays for storage
             expandedFiles: Array.from(expandedFiles), 
             expandedFolders: Array.from(expandedFolders),
-            // Nested search state
-            showNestedSearch, nestedSearchValues, nestedResultsByFile,
+            // Save search levels stack
+            searchLevels: searchLevels.map(level => ({
+                ...level,
+                // Convert Sets to Arrays for storage
+                expandedFiles: Array.from(level.expandedFiles instanceof Set ? level.expandedFiles : new Set()),
+                expandedFolders: Array.from(level.expandedFolders instanceof Set ? level.expandedFolders : new Set())
+            })),
+            isNestedReplaceVisible
          });
-    }, [values, status, resultsByFile, workspacePath, isReplaceVisible, showSettings, viewMode, 
-        expandedFiles, expandedFolders, vscode, showNestedSearch, nestedSearchValues, nestedResultsByFile]);
+    }, [
+        values, status, resultsByFile, workspacePath, isReplaceVisible, 
+        showSettings, viewMode, expandedFiles, expandedFolders, 
+        vscode, searchLevels, isNestedReplaceVisible
+    ]);
 
     // --- Message Listener ---
     useEffect(() => {
@@ -653,8 +695,15 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     }, [postValuesChange]);
 
     const handleReplaceAllClick = useCallback(() => {
-         vscode.postMessage({ type: 'replace' });
-    }, [vscode]);
+        // Собираем списки файлов из текущих результатов
+        const currentResultFileList = Object.keys(resultsByFile);
+        logToExtension('info', `Replacing in ${currentResultFileList.length} files`);
+        
+        vscode.postMessage({ 
+            type: 'replace',
+            filePaths: currentResultFileList
+        });
+    }, [vscode, resultsByFile, logToExtension]);
 
     const handleKeyDown = useEvent((e: React.KeyboardEvent<HTMLDivElement>) => {
         if (e.ctrlKey || e.metaKey) { /* Potential future shortcuts */ }
@@ -743,102 +792,122 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     const handleFindInFound = useCallback(() => {
         logToExtension('info', '[UI Debug] handleFindInFound called!');
         // Включаем интерфейс поиска в найденных результатах
-        setShowNestedSearch(true);
-        // Инициализируем значения для вложенного поиска
-        setNestedSearchValues({
-            ...values,
-            find: '',
-            replace: ''
-        });
-        setNestedResultsByFile({});
-        setNestedMatchCase(false);
-        setNestedWholeWord(false);
-        setNestedSearchMode('text');
-        setIsNestedReplaceVisible(false);
-        
-        // Возвращаем этот код для обеспечения работы серверного поиска в найденных
-        // Эта часть кода важна для активации поиска в результатах на сервере
+        setSearchLevels(prev => [...prev, {
+            values,
+            resultsByFile,
+            matchCase: values.matchCase,
+            wholeWord: values.wholeWord,
+            searchMode: values.searchMode,
+            isReplaceVisible,
+            expandedFiles: new Set(),
+            expandedFolders: new Set(),
+            label: 'Nested search'
+        }]);
         setSearchInResults(true);
         postValuesChange({ searchInResults: true });
     }, [values, postValuesChange, setSearchInResults, logToExtension]);
 
     const handleCloseNestedSearch = useCallback(() => {
         logToExtension('info', '[UI Debug] handleCloseNestedSearch called!');
-        setShowNestedSearch(false);
-        setNestedResultsByFile({});
-        
-        // Возвращаем сброс флага searchInResults при закрытии вложенного поиска
-        logToExtension('info', '[UI Debug] Attempting to set searchInResults to false.');
-        // Update boolean state
+        setSearchLevels(prev => prev.slice(0, -1));
         setSearchInResults(false);
-        // Update the main values object state
-        setValues(prev => ({ ...prev, searchInResults: false }));
-        // Send message to backend
-        postValuesChange({ searchInResults: false }); 
-    }, [postValuesChange, setSearchInResults, logToExtension, setValues]);
+        postValuesChange({ searchInResults: false });
+    }, [postValuesChange, setSearchInResults, logToExtension]);
 
     const handleNestedFindChange = useCallback((e: any) => {
-        setNestedSearchValues(prev => ({
-            ...prev,
-            find: e.target.value
-        }));
+        setSearchLevels((prev: SearchLevel[]) => [
+            ...prev.slice(0, -1),
+            {
+                ...prev[prev.length - 1],
+                values: {
+                    ...prev[prev.length - 1].values,
+                    find: e.target.value
+                }
+            }
+        ]);
     }, []);
 
     const handleNestedReplaceChange = useCallback((e: any) => {
-        setNestedSearchValues(prev => ({
-            ...prev,
-            replace: e.target.value
-        }));
+        setSearchLevels((prev: SearchLevel[]) => [
+            ...prev.slice(0, -1),
+            {
+                ...prev[prev.length - 1],
+                values: {
+                    ...prev[prev.length - 1].values,
+                    replace: e.target.value
+                }
+            }
+        ]);
     }, []);
 
     const toggleNestedMatchCase = useCallback(() => {
-        setNestedMatchCase(prev => !prev);
-        setNestedSearchValues(prev => ({
-            ...prev,
-            matchCase: !nestedMatchCase
-        }));
-    }, [nestedMatchCase]);
-
-    const toggleNestedWholeWord = useCallback(() => {
-        setNestedWholeWord(prev => !prev);
-        setNestedSearchValues(prev => ({
-            ...prev,
-            wholeWord: !nestedWholeWord
-        }));
-    }, [nestedWholeWord]);
-
-    const handleNestedModeChange = useCallback((newMode: SearchReplaceViewValues['searchMode']) => {
-        const finalMode = (newMode === nestedSearchMode && newMode !== 'text') ? 'text' : newMode;
-        setNestedSearchMode(finalMode);
-        setNestedSearchValues(prev => ({
-            ...prev,
-            searchMode: finalMode
-        }));
-    }, [nestedSearchMode]);
-
-    const toggleNestedReplace = useCallback(() => {
-        setIsNestedReplaceVisible(prev => !prev);
+        setSearchLevels((prev: SearchLevel[]) => [
+            ...prev.slice(0, -1),
+            {
+                ...prev[prev.length - 1],
+                values: {
+                    ...prev[prev.length - 1].values,
+                    matchCase: !prev[prev.length - 1].values.matchCase
+                }
+            }
+        ]);
     }, []);
 
-    // Perform the nested search when find term changes
+    const toggleNestedWholeWord = useCallback(() => {
+        setSearchLevels((prev: SearchLevel[]) => [
+            ...prev.slice(0, -1),
+            {
+                ...prev[prev.length - 1],
+                values: {
+                    ...prev[prev.length - 1].values,
+                    wholeWord: !prev[prev.length - 1].values.wholeWord
+                }
+            }
+        ]);
+    }, []);
+
+    const handleNestedModeChange = useCallback((newMode: SearchReplaceViewValues['searchMode']) => {
+        setSearchLevels((prev: SearchLevel[]) => [
+            ...prev.slice(0, -1),
+            {
+                ...prev[prev.length - 1],
+                values: {
+                    ...prev[prev.length - 1].values,
+                    searchMode: (newMode === prev[prev.length - 1].values.searchMode && newMode !== 'text') ? 'text' : newMode
+                }
+            }
+        ]);
+    }, []);
+
+    const toggleNestedReplace = useCallback(() => {
+        setIsNestedReplaceVisible((prev: boolean) => !prev);
+    }, []);
+
+    // Fix the useEffect that performs nested search
     useEffect(() => {
-        if (showNestedSearch && nestedSearchValues.find) {
+        if (isInNestedSearch && searchLevels[searchLevels.length - 1].values.find) {
+            const currentLevel = searchLevels[searchLevels.length - 1];
             // Create search regex based on current settings
-            const pattern = nestedSearchMode === 'regex' 
-                ? nestedSearchValues.find 
-                : escapeRegExp(nestedSearchValues.find);
+            const pattern = currentLevel.values.searchMode === 'regex' 
+                ? currentLevel.values.find
+                : escapeRegExp(currentLevel.values.find);
                 
-            const modifiedPattern = nestedWholeWord && nestedSearchMode === 'text' 
+            const modifiedPattern = currentLevel.values.wholeWord && currentLevel.values.searchMode === 'text' 
                 ? `\\b${pattern}\\b` 
                 : pattern;
                 
-            const flags = nestedMatchCase ? 'g' : 'gi';
+            const flags = currentLevel.values.matchCase ? 'g' : 'gi';
             const regex = new RegExp(modifiedPattern, flags);
             
-            // Search through existing results
+            // Search through results from previous level
             const newResults: Record<string, SerializedTransformResultEvent[]> = {};
             
-            Object.entries(resultsByFile).forEach(([filePath, fileResults]) => {
+            // Get results from the previous level (or base results if only one level back)
+            const sourceResults = searchLevels.length > 2 
+                ? searchLevels[searchLevels.length - 2].resultsByFile
+                : resultsByFile;
+            
+            Object.entries(sourceResults).forEach(([filePath, fileResults]) => {
                 const fileMatches: SerializedTransformResultEvent[] = [];
                 
                 fileResults.forEach(result => {
@@ -872,40 +941,55 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                 }
             });
             
-            setNestedResultsByFile(newResults);
+            setSearchLevels((prev: SearchLevel[]) => [
+                ...prev.slice(0, -1),
+                {
+                    ...prev[prev.length - 1],
+                    resultsByFile: newResults
+                }
+            ]);
         }
-    }, [showNestedSearch, nestedSearchValues.find, nestedMatchCase, nestedWholeWord, nestedSearchMode, resultsByFile]);
+    }, [isInNestedSearch, searchLevels, resultsByFile]);
 
     const toggleSearchInResults = useCallback(() => {
         const next = !searchInResults;
         setSearchInResults(next); // Update local state immediately
         postValuesChange({ searchInResults: next });
-    // Add logToExtension to dependency array
     }, [searchInResults, postValuesChange, logToExtension, setSearchInResults]);
 
     const handleNestedReplaceAllClick = useCallback(() => {
         // First, update the main values with nested values temporarily
         const originalValues = {...values};
+        const currentLevel = searchLevels[searchLevels.length - 1];
+        
+        // Собираем списки файлов из вложенного поиска
+        const nestedResultFileList = Object.keys(currentLevel.resultsByFile);
+        logToExtension('info', `Replacing in ${nestedResultFileList.length} nested search files`);
+        
         // Set the main search values to match the nested search values
         vscode.postMessage({ 
             type: 'values', 
             values: {
                 ...values,
-                find: nestedSearchValues.find,
-                replace: nestedSearchValues.replace,
-                matchCase: nestedMatchCase,
-                wholeWord: nestedWholeWord,
-                searchMode: nestedSearchMode
+                find: currentLevel.values.find,
+                replace: currentLevel.values.replace,
+                matchCase: currentLevel.values.matchCase,
+                wholeWord: currentLevel.values.wholeWord,
+                searchMode: currentLevel.values.searchMode
             }
         });
         
-        // Then trigger replace
-        vscode.postMessage({ type: 'replace' });
+        // Then trigger replace with file list
+        vscode.postMessage({ 
+            type: 'replace',
+            filePaths: nestedResultFileList
+        });
         
         // Log the operation
         logToExtension('info', 'Executing nested replace', { 
-            find: nestedSearchValues.find,
-            replace: nestedSearchValues.replace
+            find: currentLevel.values.find,
+            replace: currentLevel.values.replace,
+            fileCount: nestedResultFileList.length
         });
 
         // Listen for replace completion
@@ -919,8 +1003,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                 });
                 
                 // Close nested search mode after replace is done
-                setShowNestedSearch(false);
-                setNestedResultsByFile({});
+                setSearchLevels((prev: SearchLevel[]) => prev.slice(0, -1));
                 setSearchInResults(false);
                 
                 // Clean up event listener
@@ -931,7 +1014,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
         // Add event listener for replace completion
         window.addEventListener('message', handleReplaceDone);
         
-    }, [vscode, values, nestedSearchValues, nestedMatchCase, nestedWholeWord, nestedSearchMode, logToExtension, setSearchInResults, setShowNestedSearch]);
+    }, [vscode, values, searchLevels, logToExtension, setSearchInResults]);
 
     return (
         <div
@@ -945,7 +1028,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
           `}
         >
           {/* Show Find in Found Search Interface when activated */}
-          {showNestedSearch && (
+          {isInNestedSearch && (
             <div className={css`
               background-color: var(--vscode-editor-background);
               padding: 5px;
@@ -955,17 +1038,75 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
               z-index: 10;
               box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
             `}>
-              {/* Close Button for nested search */}
+              {/* Navigation Breadcrumbs for Nested Searches */}
               <div className={css`
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
-                margin-bottom: 5px;
+                margin-bottom: 8px;
               `}>
-                <span className={css`color: var(--vscode-descriptionForeground);`}>
-                  Find in Found Results
-                </span>
-                <VSCodeButton appearance="icon" onClick={handleCloseNestedSearch} title="Close Find in Found">
+                {/* Search level breadcrumbs */}
+                <div className={css`
+                  display: flex;
+                  align-items: center;
+                  flex-wrap: wrap;
+                  gap: 4px;
+                `}>
+                  {/* Root search level */}
+                  <span 
+                    className={css`
+                      padding: 2px 6px;
+                      border-radius: 3px;
+                      font-size: 12px;
+                      cursor: pointer;
+                      color: var(--vscode-descriptionForeground);
+                      &:hover { text-decoration: underline; }
+                    `}
+                    onClick={() => {
+                      // Jump back to root search
+                      setSearchLevels((prev: SearchLevel[]) => [prev[0]]);
+                      setSearchInResults(false);
+                      postValuesChange({ searchInResults: false });
+                    }}
+                  >
+                    Root search
+                  </span>
+                  
+                  {/* Show each search level as a breadcrumb */}
+                  {searchLevels.slice(1).map((level, index) => (
+                    <React.Fragment key={index + 1}>
+                      <span className={css`color: var(--vscode-descriptionForeground);`}>&gt;</span>
+                      <span 
+                        className={css`
+                          padding: 2px 6px;
+                          border-radius: 3px;
+                          font-size: 12px;
+                          cursor: pointer;
+                          ${index === searchLevels.length - 2 ? 'font-weight: bold;' : 'color: var(--vscode-descriptionForeground);'}
+                          ${index === searchLevels.length - 2 ? 'background-color: var(--vscode-badge-background);' : ''}
+                          &:hover { text-decoration: underline; }
+                        `}
+                        onClick={() => {
+                          // Jump to this specific search level
+                          if (index < searchLevels.length - 2) {
+                            setSearchLevels((prev: SearchLevel[]) => prev.slice(0, index + 2));
+                            setSearchInResults(true);
+                            postValuesChange({ searchInResults: true });
+                          }
+                        }}
+                      >
+                        {level.values.find || `Search ${index + 1}`}
+                      </span>
+                    </React.Fragment>
+                  ))}
+                </div>
+                
+                {/* Close button for the current nested search */}
+                <VSCodeButton 
+                  appearance="icon" 
+                  onClick={handleCloseNestedSearch} 
+                  title="Close Find in Found"
+                >
                   <span className="codicon codicon-close"></span>
                 </VSCodeButton>
               </div>
@@ -986,34 +1127,34 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                             aria-label="Nested Search Pattern"
                             name="nestedSearch"
                             rows={1}
-                            value={nestedSearchValues.find}
+                            value={searchLevels[searchLevels.length - 1].values.find}
                             onInput={handleNestedFindChange}
                             className={css` flex-grow: 1; `} // Make text area grow
                          />
                          {/* Search Options Buttons */}
                          <VSCodeButton 
-                            appearance={nestedMatchCase ? "secondary" : "icon"} 
+                            appearance={searchLevels[searchLevels.length - 1].values.matchCase ? "secondary" : "icon"} 
                             onClick={toggleNestedMatchCase} 
                             title="Match Case (Aa)"
                          >
                              <span className="codicon codicon-case-sensitive" />
                          </VSCodeButton>
                          <VSCodeButton 
-                            appearance={nestedWholeWord ? "secondary" : "icon"} 
+                            appearance={searchLevels[searchLevels.length - 1].values.wholeWord ? "secondary" : "icon"} 
                             onClick={toggleNestedWholeWord} 
                             title="Match Whole Word (Ab)"
                          >
                              <span className="codicon codicon-whole-word" />
                          </VSCodeButton>
                          <VSCodeButton 
-                            appearance={nestedSearchMode === 'regex' ? "secondary" : "icon"} 
+                            appearance={searchLevels[searchLevels.length - 1].values.searchMode === 'regex' ? "secondary" : "icon"} 
                             onClick={() => handleNestedModeChange('regex')} 
                             title="Use Regular Expression (.*)"
                          >
                              <span className="codicon codicon-regex" />
                          </VSCodeButton>
                          <VSCodeButton 
-                            appearance={nestedSearchMode === 'astx' ? "secondary" : "icon"} 
+                            appearance={searchLevels[searchLevels.length - 1].values.searchMode === 'astx' ? "secondary" : "icon"} 
                             onClick={() => handleNestedModeChange('astx')} 
                             title="Use AST Search (<*>)"
                          >
@@ -1029,7 +1170,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                 aria-label="Nested Replace Pattern"
                                 name="nestedReplace"
                                 rows={1}
-                                value={nestedSearchValues.replace}
+                                value={searchLevels[searchLevels.length - 1].values.replace}
                                 onInput={handleNestedReplaceChange}
                                 className={css` flex-grow: 1; `} // Make textarea grow
                             />
@@ -1037,8 +1178,8 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                             <VSCodeButton
                                 appearance="icon"
                                 onClick={handleNestedReplaceAllClick}
-                                disabled={!Object.keys(nestedResultsByFile).length}
-                                title={!Object.keys(nestedResultsByFile).length ? "Replace All" : `Replace ${nestedSearchValues.replace} in matched files`}
+                                disabled={!Object.keys(searchLevels[searchLevels.length - 1].resultsByFile).length}
+                                title={!Object.keys(searchLevels[searchLevels.length - 1].resultsByFile).length ? "Replace All" : `Replace ${searchLevels[searchLevels.length - 1].values.replace} in matched files`}
                                 className={css` flex-shrink: 0; `} // Prevent shrinking
                             >
                                 <span className="codicon codicon-replace-all" />
@@ -1047,13 +1188,53 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                     )}
                 </div>
               </div>
+
+              {/* Button to add another level of nested search */}
+              {Object.keys(searchLevels[searchLevels.length - 1].resultsByFile).length > 0 && (
+                <div className={css`
+                    display: flex;
+                    justify-content: flex-end;
+                    margin-top: 8px;
+                `}>
+                    <VSCodeButton
+                        appearance="secondary"
+                        onClick={() => {
+                            // Create a new nested search level
+                            const currentLevel = searchLevels[searchLevels.length - 1];
+                            setSearchLevels((prev: SearchLevel[]) => [...prev, {
+                                values: {
+                                    ...currentLevel.values,
+                                    find: '',
+                                    replace: ''
+                                },
+                                resultsByFile: {},
+                                matchCase: false,
+                                wholeWord: false,
+                                searchMode: 'text',
+                                isReplaceVisible: false,
+                                expandedFiles: new Set(),
+                                expandedFolders: new Set(),
+                                label: `Search in results (level ${searchLevels.length})`
+                            }]);
+                            
+                            // Keep the searchInResults flag active for server-side functionality
+                            setSearchInResults(true);
+                            postValuesChange({ searchInResults: true });
+                        }}
+                        title="Search within these results"
+                    >
+                        <span className="codicon codicon-search-new-file"></span>
+                        <span>Find in results</span>
+                    </VSCodeButton>
+                </div>
+              )}
             </div>
           )}
           
           {/* Original Search Interface */}
           <div className={css`
-            ${showNestedSearch ? 'opacity: 0.7;' : ''}
-            ${showNestedSearch ? 'pointer-events: none;' : ''}
+            ${isInNestedSearch ? 'opacity: 0.7;' : ''}
+            ${isInNestedSearch ? 'pointer-events: none;' : ''}
           `}>
             {/* --- Search/Replace/Actions Row --- */}
             <div className={css` display: flex; align-items: flex-start; gap: 4px; `}>
@@ -1186,7 +1367,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
             </div>
             
             {/* --- Collapsible Settings Panel --- */} 
-            {!showNestedSearch && showSettings && (
+            {!isInNestedSearch && showSettings && (
                 <div className={css` display: flex; flex-direction: column; gap: 5px; padding: 5px; border-top: 1px solid var(--vscode-divider-background); margin-top: 4px;`}>
                     <VSCodeTextField name="filesToInclude" value={values.include || ''} onInput={handleIncludeChange}> files to include </VSCodeTextField>
                     <VSCodeTextField name="filesToExclude" value={values.exclude || ''} onInput={handleExcludeChange}> files to exclude </VSCodeTextField>
@@ -1265,9 +1446,9 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                 )}
 
                 {/* Show either nested results or regular results based on state */}
-                {showNestedSearch ? (
+                {isInNestedSearch ? (
                     // Nested search results view
-                    Object.keys(nestedResultsByFile).length > 0 ? (
+                    Object.keys(searchLevels[searchLevels.length - 1].resultsByFile).length > 0 ? (
                         <div>
                             {viewMode === 'tree' ? (
                                 // Tree view for nested results
@@ -1301,7 +1482,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                 // List view for nested results
                                 <div>
                                     {/* Group results by file */}
-                                    {Object.entries(nestedResultsByFile).map(([filePath, results]) => {
+                                    {Object.entries(searchLevels[searchLevels.length - 1].resultsByFile).map(([filePath, results]) => {
                                         const displayPath = workspacePath 
                                             ? path.relative(uriToPath(workspacePath) || '', uriToPath(filePath) || filePath)
                                             : getFilename(filePath);
@@ -1380,7 +1561,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                 </div>
                             )}
                         </div>
-                    ) : nestedSearchValues.find ? (
+                    ) : searchLevels[searchLevels.length - 1].values.find ? (
                         <div className={css`
                             display: flex;
                             justify-content: center;
@@ -1388,7 +1569,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                             height: 100px;
                             color: var(--vscode-descriptionForeground);
                         `}>
-                            No matches found for "{nestedSearchValues.find}"
+                            No matches found for "{searchLevels[searchLevels.length - 1].values.find}"
                         </div>
                     ) : (
                         <div className={css`

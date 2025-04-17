@@ -280,7 +280,7 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
         file,
         transform,
         transformFile,
-        useTransformFile
+        useTransformFile ?? false
       )
     } catch (error) {
       if (this.abortController?.signal.aborted) {
@@ -531,11 +531,24 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
 
       if (this.params.searchInResults) {
         this.extension.channel.appendLine(
-          `[Debug] Converting previousSearchFiles to fileUris (${this.previousSearchFiles.size} files)...`
+          `[Debug] Search in Results active. Using previousSearchFiles with ${this.previousSearchFiles.size} files.`
         )
         fileUris = Array.from(this.previousSearchFiles).map((file) =>
           vscode.Uri.file(file)
         )
+
+        // Make sure we have files to search in
+        if (fileUris.length === 0) {
+          this.extension.channel.appendLine(
+            'No previous search results available to search within. Falling back to normal search.'
+          )
+          fileUris = await vscode.workspace.findFiles(
+            includePattern,
+            excludePattern,
+            undefined,
+            cancellationToken
+          )
+        }
       } else {
         fileUris = await vscode.workspace.findFiles(
           includePattern,
@@ -551,6 +564,11 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
         return
       }
 
+      // Log for debugging purposes
+      this.extension.channel.appendLine(
+        `[Debug] Searching in ${fileUris.length} files`
+      )
+
       // Run the actual text search
       const filesWithMatches = await this.textSearchRunner.performTextSearch(
         this.params,
@@ -561,27 +579,32 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
 
       if (!this.abortController?.signal.aborted) {
         // Update previousSearchFiles with only files that had matches
-        if (!this.params.searchInResults) {
-          const matchesCount = filesWithMatches.size
+        const matchesCount = filesWithMatches.size
+
+        if (this.params.searchInResults) {
+          this.extension.channel.appendLine(
+            `[Debug] Nested search completed. Found matches in ${matchesCount} files within previous results.`
+          )
+        } else {
           this.extension.channel.appendLine(
             `[Debug] Normal search completed. Saving ${matchesCount} files WITH MATCHES to previousSearchFiles.`
           )
-          this.previousSearchFiles = filesWithMatches
         }
+
+        // Always update the previousSearchFiles with the latest results
+        this.previousSearchFiles = filesWithMatches
 
         this.extension.channel.appendLine(
           'Text search finished processing files.'
         )
         this.emit('done')
       }
-    } catch (error) {
-      if (!this.abortController?.signal.aborted) {
-        const finalError =
-          error instanceof Error ? error : new Error(String(error))
-        this.extension.logError(finalError)
-        this.emit('error', finalError)
-        this.emit('done')
-      }
+    } catch (error: any) {
+      this.extension.channel.appendLine(
+        `Search error: ${error?.message || String(error)}`
+      )
+      this.emit('error', error)
+      this.emit('done')
     }
   }
 
@@ -700,7 +723,7 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
         this.extension.channel.appendLine(`Applied edits successfully.`)
         this.transformResults.clear()
         this.processedFiles.clear()
-        this.emit('stop')
+        this.emit('replaceDone')
       } else {
         this.extension.channel.appendLine(
           `Failed to apply workspace edit (applyEdit returned false). Edits remain staged.`

@@ -71,7 +71,39 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
             break
           }
           case 'replace': {
-            this.extension.replace()
+            // Проверяем, есть ли список файлов для замены
+            const filePaths = message.filePaths || []
+            this.extension.channel.appendLine(
+              `Replace request received with ${filePaths.length} files`
+            )
+
+            // Если есть список файлов, фильтруем результаты перед заменой
+            if (filePaths.length > 0) {
+              // Фильтруем ResultProvider, оставляя только файлы из списка filePaths
+              const originalResults =
+                this.extension.transformResultProvider.results
+              const filteredResults = new Map()
+
+              // Копируем только результаты для файлов из filePaths
+              for (const filePath of filePaths) {
+                if (originalResults.has(filePath)) {
+                  filteredResults.set(filePath, originalResults.get(filePath))
+                }
+              }
+
+              // Временно заменяем результаты на отфильтрованные
+              const tempResults = this.extension.transformResultProvider.results
+              this.extension.transformResultProvider.results = filteredResults
+
+              // Выполняем замену
+              this.extension.replace()
+
+              // Восстанавливаем оригинальные результаты
+              this.extension.transformResultProvider.results = tempResults
+            } else {
+              // Если список файлов не указан, выполняем обычную замену
+              this.extension.replace()
+            }
             break
           }
           case 'openFile': {

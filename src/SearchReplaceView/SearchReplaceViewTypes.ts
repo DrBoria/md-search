@@ -43,6 +43,24 @@ export interface SearchReplaceViewValues {
   searchInResults: boolean
 }
 
+// Represents a single level of search in the Find in Found stack
+export interface SearchLevel {
+  // Values for this search level
+  values: SearchReplaceViewValues
+  // Results for this search level
+  resultsByFile: Record<string, SerializedTransformResultEvent[]>
+  // UI state for this level
+  matchCase: boolean
+  wholeWord: boolean
+  searchMode: SearchReplaceViewValues['searchMode']
+  isReplaceVisible: boolean
+  // Navigation state within results
+  expandedFiles: Set<string> | string[]
+  expandedFolders: Set<string> | string[]
+  // Label for this search level (for navigation breadcrumbs)
+  label?: string
+}
+
 export type InitialDataFromExtension = {
   type: 'initialData'
   values: SearchReplaceViewValues
@@ -92,6 +110,7 @@ export type MessageFromWebview =
     } & SearchReplaceViewValues)
   | {
       type: 'replace'
+      filePaths?: string[]
     }
   | {
       type: 'openFile'
