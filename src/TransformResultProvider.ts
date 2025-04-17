@@ -1,6 +1,6 @@
 import { CodeFrameError } from 'astx'
 import * as vscode from 'vscode'
-import { TransformResultEvent } from './AstxRunner'
+import { TransformResultEvent } from './searchController/SearchRunner'
 import { ASTX_REPORTS_SCHEME, ASTX_RESULT_SCHEME } from './constants'
 import { AstxExtension } from './extension'
 

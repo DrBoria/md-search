@@ -1,10 +1,9 @@
 import * as vscode from 'vscode'
 import {
   AstxRunner,
-  AstxRunnerEvents,
   ProgressEvent,
   TransformResultEvent,
-} from '../AstxRunner'
+} from '../searchController/SearchRunner'
 import { AstxExtension, Params } from '../extension'
 import { ASTX_RESULT_SCHEME } from '../constants'
 import {
@@ -12,6 +11,7 @@ import {
   SearchReplaceViewStatus,
   MessageToWebview,
 } from './SearchReplaceViewTypes'
+import { AstxRunnerEvents } from '../searchController/SearchRunnerTypes'
 export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'astx.SearchReplaceView'
 

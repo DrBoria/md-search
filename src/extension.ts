@@ -2,7 +2,7 @@
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode'
 import os from 'os'
-import { AstxRunner } from './AstxRunner'
+import { AstxRunner } from './searchController/SearchRunner'
 import { ASTX_REPORTS_SCHEME, ASTX_RESULT_SCHEME } from './constants'
 import { SearchReplaceViewProvider } from './SearchReplaceView/SearchReplaceViewProvider'
 import TransformResultProvider from './TransformResultProvider'
