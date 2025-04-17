@@ -312,10 +312,13 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
   private _getHtmlForWebview(webview: vscode.Webview): string {
     // Используем toWebviewUri для получения правильных URI ресурсов
     const scriptUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this._extensionUri, 'dist', 'SearchReplaceViewEntry.js')
+      vscode.Uri.joinPath(this._extensionUri, 'out', 'SearchReplaceView.js')
     )
     const stylesUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this._extensionUri, 'dist', 'SearchReplaceViewEntry.css')
+      vscode.Uri.joinPath(this._extensionUri, 'out', 'SearchReplaceView.css')
+    )
+    const codiconsUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this._extensionUri, 'node_modules', '@vscode/codicons', 'dist')
     )
     // const astxIconUri = webview.asWebviewUri(
     //   vscode.Uri.joinPath(this._extensionUri, 'resources', 'astx.svg')
@@ -328,8 +331,9 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; font-src ${webview.cspSource}; img-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
   <link rel="stylesheet" type="text/css" href="${stylesUri}">
+  <link rel="stylesheet" type="text/css" href="${codiconsUri}/codicon.css">
   <title>Search & Replace</title>
 </head>
 <body>

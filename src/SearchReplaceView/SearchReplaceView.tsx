@@ -1,5 +1,4 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react'
-import '@vscode/codicons/dist/codicon.css'
 import {
   VSCodeTextArea,
   VSCodeTextField,
