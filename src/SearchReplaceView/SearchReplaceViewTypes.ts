@@ -76,6 +76,8 @@ export type MessageToWebview =
   | ClearResultsMessage
   | AddResultMessage
   | InitialDataFromExtension
+  | { type: 'replaceDone' }
+  | { type: 'stop' }
 
 export type MessageFromWebview =
   | {

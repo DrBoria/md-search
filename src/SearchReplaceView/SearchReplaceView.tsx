@@ -883,6 +883,56 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     // Add logToExtension to dependency array
     }, [searchInResults, postValuesChange, logToExtension, setSearchInResults]);
 
+    const handleNestedReplaceAllClick = useCallback(() => {
+        // First, update the main values with nested values temporarily
+        const originalValues = {...values};
+        // Set the main search values to match the nested search values
+        vscode.postMessage({ 
+            type: 'values', 
+            values: {
+                ...values,
+                find: nestedSearchValues.find,
+                replace: nestedSearchValues.replace,
+                matchCase: nestedMatchCase,
+                wholeWord: nestedWholeWord,
+                searchMode: nestedSearchMode
+            }
+        });
+        
+        // Then trigger replace
+        vscode.postMessage({ type: 'replace' });
+        
+        // Log the operation
+        logToExtension('info', 'Executing nested replace', { 
+            find: nestedSearchValues.find,
+            replace: nestedSearchValues.replace
+        });
+
+        // Listen for replace completion
+        const handleReplaceDone = (event: MessageEvent<MessageToWebview>) => {
+            const message = event.data;
+            if (message.type === 'replaceDone' || message.type === 'stop') {
+                // Restore original values
+                vscode.postMessage({ 
+                    type: 'values', 
+                    values: originalValues
+                });
+                
+                // Close nested search mode after replace is done
+                setShowNestedSearch(false);
+                setNestedResultsByFile({});
+                setSearchInResults(false);
+                
+                // Clean up event listener
+                window.removeEventListener('message', handleReplaceDone);
+            }
+        };
+        
+        // Add event listener for replace completion
+        window.addEventListener('message', handleReplaceDone);
+        
+    }, [vscode, values, nestedSearchValues, nestedMatchCase, nestedWholeWord, nestedSearchMode, logToExtension, setSearchInResults, setShowNestedSearch]);
+
     return (
         <div
           onKeyDown={handleKeyDown}
@@ -983,6 +1033,16 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                 onInput={handleNestedReplaceChange}
                                 className={css` flex-grow: 1; `} // Make textarea grow
                             />
+                            {/* Кнопка Replace All для вложенного поиска */}
+                            <VSCodeButton
+                                appearance="icon"
+                                onClick={handleNestedReplaceAllClick}
+                                disabled={!Object.keys(nestedResultsByFile).length}
+                                title={!Object.keys(nestedResultsByFile).length ? "Replace All" : `Replace ${nestedSearchValues.replace} in matched files`}
+                                className={css` flex-shrink: 0; `} // Prevent shrinking
+                            >
+                                <span className="codicon codicon-replace-all" />
+                            </VSCodeButton>
                         </div>
                     )}
                 </div>
