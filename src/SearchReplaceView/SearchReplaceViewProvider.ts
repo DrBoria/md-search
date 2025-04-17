@@ -29,7 +29,12 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.options = {
       // Allow scripts in the webview
       enableScripts: true,
-      localResourceRoots: [this._extensionUri],
+      // Разрешить доступ к расширению и его медиа-папке
+      localResourceRoots: [
+        this._extensionUri,
+        vscode.Uri.joinPath(this._extensionUri, 'media'),
+        vscode.Uri.joinPath(this._extensionUri, 'out')
+      ],
     }
 
     webviewView.webview.html = this._getHtmlForWebview(webviewView.webview)
@@ -307,13 +312,19 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     const scriptUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this._extensionUri, 'out', 'SearchReplaceView.js')
     )
+
+    // Удаляем код получения URI для иконки SVG
+    // const astxIconUri = webview.asWebviewUri(
+    //  vscode.Uri.joinPath(this._extensionUri, 'media', 'astx.svg')
+    // )
+    
     const webpackOrigin = '0.0.0.0:8378' // Use a nonce to only allow a specific script to be run.
 
     const nonce = getNonce()
 
     const csp = [
       `default-src 'none'`,
-      `img-src ${`vscode-file://vscode-app`} ${webview.cspSource} 'self'`,
+      `img-src ${`vscode-file://vscode-app`} ${webview.cspSource} 'self' data:`,
       ...(this.extension.isProduction
         ? [
             `script-src 'nonce-${nonce}'`,
@@ -340,8 +351,11 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
 
 				<meta name="viewport" content="width=device-width, initial-scale=1.0">
         <link href="${codiconsUri}" rel="stylesheet" />
+                
+                <!-- Удаляем скрытое изображение иконки для предзагрузки -->
+                <!-- <img src="${astxIconUri}" style="display: none;" id="astx-icon-preload" /> -->
 				
-				<title>Cat Colors</title>
+				<title>Search and Replace</title>
 			</head>
 			<body>
         ${

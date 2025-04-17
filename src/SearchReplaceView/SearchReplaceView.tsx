@@ -8,6 +8,7 @@ import {
   VSCodeOption,
   VSCodeCheckbox,
   VSCodeDivider,
+  VSCodeProgressRing,
 } from '@vscode/webview-ui-toolkit/react'
 import { css, keyframes } from '@emotion/css'
 import useEvent from '../react/useEvent'
@@ -832,10 +833,46 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
 
     const handleCloseNestedSearch = useCallback(() => {
         logToExtension('info', '[UI Debug] handleCloseNestedSearch called!');
-        setSearchLevels(prev => prev.slice(0, -1));
-        setSearchInResults(false);
-        postValuesChange({ searchInResults: false });
-    }, [postValuesChange, setSearchInResults, logToExtension]);
+        
+        setSearchLevels(prev => {
+            // Сохраняем предыдущий уровень для перезапуска поиска
+            const targetLevel = prev.length > 1 ? prev[prev.length - 2] : prev[0];
+            const isReturningToRoot = prev.length <= 2;
+            
+            // Если возвращаемся к корневому поиску
+            if (isReturningToRoot) {
+                setSearchInResults(false);
+                postValuesChange({ searchInResults: false });
+                
+                // Перезапускаем поиск для корневого уровня
+                if (targetLevel.values.find) {
+                    setTimeout(() => {
+                        vscode.postMessage({ 
+                            type: 'search', 
+                            ...targetLevel.values, 
+                            searchInResults: false 
+                        });
+                    }, 100);
+                }
+                
+                return [prev[0]]; // Оставляем только первый уровень
+            }
+            
+            // Иначе возвращаемся на уровень назад, сохраняя searchInResults
+            // Перезапускаем поиск для этого уровня
+            if (targetLevel.values.find) {
+                setTimeout(() => {
+                    vscode.postMessage({ 
+                        type: 'search', 
+                        ...targetLevel.values, 
+                        searchInResults: true 
+                    });
+                }, 100);
+            }
+            
+            return prev.slice(0, -1);
+        });
+    }, [postValuesChange, setSearchInResults, logToExtension, vscode]);
 
     const handleNestedFindChange = useCallback((e: any) => {
         setSearchLevels((prev: SearchLevel[]) => [
@@ -974,12 +1011,6 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
         }
     }, [isInNestedSearch, searchLevels, resultsByFile]);
 
-    const toggleSearchInResults = useCallback(() => {
-        const next = !searchInResults;
-        setSearchInResults(next); // Update local state immediately
-        postValuesChange({ searchInResults: next });
-    }, [searchInResults, postValuesChange, logToExtension, setSearchInResults]);
-
     const handleNestedReplaceAllClick = useCallback(() => {
         // First, update the main values with nested values temporarily
         const originalValues = {...values};
@@ -1111,6 +1142,17 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                       setSearchLevels((prev: SearchLevel[]) => [prev[0]]);
                       setSearchInResults(false);
                       postValuesChange({ searchInResults: false });
+                      // Trigger a new search to update results
+                      if (values.find) {
+                        // Небольшая задержка, чтобы интерфейс успел обновиться
+                        setTimeout(() => {
+                          vscode.postMessage({ 
+                            type: 'search', 
+                            ...values, 
+                            searchInResults: false 
+                          });
+                        }, 100);
+                      }
                     }}
                   >
                     {/* Показываем текст первого поискового запроса вместо "Initial" */}
@@ -1138,9 +1180,21 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                         onClick={() => {
                           // Jump to this specific search level
                           if (index < searchLevels.length - 2) {
+                            const targetLevel = searchLevels[index + 1];
                             setSearchLevels((prev: SearchLevel[]) => prev.slice(0, index + 2));
                             setSearchInResults(true);
                             postValuesChange({ searchInResults: true });
+                            
+                            // Trigger a new search to update results for this level
+                            if (targetLevel.values.find) {
+                              setTimeout(() => {
+                                vscode.postMessage({ 
+                                  type: 'search', 
+                                  ...targetLevel.values, 
+                                  searchInResults: true 
+                                });
+                              }, 100);
+                            }
                           }
                         }}
                       >
@@ -1258,36 +1312,14 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                     display: flex;
                     justify-content: flex-end;
                     margin-top: 8px;
+                    margin-bottom: 8px;
                 `}>
                     <VSCodeButton
-                        appearance="secondary"
-                        onClick={() => {
-                            // Create a new nested search level
-                            const currentLevel = searchLevels[searchLevels.length - 1];
-                            setSearchLevels((prev: SearchLevel[]) => [...prev, {
-                                values: {
-                                    ...currentLevel.values,
-                                    find: '',
-                                    replace: ''
-                                },
-                                resultsByFile: {},
-                                matchCase: false,
-                                wholeWord: false,
-                                searchMode: 'text',
-                                isReplaceVisible: false,
-                                expandedFiles: new Set(),
-                                expandedFolders: new Set(),
-                                label: `Search in results (level ${searchLevels.length})`
-                            }]);
-                            
-                            // Keep the searchInResults flag active for server-side functionality
-                            setSearchInResults(true);
-                            postValuesChange({ searchInResults: true });
-                        }}
+                        appearance="icon"
+                        onClick={handleFindInFound}
                         title="Search within these results"
                     >
-                        <span className="codicon codicon-search-new-file"></span>
-                        <span>Find in results</span>
+                        <span className="codicon codicon-filter-filled"></span>
                     </VSCodeButton>
                 </div>
               )}
@@ -1348,15 +1380,6 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                        >
                            <span className="codicon codicon-symbol-struct" />{/* Or another suitable icon */}
                        </VSCodeButton>
-                       <VSCodeButton 
-                          appearance={searchInResults ? "secondary" : "icon"} 
-                          // Restore original onClick handler
-                          onClick={toggleSearchInResults}
-                          title="Search in Found Results"
-                          disabled={!Object.keys(resultsByFile).length} // Disable if no previous results
-                       >
-                           <span className="codicon codicon-search-fuzzy" />
-                       </VSCodeButton>
                   </div>
                   {/* --- Replace Input Row --- */}
                   {isReplaceVisible && (
@@ -1405,8 +1428,9 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                            appearance="icon" 
                            onClick={handleFindInFound} 
                            title="Search within these results"
+                           className={css` margin-right: 5px; `} /* Add margin to separate from view toggles */
                        >
-                           <span className="codicon codicon-search-new-file"></span> 
+                           <span className="codicon codicon-filter-filled"></span>
                        </VSCodeButton>
                        {/* Tree View Button */}
                        <VSCodeButton 
