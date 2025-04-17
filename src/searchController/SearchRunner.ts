@@ -453,7 +453,7 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
           fileDocs.set(doc.uri.fsPath, doc)
       }
 
-      const FsImpl: Fs = {
+      const FsImpl: any = {  // Временно используем any, чтобы избежать ошибок типизации
         readFile: async (file: string, encoding: string): Promise<string> => {
           const doc = fileDocs.get(file)
           if (doc) return doc.getText()
@@ -471,7 +471,7 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
             throw e
           }
         },
-        // Ignoring type mismatch for readdir
+        // readdir имплементация для поиска файлов
         readdir: async (dir: string): Promise<FsEntry[]> => {
           try {
             const entries = await vscode.workspace.fs.readDirectory(
@@ -493,7 +493,7 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
         realpath: fs.realpath,
       }
 
-      this.fs = FsImpl
+      this.fs = FsImpl as Fs;
 
       if (searchMode === 'text') {
         this.runTextSearch(
@@ -528,6 +528,57 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
 
     try {
       let fileUris: vscode.Uri[]
+      
+      // Get VSCode's ignore patterns from search.exclude and files.exclude settings
+      const searchConfig = vscode.workspace.getConfiguration('search');
+      const filesConfig = vscode.workspace.getConfiguration('files');
+      
+      const searchExcludes = searchConfig.get('exclude') as Record<string, boolean>;
+      const filesExcludes = filesConfig.get('exclude') as Record<string, boolean>;
+      
+      // Build exclude patterns from VSCode settings
+      const vsCodeExcludePatterns: string[] = [];
+      
+      // Add patterns from search.exclude
+      for (const [pattern, isExcluded] of Object.entries(searchExcludes)) {
+        if (isExcluded) {
+          vsCodeExcludePatterns.push(pattern);
+        }
+      }
+      
+      // Add patterns from files.exclude
+      for (const [pattern, isExcluded] of Object.entries(filesExcludes)) {
+        if (isExcluded) {
+          vsCodeExcludePatterns.push(pattern);
+        }
+      }
+      
+      // Log the exclude patterns we're using
+      this.extension.channel.appendLine(`[Debug] Using VSCode exclude patterns: ${vsCodeExcludePatterns.join(', ')}`);
+      
+      // Combine with user-provided exclude patterns
+      let combinedExcludePattern: vscode.GlobPattern | null = excludePattern;
+      
+      if (vsCodeExcludePatterns.length > 0) {
+        const vsCodeExcludePattern = `{${vsCodeExcludePatterns.join(',')}}`;
+        
+        if (excludePattern) {
+          // Combine user-defined exclude with VSCode exclude patterns
+          combinedExcludePattern = typeof excludePattern === 'string' 
+            ? `${excludePattern},${vsCodeExcludePattern}` 
+            : new vscode.RelativePattern(
+              excludePattern instanceof vscode.RelativePattern 
+                ? excludePattern.baseUri 
+                : vscode.workspace.workspaceFolders![0].uri,
+              `${excludePattern instanceof vscode.RelativePattern ? excludePattern.pattern : excludePattern},${vsCodeExcludePattern}`
+            );
+        } else {
+          // Just use VSCode exclude patterns
+          combinedExcludePattern = vsCodeExcludePattern;
+        }
+      }
+      
+      this.extension.channel.appendLine(`[Debug] Final exclude pattern: ${combinedExcludePattern}`);
 
       if (this.params.searchInResults) {
         this.extension.channel.appendLine(
@@ -544,7 +595,7 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
           )
           fileUris = await vscode.workspace.findFiles(
             includePattern,
-            excludePattern,
+            combinedExcludePattern,
             undefined,
             cancellationToken
           )
@@ -552,7 +603,7 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
       } else {
         fileUris = await vscode.workspace.findFiles(
           includePattern,
-          excludePattern,
+          combinedExcludePattern,
           undefined,
           cancellationToken
         )
@@ -619,6 +670,33 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
     try {
       await this.startupPromise
 
+      // Get VSCode's ignore patterns from search.exclude and files.exclude settings
+      const searchConfig = vscode.workspace.getConfiguration('search');
+      const filesConfig = vscode.workspace.getConfiguration('files');
+      
+      const searchExcludes = searchConfig.get('exclude') as Record<string, boolean>;
+      const filesExcludes = filesConfig.get('exclude') as Record<string, boolean>;
+      
+      // Build exclude patterns
+      const vsCodeExcludePatterns: string[] = [];
+      
+      // Add patterns from search.exclude
+      for (const [pattern, isExcluded] of Object.entries(searchExcludes)) {
+        if (isExcluded) {
+          vsCodeExcludePatterns.push(pattern);
+        }
+      }
+      
+      // Add patterns from files.exclude
+      for (const [pattern, isExcluded] of Object.entries(filesExcludes)) {
+        if (isExcluded) {
+          vsCodeExcludePatterns.push(pattern);
+        }
+      }
+      
+      // Log the exclude patterns we're using
+      this.extension.channel.appendLine(`[Debug] Using VSCode exclude patterns for AST search: ${vsCodeExcludePatterns.join(', ')}`);
+      
       let astPaths: string[]
       if (this.params.searchInResults) {
         const previousFilesList = Array.from(this.previousSearchFiles)
@@ -636,12 +714,27 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
         ]
       }
 
-      // Convert GlobPattern to string
-      const astExclude = this.params.exclude
+      // Convert GlobPattern to string and combine with VSCode exclude patterns
+      let astExclude = this.params.exclude
         ? typeof excludePattern === 'string'
           ? excludePattern
-          : excludePattern?.toString()
+          : excludePattern ? excludePattern.toString() : undefined
         : undefined
+          
+      // Combine user-provided exclude patterns with VSCode patterns
+      if (vsCodeExcludePatterns.length > 0) {
+        const vsCodeExcludeString = `{${vsCodeExcludePatterns.join(',')}}`;
+        
+        if (astExclude) {
+          // Combine with existing exclude pattern
+          astExclude = `${astExclude},${vsCodeExcludeString}`;
+        } else {
+          // Just use VSCode excludes
+          astExclude = vsCodeExcludeString;
+        }
+      }
+      
+      this.extension.channel.appendLine(`[Debug] Final AST exclude pattern: ${astExclude}`);
 
       if (!this.params.searchInResults) {
         this.processedFiles.clear()

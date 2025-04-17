@@ -59,6 +59,11 @@ export interface SearchLevel {
   expandedFolders: Set<string> | string[]
   // Label for this search level (for navigation breadcrumbs)
   label?: string
+  // Statistics for this search level
+  stats?: {
+    numMatches: number
+    numFilesWithMatches: number
+  }
 }
 
 export type InitialDataFromExtension = {
