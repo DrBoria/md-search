@@ -12,6 +12,8 @@ import {
   MessageToWebview,
 } from './SearchReplaceViewTypes'
 import { AstxRunnerEvents } from '../searchController/SearchRunnerTypes'
+import { randomUUID } from 'crypto'
+
 export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'astx.SearchReplaceView'
 
@@ -308,63 +310,33 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
   }
 
   private _getHtmlForWebview(webview: vscode.Webview): string {
-    // Get the local path to main script run in the webview, then convert it to a uri we can use in the webview.
+    // Используем toWebviewUri для получения правильных URI ресурсов
     const scriptUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this._extensionUri, 'out', 'SearchReplaceView.js')
+      vscode.Uri.joinPath(this._extensionUri, 'dist', 'SearchReplaceViewEntry.js')
     )
-
-    // Удаляем код получения URI для иконки SVG
+    const stylesUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this._extensionUri, 'dist', 'SearchReplaceViewEntry.css')
+    )
     // const astxIconUri = webview.asWebviewUri(
-    //  vscode.Uri.joinPath(this._extensionUri, 'media', 'astx.svg')
+    //   vscode.Uri.joinPath(this._extensionUri, 'resources', 'astx.svg')
     // )
-    
-    const webpackOrigin = '0.0.0.0:8378' // Use a nonce to only allow a specific script to be run.
 
-    const nonce = getNonce()
-
-    const csp = [
-      `default-src 'none'`,
-      `img-src ${`vscode-file://vscode-app`} ${webview.cspSource} 'self' data:`,
-      ...(this.extension.isProduction
-        ? [
-            `script-src 'nonce-${nonce}'`,
-            `style-src ${webview.cspSource} 'self' 'unsafe-inline'`,
-            `font-src ${webview.cspSource} 'self'`,
-          ]
-        : [
-            `script-src 'unsafe-eval' http://${webpackOrigin}`,
-            `style-src ${webview.cspSource} 'self' 'unsafe-inline'`,
-            `font-src http://${webpackOrigin} ${webview.cspSource} 'self'`,
-            `connect-src http://${webpackOrigin} ws://${webpackOrigin}`,
-          ]),
-    ]
-
-    const codiconsUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this._extensionUri, 'out', 'SearchReplaceView.css')
-    )
+    const nonce = Buffer.from(randomUUID()).toString('base64')
 
     return `<!DOCTYPE html>
-			<html lang="en">
-			<head>
-				<meta charset="UTF-8">
-				<meta http-equiv="Content-Security-Policy" content="${csp.join(';')}">
-
-				<meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <link href="${codiconsUri}" rel="stylesheet" />
-                
-                <!-- Удаляем скрытое изображение иконки для предзагрузки -->
-                <!-- <img src="${astxIconUri}" style="display: none;" id="astx-icon-preload" /> -->
-				
-				<title>Search and Replace</title>
-			</head>
-			<body>
-        ${
-          this.extension.isProduction
-            ? `<script nonce="${nonce}" src="${scriptUri}"></script>`
-            : `<script src="http://${webpackOrigin}/SearchReplaceView.js"></script>`
-        }
-			</body>
-			</html>`
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
+  <link rel="stylesheet" type="text/css" href="${stylesUri}">
+  <title>Search & Replace</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script nonce="${nonce}" src="${scriptUri}"></script>
+</body>
+</html>`
   }
 
   postMessage(message: MessageToWebview): void {
@@ -381,14 +353,4 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
       )
     }
   }
-}
-
-function getNonce(): string {
-  let text = ''
-  const possible =
-    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-  for (let i = 0; i < 32; i++) {
-    text += possible.charAt(Math.floor(Math.random() * possible.length))
-  }
-  return text
 }

@@ -9,6 +9,7 @@ import {
   VSCodeCheckbox,
   VSCodeDivider,
   VSCodeProgressRing,
+  VSCodePanelView,
 } from '@vscode/webview-ui-toolkit/react'
 import { css, keyframes } from '@emotion/css'
 import useEvent from '../react/useEvent'
