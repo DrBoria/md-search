@@ -7,8 +7,6 @@ import {
   VSCodeOption,
   VSCodeCheckbox,
   VSCodeDivider,
-  VSCodeProgressRing,
-  VSCodePanelView,
 } from '@vscode/webview-ui-toolkit/react'
 import { css, keyframes } from '@emotion/css'
 import useEvent from '../react/useEvent'
@@ -19,7 +17,6 @@ import {
   SerializedTransformResultEvent,
   SearchReplaceViewStatus,
   SearchReplaceViewValues,
-  InitialDataFromExtension,
   SearchLevel,
 } from './SearchReplaceViewTypes'
 import path from 'path-browserify' // Use path-browserify for web compatibility
@@ -115,21 +112,13 @@ function uriToPath(uriString: string | undefined): string | undefined {
     }
 }
 
-// Обёртка с логированием для uriToPath
-function loggedUriToPath(uriString: string | undefined, logToExtension: (level: 'info' | 'warn' | 'error', message: string, data?: unknown) => void): string | undefined {
-    const result = uriToPath(uriString);
-    logToExtension('info', `URI to Path`, { input: uriString, output: result, isURI: uriString?.startsWith('file:') || false });
-    return result;
-}
-
 // --- Helper Function to Build File Tree ---
 function buildFileTree(
   resultsByFile: Record<string, SerializedTransformResultEvent[]>,
   workspacePathUri: string | undefined, // Expect URI or path string
-  logToExtension: (level: 'info' | 'warn' | 'error', message: string, data?: unknown) => void
 ): FolderNode {
   const root: FolderNode = { name: '', relativePath: '', type: 'folder', children: [] }
-  const workspacePath = loggedUriToPath(workspacePathUri, logToExtension); // Convert workspace URI to path
+  const workspacePath = uriToPath(workspacePathUri); // Convert workspace URI to path
   // Helper to find or create folder nodes
   const findOrCreateFolder = (
     parent: FolderNode,
@@ -162,7 +151,7 @@ function buildFileTree(
   // Use absolute path as key initially
   Object.entries(resultsByFile).forEach(([absoluteFilePathOrUri, fileResults]) => {
     // Convert file URI/path to a standard path
-    const absoluteFilePath = loggedUriToPath(absoluteFilePathOrUri, logToExtension);
+    const absoluteFilePath = uriToPath(absoluteFilePathOrUri);
     if (!absoluteFilePath) {
       // console.error("Could not determine absolute path for:", absoluteFilePathOrUri);
       return; // Skip if path conversion fails
@@ -172,9 +161,6 @@ function buildFileTree(
     const displayPath = workspacePath 
         ? path.relative(workspacePath, absoluteFilePath) 
         : absoluteFilePath; // Fallback to absolute if no workspace
-    
-    // Отправляем пути в Output панель VS Code
-    logToExtension('info', `Path debug: displayPath="${displayPath}", workspacePath="${workspacePath}", absoluteFilePath="${absoluteFilePath}", absoluteFilePathOrUri="${absoluteFilePathOrUri}"`);
 
     // Ensure consistent POSIX separators for internal logic
     const posixDisplayPath = displayPath.replace(/\\/g, '/'); // Replace backslashes with forward slashes
@@ -257,20 +243,6 @@ const rightAnim = keyframes`
   }
 `
 
-// Helper to extract filename (basename)
-const getFilename = (filePathOrUri: string): string => {
-  const filePath = uriToPath(filePathOrUri) || filePathOrUri; // Convert first
-  return path.basename(filePath); 
-}
-
-// Версия с логированием
-const loggedGetFilename = (filePathOrUri: string, logToExtension: (level: 'info' | 'warn' | 'error', message: string, data?: unknown) => void): string => {
-  const filePath = loggedUriToPath(filePathOrUri, logToExtension) || filePathOrUri;
-  const basename = path.basename(filePath);
-  logToExtension('info', `Getting filename: input="${filePathOrUri}", convertedPath="${filePath}", basename="${basename}"`);
-  return basename;
-}
-
 // Define props including the vscode api from controller
 interface SearchReplaceViewProps {
   vscode: {
@@ -290,7 +262,6 @@ interface TreeViewNodeProps {
     toggleFileExpansion: (filePath: string) => void;
     handleFileClick: (filePath: string) => void;
     handleResultItemClick: (filePath: string, range?: { start: number; end: number }) => void;
-    logToExtension: (level: 'info' | 'warn' | 'error', message: string, data?: unknown) => void;
 }
 
 const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
@@ -302,7 +273,6 @@ const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
     toggleFileExpansion,
     handleFileClick,
     handleResultItemClick,
-    logToExtension,
 }) => {
     const indent = level * 15 // Indentation level
 
@@ -340,7 +310,6 @@ const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                                 toggleFileExpansion={toggleFileExpansion}
                                 handleFileClick={handleFileClick}
                                 handleResultItemClick={handleResultItemClick}
-                                logToExtension={logToExtension}
                             />
                         ))}
                     </div>
@@ -354,15 +323,6 @@ const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
         const totalMatches = fileResults.reduce((sum, r) => sum + (r.matches?.length || 0), 0);
         const hasError = fileResults.some(r => r.error);
         const canExpand = totalMatches > 0; // Can only expand file if there are matches
-
-        // Log path info for tree node files
-        logToExtension('info', 'Processing file path for tree node:', {
-          fileResults: fileResults[0]?.matches,
-          isExpanded,
-          totalMatches,
-          hasError,
-          canExpand
-        });
 
         return (
             <div key={node.relativePath} className={css` margin-bottom: 1px; `}>
@@ -525,14 +485,8 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     // Convenience flag to check if we're in a nested search
     const isInNestedSearch = searchLevels.length > 1;
     
-    // Get current active search level (the last one in the array)
-    const activeSearchLevel = searchLevels[searchLevels.length - 1];
-    
     // Keep track of whether replace interface is showing in the active nested search
     const [isNestedReplaceVisible, setIsNestedReplaceVisible] = useState(initialState.isNestedReplaceVisible ?? false);
-    
-    // Flag for server-side search in results
-    const [searchInResults, setSearchInResults] = useState(values.searchInResults || false);
 
     // Ref для отслеживания последнего поиска, чтобы избежать циклической перерисовки
     const lastSearchRef = useRef('');
@@ -564,11 +518,6 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     useEffect(() => {
         const handleMessage = (event: MessageEvent<MessageToWebview>) => {
             const message = event.data;
-            // Only log message type, avoid logging content
-            logToExtension('info', `Received message type: ${message.type}`, {
-                messageType: message.type,
-                hasContent: message.type === 'addResult' ? 'true' : 'false'
-            });
             switch (message.type) {
                 case 'initialData':
                     setStatus(message.status);
@@ -627,23 +576,6 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
         };
     }, [vscode]); // Only depends on vscode api
 
-    // --- Logging Helper ---
-    const logToExtension = useCallback((
-        level: 'info' | 'warn' | 'error',
-        message: string,
-        data?: unknown
-    ) => {
-        vscode.postMessage({ type: 'log', level, message, data });
-    }, [vscode]);
-
-    // --- Log viewMode when results or mode change ---
-    useEffect(() => {
-        const resultsCount = Object.keys(resultsByFile).length;
-        if (resultsCount > 0) { // Only log if there are results
-            logToExtension('info', 'Results view state:', { viewMode, hasResults: true, resultsCount });
-        }
-    }, [viewMode, resultsByFile, logToExtension]); // Dependencies: viewMode, results, and the log function itself
-
     // --- Callbacks ---
     const postValuesChange = useCallback((changed: Partial<SearchReplaceViewValues>) => {
         // Immediately update local state for responsiveness
@@ -663,7 +595,25 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     const toggleSettings = useCallback(() => setShowSettings((v: boolean) => !v), []);
 
     const handleFindChange = useCallback((e: any) => {
-        postValuesChange({ find: e.target.value });
+        const newValue = e.target.value;
+        postValuesChange({ find: newValue });
+        
+        // If search field is cleared (empty), clear the search results
+        if (newValue.trim() === '') {
+            // Clear results directly in the local state
+            setResultsByFile({});
+            setStatus(prev => ({ 
+                ...prev, 
+                numMatches: 0, 
+                numFilesWithMatches: 0, 
+                numFilesWithErrors: 0, 
+                numFilesThatWillChange: 0,
+                completed: 0,
+                total: 0, 
+            }));
+            setExpandedFiles(new Set()); // Clear expanded state
+            setExpandedFolders(new Set());
+        }
     }, [postValuesChange]);
 
     const handleReplaceChange = useCallback((e: any) => {
@@ -719,13 +669,12 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     const handleReplaceAllClick = useCallback(() => {
         // Собираем списки файлов из текущих результатов
         const currentResultFileList = Object.keys(resultsByFile);
-        logToExtension('info', `Replacing in ${currentResultFileList.length} files`);
         
         vscode.postMessage({ 
             type: 'replace',
             filePaths: currentResultFileList
         });
-    }, [vscode, resultsByFile, logToExtension]);
+    }, [vscode, resultsByFile]);
 
     const handleKeyDown = useEvent((e: React.KeyboardEvent<HTMLDivElement>) => {
         if (e.ctrlKey || e.metaKey) { /* Potential future shortcuts */ }
@@ -753,15 +702,13 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
 
     // Open file (uses absolute path/URI)
     const handleFileClick = useCallback((absolutePathOrUri: string) => {
-        logToExtension('info', `Requesting to open file: ${absolutePathOrUri}`);
         vscode.postMessage({ type: 'openFile', filePath: absolutePathOrUri });
-    }, [vscode, logToExtension]);
+    }, [vscode]);
 
     // Open file to specific match (uses absolute path/URI)
     const handleResultItemClick = useCallback((absolutePathOrUri: string, range?: { start: number; end: number }) => {
-        logToExtension('info', `Requesting to open file to range: ${absolutePathOrUri}`, range);
         vscode.postMessage({ type: 'openFile', filePath: absolutePathOrUri, ...(range && { range }) });
-    }, [vscode, logToExtension]);
+    }, [vscode]);
 
     // --- Memoized Data ---
     // Build the initial, unfiltered tree
@@ -771,12 +718,11 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
             ? searchLevels[searchLevels.length - 1].resultsByFile 
             : resultsByFile;
         
-        return buildFileTree(activeResults, workspacePath, logToExtension);
-    }, [resultsByFile, searchLevels, isInNestedSearch, workspacePath, logToExtension]);
+        return buildFileTree(activeResults, workspacePath);
+    }, [resultsByFile, searchLevels, isInNestedSearch, workspacePath]);
 
     // Filter the tree for nodes with matches
     const filteredFileTree = useMemo(() => {
-        // logToExtension('info', 'Filtering file tree');
         // Filter the children of the root node
         const rootChildren = unfilteredFileTree.children
           .map(filterTreeForMatches)
@@ -795,14 +741,13 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     // Calculate result counts from status
      const {
         running, completed, total, numMatches, 
-        numFilesWithMatches, numFilesWithErrors, numFilesThatWillChange
+        numFilesWithMatches
     } = status;
     const hasResults = filteredFileTree.children.length > 0;
 
     // --- Derived State ---
     const isAstxMode = currentSearchMode === 'astx';
     const isTextMode = currentSearchMode === 'text';
-    const canReplace = isAstxMode && numFilesThatWillChange > 0 && !running;
 
     // --- Effect to expand all folders AND FILES in FILTERED Tree View by default ---
     useEffect(() => {
@@ -812,11 +757,10 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
             setExpandedFolders(new Set(allFolderPaths));
             setExpandedFiles(new Set(allFilePaths)); // <-- Set expanded files
         }
-    }, [filteredFileTree, viewMode, logToExtension]); // Depend on filteredFileTree
+    }, [filteredFileTree, viewMode]); // Depend on filteredFileTree
 
     // --- Find in Found Handlers ---
     const handleFindInFound = useCallback(() => {
-        logToExtension('info', '[UI Debug] handleFindInFound called!');
         // Create a new nested search level with state from current results
         setSearchLevels(prev => {
             // Get current level's state
@@ -852,13 +796,10 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
             }];
         });
         
-        setSearchInResults(true);
         postValuesChange({ searchInResults: true });
-    }, [values, postValuesChange, setSearchInResults, logToExtension, status]);
+    }, [values, postValuesChange, status]);
 
-    const handleCloseNestedSearch = useCallback(() => {
-        logToExtension('info', '[UI Debug] handleCloseNestedSearch called!');
-        
+    const handleCloseNestedSearch = useCallback(() => {        
         setSearchLevels(prev => {
             // Сохраняем предыдущий уровень для перезапуска поиска
             const targetLevel = prev.length > 1 ? prev[prev.length - 2] : prev[0];
@@ -866,7 +807,6 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
             
             // Если возвращаемся к корневому поиску
             if (isReturningToRoot) {
-                setSearchInResults(false);
                 postValuesChange({ searchInResults: false });
                 
                 // Перезапускаем поиск для корневого уровня
@@ -897,7 +837,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
             
             return prev.slice(0, -1);
         });
-    }, [postValuesChange, setSearchInResults, logToExtension, vscode]);
+    }, [postValuesChange, vscode]);
 
     const handleNestedFindChange = useCallback((e: any) => {
         setSearchLevels((prev: SearchLevel[]) => [
@@ -1067,7 +1007,6 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
         
         // Собираем списки файлов из вложенного поиска
         const nestedResultFileList = Object.keys(currentLevel.resultsByFile);
-        logToExtension('info', `Replacing in ${nestedResultFileList.length} nested search files`);
         
         // Set the main search values to match the nested search values
         vscode.postMessage({ 
@@ -1087,13 +1026,6 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
             type: 'replace',
             filePaths: nestedResultFileList
         });
-        
-        // Log the operation
-        logToExtension('info', 'Executing nested replace', { 
-            find: currentLevel.values.find,
-            replace: currentLevel.values.replace,
-            fileCount: nestedResultFileList.length
-        });
 
         // Listen for replace completion
         const handleReplaceDone = (event: MessageEvent<MessageToWebview>) => {
@@ -1107,7 +1039,6 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                 
                 // Close nested search mode after replace is done
                 setSearchLevels((prev: SearchLevel[]) => prev.slice(0, -1));
-                setSearchInResults(false);
                 
                 // Clean up event listener
                 window.removeEventListener('message', handleReplaceDone);
@@ -1117,7 +1048,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
         // Add event listener for replace completion
         window.addEventListener('message', handleReplaceDone);
         
-    }, [vscode, values, searchLevels, logToExtension, setSearchInResults]);
+    }, [vscode, values, searchLevels]);
 
     // Effect to update the base search level when values change
     useEffect(() => {
@@ -1189,7 +1120,6 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                     onClick={() => {
                       // Jump back to root search
                       setSearchLevels((prev: SearchLevel[]) => [prev[0]]);
-                      setSearchInResults(false);
                       postValuesChange({ searchInResults: false });
                       // Trigger a new search to update results
                       if (values.find) {
@@ -1231,7 +1161,6 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                           if (index < searchLevels.length - 2) {
                             const targetLevel = searchLevels[index + 1];
                             setSearchLevels((prev: SearchLevel[]) => prev.slice(0, index + 2));
-                            setSearchInResults(true);
                             postValuesChange({ searchInResults: true });
                             
                             // Trigger a new search to update results for this level
@@ -1620,7 +1549,6 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                                 toggleFileExpansion={toggleFileExpansion}
                                                 handleFileClick={handleFileClick}
                                                 handleResultItemClick={handleResultItemClick}
-                                                logToExtension={logToExtension}
                                             />
                                         ))
                                     ) : (
@@ -1639,11 +1567,8 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                     {/* Group results by file */}
                                     {Object.entries(searchLevels[searchLevels.length - 1].resultsByFile).map(([filePath, results]) => {
                                         const displayPath = workspacePath 
-                                            ? path.relative(loggedUriToPath(workspacePath, logToExtension) || '', loggedUriToPath(filePath, logToExtension) || filePath)
-                                            : loggedGetFilename(filePath, logToExtension);
-                                        
-                                        // Добавляем логирование для отладки путей
-                                        logToExtension('info', `List View Path Debug: displayPath="${displayPath}", workspacePath="${workspacePath}", filePath="${filePath}", uriWorkspacePath="${loggedUriToPath(workspacePath, logToExtension)}", uriFilePath="${loggedUriToPath(filePath, logToExtension)}"`);
+                                            ? path.relative(uriToPath(workspacePath) || '', uriToPath(filePath) || filePath)
+                                            : uriToPath(filePath);
                                         
                                         const totalMatches = results.reduce((sum, r) => sum + (r.matches?.length || 0), 0);
                                         if (totalMatches === 0) return null; // Don't show files without matches
@@ -1707,7 +1632,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                                                         &:hover { background-color: var(--vscode-list-hoverBackground); }
                                                                     `}
                                                                     onClick={() => handleResultItemClick(filePath, match)}
-                                                                    title={`Click to open match in ${loggedGetFilename(filePath, logToExtension)}`}
+                                                                    title={`Click to open match in ${uriToPath(filePath)}`}
                                                                 >
                                                                     {getHighlightedMatchContext(result.source, match.start, match.end)}
                                                                 </div>
@@ -1761,7 +1686,6 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                             toggleFileExpansion={toggleFileExpansion}
                                             handleFileClick={handleFileClick}
                                             handleResultItemClick={handleResultItemClick}
-                                            logToExtension={logToExtension}
                                         />
                                     ))
                                 ) : (
@@ -1780,11 +1704,8 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                 {Object.entries(resultsByFile).length > 0 ? (
                                     Object.entries(resultsByFile).map(([filePath, results]) => {
                                         const displayPath = workspacePath 
-                                            ? path.relative(loggedUriToPath(workspacePath, logToExtension) || '', loggedUriToPath(filePath, logToExtension) || filePath) 
-                                            : loggedGetFilename(filePath, logToExtension);
-                                        
-                                        // Добавляем логирование для отладки путей
-                                        logToExtension('info', `List View Path Debug: displayPath="${displayPath}", workspacePath="${workspacePath}", filePath="${filePath}", uriWorkspacePath="${loggedUriToPath(workspacePath, logToExtension)}", uriFilePath="${loggedUriToPath(filePath, logToExtension)}"`);
+                                            ? path.relative(uriToPath(workspacePath) || '', uriToPath(filePath) || filePath) 
+                                            : uriToPath(filePath);
                                         
                                         const totalMatches = results.reduce((sum, r) => sum + (r.matches?.length || 0), 0);
                                         if (totalMatches === 0) return null; // Don't show files without matches
@@ -1848,7 +1769,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                                                         &:hover { background-color: var(--vscode-list-hoverBackground); }
                                                                     `}
                                                                     onClick={() => handleResultItemClick(filePath, match)}
-                                                                    title={`Click to open match in ${loggedGetFilename(filePath, logToExtension)}`}
+                                                                    title={`Click to open match in ${uriToPath(filePath)}`}
                                                                 >
                                                                     {getHighlightedMatchContext(result.source, match.start, match.end)}
                                                                 </div>

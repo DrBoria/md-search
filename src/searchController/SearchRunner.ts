@@ -388,6 +388,13 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
       `[Debug] Find pattern: "${this.params.find}", Replace: "${this.params.replace}"`
     )
 
+    // Skip search if find pattern is empty
+    if (!this.params.find || this.params.find.trim() === '') {
+      this.extension.channel.appendLine('Find pattern is empty, skipping search.')
+      this.emit('done')
+      return
+    }
+
     // Create abort controller and set it in both runners
     const abortController = new AbortController()
     this.abortController = abortController
