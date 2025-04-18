@@ -35,15 +35,15 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
       localResourceRoots: [
         this._extensionUri,
         vscode.Uri.joinPath(this._extensionUri, 'media'),
-        vscode.Uri.joinPath(this._extensionUri, 'out')
+        vscode.Uri.joinPath(this._extensionUri, 'out'),
       ],
-    } as vscode.WebviewOptions & { devToolsEnabled?: boolean };
-      
+    } as vscode.WebviewOptions & { devToolsEnabled?: boolean }
+
     // Включаем devTools для отладки в режиме разработки
     if (!this.extension.isProduction) {
       // Добавляем свойство devToolsEnabled напрямую, так как оно может быть недоступно в типах WebviewOptions
-      (webviewView.webview.options as any).devToolsEnabled = true;
-      
+      ;(webviewView.webview.options as any).devToolsEnabled = true
+
       // Выводим информацию для разработчика
       this.extension.channel.appendLine(
         '[Debug] Webview debugging is enabled. You can use the "Debug Webview" launch configuration.'
@@ -321,28 +321,41 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
   }
 
   private _getHtmlForWebview(webview: vscode.Webview): string {
-    const isProduction = this.extension.isProduction;
-    const port = 9099; // Тот же порт, что в webviews.webpack.config.js
-    
+    const isProduction = this.extension.isProduction
+    const port = 9099 // Тот же порт, что в webviews.webpack.config.js
+
     // Используем toWebviewUri для получения правильных URI ресурсов
-    const scriptUri = isProduction 
-      ? webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'out', 'SearchReplaceView.js'))
-      : `http://localhost:${port}/SearchReplaceView.js`;
-      
+    const scriptUri = isProduction
+      ? webview.asWebviewUri(
+          vscode.Uri.joinPath(this._extensionUri, 'out', 'SearchReplaceView.js')
+        )
+      : `http://localhost:${port}/SearchReplaceView.js`
+
     const stylesUri = isProduction
-      ? webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'out', 'SearchReplaceView.css'))
-      : `http://localhost:${port}/SearchReplaceView.css`;
-      
+      ? webview.asWebviewUri(
+          vscode.Uri.joinPath(
+            this._extensionUri,
+            'out',
+            'SearchReplaceView.css'
+          )
+        )
+      : `http://localhost:${port}/SearchReplaceView.css`
+
     const codiconsUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this._extensionUri, 'node_modules', '@vscode/codicons', 'dist')
-    );
-    
-    const nonce = Buffer.from(randomUUID()).toString('base64');
-    
+      vscode.Uri.joinPath(
+        this._extensionUri,
+        'node_modules',
+        '@vscode/codicons',
+        'dist'
+      )
+    )
+
+    const nonce = Buffer.from(randomUUID()).toString('base64')
+
     // Изменяем CSP для разрешения подключения к webpack-dev-server в режиме разработки
     const csp = isProduction
       ? `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; font-src ${webview.cspSource}; img-src ${webview.cspSource}; script-src 'nonce-${nonce}'`
-      : `default-src 'none'; style-src ${webview.cspSource} http://localhost:${port} 'unsafe-inline'; font-src ${webview.cspSource}; img-src ${webview.cspSource}; script-src http://localhost:${port} 'unsafe-eval'`;
+      : `default-src 'none'; style-src ${webview.cspSource} http://localhost:${port} 'unsafe-inline'; font-src ${webview.cspSource}; img-src ${webview.cspSource}; script-src http://localhost:${port} 'unsafe-eval'`
 
     return `<!DOCTYPE html>
 <html lang="en">
