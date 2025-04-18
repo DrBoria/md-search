@@ -104,6 +104,38 @@ export default function SearchReplaceViewController({
       case 'clearResults':
         setResults([])
         break
+      case 'focusSearchInput':
+        // Add a setTimeout to ensure the DOM is ready
+        setTimeout(() => {
+          try {
+            const searchInput = document.querySelector('input[placeholder*="Find"]') as HTMLInputElement
+            if (searchInput) {
+              searchInput.focus()
+              vscode.postMessage({ type: 'log', level: 'info', message: 'Focused search input' })
+            } else {
+              vscode.postMessage({ type: 'log', level: 'warn', message: 'Search input not found' })
+            }
+          } catch (e) {
+            vscode.postMessage({ type: 'log', level: 'error', message: `Error focusing search input: ${e}` })
+          }
+        }, 100)
+        break
+      case 'focusReplaceInput':
+        // Add a setTimeout to ensure the DOM is ready
+        setTimeout(() => {
+          try {
+            const replaceInput = document.querySelector('input[placeholder*="Replace"]') as HTMLInputElement
+            if (replaceInput) {
+              replaceInput.focus()
+              vscode.postMessage({ type: 'log', level: 'info', message: 'Focused replace input' })
+            } else {
+              vscode.postMessage({ type: 'log', level: 'warn', message: 'Replace input not found' })
+            }
+          } catch (e) {
+            vscode.postMessage({ type: 'log', level: 'error', message: `Error focusing replace input: ${e}` })
+          }
+        }, 100)
+        break
     }
   })
 

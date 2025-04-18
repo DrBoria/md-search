@@ -15,7 +15,7 @@ import { AstxRunnerEvents } from '../searchController/SearchRunnerTypes'
 import { randomUUID } from 'crypto'
 
 export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
-  public static readonly viewType = 'astx.SearchReplaceView'
+  public static readonly viewType = 'mdSearch.SearchReplaceView'
 
   private _view?: vscode.WebviewView
 
@@ -320,6 +320,28 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
 
   show(): void {
     this._view?.show()
+  }
+
+  // New method to show and focus the search input
+  showWithSearchFocus(): void {
+    this._view?.show(true) // Use 'true' to preserve focus
+    // Give the webview time to activate before sending the focus message
+    setTimeout(() => {
+      this.postMessage({
+        type: 'focusSearchInput',
+      })
+    }, 200)
+  }
+
+  // New method to show and focus the replace input
+  showWithReplaceFocus(): void {
+    this._view?.show(true) // Use 'true' to preserve focus
+    // Give the webview time to activate before sending the focus message
+    setTimeout(() => {
+      this.postMessage({
+        type: 'focusReplaceInput',
+      })
+    }, 200)
   }
 
   get visible(): boolean {

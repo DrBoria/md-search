@@ -101,6 +101,8 @@ export type MessageToWebview =
   | InitialDataFromExtension
   | { type: 'replaceDone' }
   | { type: 'stop' }
+  | { type: 'focusSearchInput' }
+  | { type: 'focusReplaceInput' }
 
 export type MessageFromWebview =
   | {

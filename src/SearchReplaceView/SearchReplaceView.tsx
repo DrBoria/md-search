@@ -559,6 +559,9 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     // Ref для отслеживания последнего поиска, чтобы избежать циклической перерисовки
     const lastSearchRef = useRef('');
 
+    // Добавляем ref для контейнера хлебных крошек
+    const breadcrumbsContainerRef = useRef<HTMLDivElement>(null);
+
     // --- Save State Effect ---
     useEffect(() => {
         vscode.setState({ 
@@ -1137,6 +1140,15 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
         }
     }, [values, isReplaceVisible, isInNestedSearch]);
 
+    // Добавляем новый эффект для автоматической прокрутки
+    useEffect(() => {
+        // Прокрутка к последнему активному поисковому уровню
+        if (breadcrumbsContainerRef.current && searchLevels.length > 1) {
+            // Установка максимального значения scrollLeft для прокрутки вправо
+            breadcrumbsContainerRef.current.scrollLeft = breadcrumbsContainerRef.current.scrollWidth;
+        }
+    }, [searchLevels.length]); // Зависимость только от количества уровней поиска
+
     return (
         <div
           onKeyDown={handleKeyDown}
@@ -1167,14 +1179,17 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                 margin-bottom: 8px;
               `}>
                 {/* Search level breadcrumbs */}
-                <div className={css`
-                  display: flex;
-                  align-items: center;
-                  overflow-x: auto;
-                  flex-grow: 1;
-                  padding: 3px;
-                  gap: 4px;
-                `}>
+                <div 
+                  ref={breadcrumbsContainerRef}
+                  className={css`
+                    display: flex;
+                    align-items: center;
+                    overflow-x: auto;
+                    flex-grow: 1;
+                    padding: 3px;
+                    gap: 4px;
+                  `}
+                >
                   {/* Base search level - Show truncated search query instead of "Root search" */}
                   <span 
                     className={css`
@@ -1213,7 +1228,8 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                   {/* Show each search level as a breadcrumb */}
                   {searchLevels.slice(1).map((level, index) => (
                     <React.Fragment key={index + 1}>
-                      <span className={css`color: var(--vscode-descriptionForeground);`}>&gt;</span>
+                      {/* Иконка стрелки вместо символа > */}
+                      <span className="codicon codicon-arrow-right" style={{ color: 'var(--vscode-descriptionForeground)' }}></span>
                       <span 
                         className={css`
                           padding: 2px 6px;

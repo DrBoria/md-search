@@ -178,19 +178,19 @@ export class AstxExtension {
     context.subscriptions.push(this.channel)
 
     context.subscriptions.push(
-      vscode.commands.registerCommand('astx.restartWorkerPool', () =>
+      vscode.commands.registerCommand('mdSearch.restartWorkerPool', () =>
         // @ts-ignore TS2339: Property 'restart' might not exist or have a different name
         this.runner.restart()
       )
     )
 
     context.subscriptions.push(
-      vscode.commands.registerCommand('astx.showOutput', () => {
+      vscode.commands.registerCommand('mdSearch.showOutput', () => {
         this.channel.show()
       })
     )
     context.subscriptions.push(
-      vscode.commands.registerCommand('astx.search', () => {
+      vscode.commands.registerCommand('mdSearch.search', () => {
         vscode.commands.executeCommand(
           `${SearchReplaceViewProvider.viewType}.focus`
         )
@@ -228,7 +228,7 @@ export class AstxExtension {
 
     context.subscriptions.push(
       vscode.commands.registerCommand(
-        'astx.setAsTransformFile',
+        'mdSearch.setAsTransformFile',
         (
           transformFile: vscode.Uri | undefined = vscode.window.activeTextEditor
             ?.document.uri
@@ -272,16 +272,53 @@ export class AstxExtension {
     const transformInPath = setIncludePaths({ useTransformFile: true })
 
     context.subscriptions.push(
-      vscode.commands.registerCommand('astx.findInFile', findInPath)
+      vscode.commands.registerCommand('mdSearch.findInFile', findInPath)
     )
     context.subscriptions.push(
-      vscode.commands.registerCommand('astx.transformInFile', transformInPath)
+      vscode.commands.registerCommand(
+        'mdSearch.transformInFile',
+        transformInPath
+      )
     )
     context.subscriptions.push(
-      vscode.commands.registerCommand('astx.findInFolder', findInPath)
+      vscode.commands.registerCommand('mdSearch.findInFolder', findInPath)
     )
     context.subscriptions.push(
-      vscode.commands.registerCommand('astx.transformInFolder', transformInPath)
+      vscode.commands.registerCommand(
+        'mdSearch.transformInFolder',
+        transformInPath
+      )
+    )
+
+    // MD search commands
+    const findInFolderMD = (dir: vscode.Uri, arg2: vscode.Uri[]) => {
+      const dirs =
+        Array.isArray(arg2) && arg2.every((item) => item instanceof vscode.Uri)
+          ? arg2
+          : [dir || vscode.window.activeTextEditor?.document.uri].filter(
+              (x): x is vscode.Uri => x instanceof vscode.Uri
+            )
+      if (!dirs.length) return
+
+      // Set include to the selected folder paths plus MD file pattern
+      const newParams: Params = {
+        ...this.getParams(),
+        searchMode: 'text', // Default to text search for MD files
+        include: dirs
+          .map(normalizeFsPath)
+          .map((path) => `./${path}`)
+          .join(', '),
+      }
+
+      this.setParams(newParams)
+      vscode.commands.executeCommand(
+        `${SearchReplaceViewProvider.viewType}.focus`
+      )
+    }
+
+    // Register the new commands
+    context.subscriptions.push(
+      vscode.commands.registerCommand('mdSearch.findInFolderMD', findInFolderMD)
     )
 
     context.subscriptions.push(

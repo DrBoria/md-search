@@ -1,7 +1,6 @@
 import * as vscode from 'vscode'
 import type { IpcMatch } from 'astx/node'
 import { TypedEmitter } from 'tiny-typed-emitter'
-import { TextDecoder } from 'util'
 import { AstxRunnerEvents, TransformResultEvent } from './SearchRunnerTypes'
 
 export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {

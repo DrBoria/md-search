@@ -1,7 +1,7 @@
 {
   "name": "md-search",
   "version": "0.0.1",
-  "displayName": "astx",
+  "displayName": "MD Search",
   "description": "structural search and replace for JavaScript and TypeScript",
   "publisher": "drboria",
   "engines": {
@@ -15,24 +15,24 @@
     "workspace"
   ],
   "activationEvents": [
-    "onView:astx.SearchReplaceView"
+    "onView:mdSearch.SearchReplaceView"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "configuration": {
       "type": "object",
-      "title": "astx",
+      "title": "mdSearch",
       "properties": {
-        "astx.showErrorNotifications": {
+        "mdSearch.showErrorNotifications": {
           "type": "boolean",
           "default": true,
           "description": "Whether to show notifications when errors occur in this extension"
         },
-        "astx.astxPath": {
+        "mdSearch.astxPath": {
           "type": "string",
-          "description": "Path to the astx module, eg: ./node_modules/astx."
+          "description": "Path to the astx module, eg: ./node_modules/mdSearch."
         },
-        "astx.parser": {
+        "mdSearch.parser": {
           "enum": [
             "babel",
             "babel/auto",
@@ -42,17 +42,17 @@
           "default": "babel",
           "description": "JS/TS parser to use"
         },
-        "astx.prettier": {
+        "mdSearch.prettier": {
           "type": "boolean",
           "default": true,
           "description": "reformat transformed code with prettier"
         },
-        "astx.preferSimpleReplacement": {
+        "mdSearch.preferSimpleReplacement": {
           "type": "boolean",
           "default": false,
           "description": "Replace using string splicing if possible, instead of regenerating code from modified AST"
         },
-        "astx.babelGeneratorHack": {
+        "mdSearch.babelGeneratorHack": {
           "type": "boolean",
           "default": false,
           "description": "Use @babel/generator hack to preserve formatting in transformed code"
@@ -61,115 +61,129 @@
     },
     "commands": [
       {
-        "command": "astx.restartWorkerPool",
-        "title": "astx: Restart Worker Pool"
+        "command": "mdSearch.restartWorkerPool",
+        "title": "MD: Restart Worker Pool"
       },
       {
-        "command": "astx.showOutput",
-        "title": "astx: Show Debug Output"
+        "command": "mdSearch.showOutput",
+        "title": "MD: Show Debug Output"
       },
       {
-        "command": "astx.search",
-        "title": "astx: Find/Replace..."
+        "command": "mdSearch.search",
+        "title": "MD: Find/Replace..."
       },
       {
-        "command": "astx.setAsTransformFile",
-        "title": "astx: Set as Transform File"
+        "command": "mdSearch.setAsTransformFile",
+        "title": "MD: Set as Transform File"
       },
       {
-        "command": "astx.findInFile",
-        "title": "astx: Find in File..."
+        "command": "mdSearch.findInFile",
+        "title": "MD: Find in File..."
       },
       {
-        "command": "astx.findInFolder",
-        "title": "astx: Find in Folder..."
+        "command": "mdSearch.findInFolder",
+        "title": "MD: Find in Folder..."
       },
       {
-        "command": "astx.transformInFile",
-        "title": "astx: Transform in File..."
+        "command": "mdSearch.transformInFile",
+        "title": "MD: Transform in File..."
       },
       {
-        "command": "astx.transformInFolder",
-        "title": "astx: Transform in Folder..."
+        "command": "mdSearch.transformInFolder",
+        "title": "MD: Transform in Folder..."
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "mdSearch.findInFile",
+        "key": "ctrl+shift+f",
+        "mac": "cmd+shift+f",
+        "when": "!editorFocus"
+      },
+      {
+        "command": "mdSearch.search",
+        "key": "ctrl+shift+h",
+        "mac": "cmd+shift+h",
+        "when": "!editorFocus"
       }
     ],
     "menus": {
       "explorer/context": [
         {
           "when": "explorerResourceIsFolder",
-          "command": "astx.findInFolder",
-          "group": "astx"
+          "command": "mdSearch.findInFolder",
+          "group": "mdSearch"
         },
         {
           "when": "explorerResourceIsFolder",
-          "command": "astx.transformInFolder",
-          "group": "astx"
+          "command": "mdSearch.transformInFolder",
+          "group": "mdSearch"
         },
         {
           "when": "!explorerResourceIsFolder",
-          "command": "astx.findInFile",
-          "group": "astx"
+          "command": "mdSearch.findInFile",
+          "group": "mdSearch"
         },
         {
           "when": "!explorerResourceIsFolder",
-          "command": "astx.transformInFile",
-          "group": "astx"
+          "command": "mdSearch.transformInFile",
+          "group": "mdSearch"
         },
         {
           "when": "resourceExtname == .js || resourceExtname == .cjs || resourceExtname == .mjs || resourceExtname == .ts",
-          "command": "astx.setAsTransformFile",
-          "group": "astx"
+          "command": "mdSearch.setAsTransformFile",
+          "group": "mdSearch"
         }
       ],
       "editor/context": [
         {
           "when": "resourceExtname == .js || resourceExtname == .cjs || resourceExtname == .mjs || resourceExtname == .ts",
-          "command": "astx.setAsTransformFile",
-          "group": "astx"
+          "command": "mdSearch.setAsTransformFile",
+          "group": "mdSearch"
         },
         {
           "when": "resourceExtname == .js || resourceExtname == .cjs || resourceExtname == .mjs || resourceExtname == .jsx || resourceExtname == .ts || resourceExtname == .tsx || resourceExtname == .cts || resourceExtname == .mts",
-          "command": "astx.findInFile",
-          "group": "astx"
+          "command": "mdSearch.findInFile",
+          "group": "mdSearch"
         },
         {
           "when": "resourceExtname == .js || resourceExtname == .cjs || resourceExtname == .mjs || resourceExtname == .jsx || resourceExtname == .ts || resourceExtname == .tsx || resourceExtname == .cts || resourceExtname == .mts",
-          "command": "astx.transformInFile",
-          "group": "astx"
+          "command": "mdSearch.transformInFile",
+          "group": "mdSearch"
         }
       ],
       "editor/title/context": [
         {
           "when": "resourceExtname == .js || resourceExtname == .cjs || resourceExtname == .mjs || resourceExtname == .ts",
-          "command": "astx.setAsTransformFile",
-          "group": "astx"
+          "command": "mdSearch.setAsTransformFile",
+          "group": "mdSearch"
         },
         {
           "when": "resourceExtname == .js || resourceExtname == .cjs || resourceExtname == .mjs || resourceExtname == .jsx || resourceExtname == .ts || resourceExtname == .tsx || resourceExtname == .cts || resourceExtname == .mts",
-          "command": "astx.findInFile",
-          "group": "astx"
+          "command": "mdSearch.findInFile",
+          "group": "mdSearch"
         },
         {
           "when": "resourceExtname == .js || resourceExtname == .cjs || resourceExtname == .mjs || resourceExtname == .jsx || resourceExtname == .ts || resourceExtname == .tsx || resourceExtname == .cts || resourceExtname == .mts",
-          "command": "astx.transformInFile",
-          "group": "astx"
+          "command": "mdSearch.transformInFile",
+          "group": "mdSearch"
         }
       ]
     },
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "astx-astx",
-          "title": "Astx",
-          "icon": "media/astx.svg"
+          "id": "mdSearch-mdSearch",
+          "title": "MD Search",
+          "icon": "media/mdSearch.svg"
         }
       ]
     },
     "views": {
-      "astx-astx": [
+      "mdSearch-mdSearch": [
         {
           "type": "webview",
-          "id": "astx.SearchReplaceView",
+          "id": "mdSearch.SearchReplaceView",
           "name": "Search"
         }
       ]
@@ -269,7 +283,7 @@
   },
   "keywords": [
     "ast",
-    "astx",
+    "mdSearch",
     "automated",
     "codemod",
     "find",
@@ -290,7 +304,7 @@
     "transformation",
     "typescript"
   ],
-  "author": "Andy Edwards",
+  "author": "Mikita Du",
   "license": "MIT",
   "bugs": {
     "url": "https://github.com/codemodsquad/md-search/issues"
