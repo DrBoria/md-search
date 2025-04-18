@@ -72,14 +72,19 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
       const handleMessage = async (message: MessageFromWebview) => {
         switch (message.type) {
           case 'mount': {
+            // Получаем путь к рабочей области
+            const workspaceFolders = vscode.workspace.workspaceFolders || [];
+            const workspacePath = workspaceFolders.length > 0 
+              ? workspaceFolders[0].uri.toString() 
+              : '';
+            
+            // Отправляем initialData вместо отдельных сообщений
             webviewView.webview.postMessage({
-              type: 'values',
-              values: this.extension.getParams(),
-            })
-            webviewView.webview.postMessage({
-              type: 'status',
+              type: 'initialData',
+              values: {find: '', replace: '', ...this.extension.getParams()},
               status,
-            })
+              workspacePath
+            });
 
             break
           }

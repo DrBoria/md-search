@@ -70,7 +70,7 @@ export type InitialDataFromExtension = {
   type: 'initialData'
   values: SearchReplaceViewValues
   status: SearchReplaceViewStatus
-  workspacePath?: string
+  workspacePath: string
 }
 
 export type StatusUpdateFromExtension = {

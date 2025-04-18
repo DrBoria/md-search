@@ -11,7 +11,6 @@ import {
 import { css, keyframes } from '@emotion/css'
 import useEvent from '../react/useEvent'
 import {
-  Message,
   MessageToWebview,
   MessageFromWebview,
   SerializedTransformResultEvent,
@@ -95,8 +94,8 @@ interface FileNode extends FileTreeNodeBase {
 type FileTreeNode = FolderNode | FileNode
 
 // Helper function to convert file URI to path, handling potential Windows drive letters
-function uriToPath(uriString: string | undefined): string | undefined {
-    if (!uriString) return undefined;
+function uriToPath(uriString: string | undefined): string {
+    if (!uriString) return ''; // Return empty string instead of undefined
     try {
         const uri = URI.parse(uriString);
         if (uri.scheme === 'file') {
@@ -106,7 +105,6 @@ function uriToPath(uriString: string | undefined): string | undefined {
         // Return original string if it's not a file URI or parsing fails
         return uriString; 
     } catch (e) {
-        // console.error("Error parsing URI:", uriString, e);
         // Fallback to returning the original string on error
         return uriString; 
     }
@@ -115,7 +113,7 @@ function uriToPath(uriString: string | undefined): string | undefined {
 // --- Helper Function to Build File Tree ---
 function buildFileTree(
   resultsByFile: Record<string, SerializedTransformResultEvent[]>,
-  workspacePathUri: string | undefined, // Expect URI or path string
+  workspacePathUri: string, // No longer undefined - it's a required parameter
 ): FolderNode {
   const root: FolderNode = { name: '', relativePath: '', type: 'folder', children: [] }
   const workspacePath = uriToPath(workspacePathUri); // Convert workspace URI to path
@@ -152,11 +150,7 @@ function buildFileTree(
   Object.entries(resultsByFile).forEach(([absoluteFilePathOrUri, fileResults]) => {
     // Convert file URI/path to a standard path
     const absoluteFilePath = uriToPath(absoluteFilePathOrUri);
-    if (!absoluteFilePath) {
-      // console.error("Could not determine absolute path for:", absoluteFilePathOrUri);
-      return; // Skip if path conversion fails
-    }
-
+    
     // Calculate relative path if workspacePath is available
     const displayPath = workspacePath 
         ? path.relative(workspacePath, absoluteFilePath) 
@@ -435,7 +429,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     });
     // Store results keyed by absolute path initially
     const [resultsByFile, setResultsByFile] = useState<Record<string, SerializedTransformResultEvent[]>>(initialState.resultsByFile || {}); 
-    const [workspacePath, setWorkspacePath] = useState<string | undefined>(initialState.workspacePath);
+    const [workspacePath, setWorkspacePath] = useState<string>(initialState.workspacePath || '');
 
     // --- UI State ---
     const [isReplaceVisible, setIsReplaceVisible] = useState(initialState.isReplaceVisible ?? false);
@@ -1567,7 +1561,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                     {/* Group results by file */}
                                     {Object.entries(searchLevels[searchLevels.length - 1].resultsByFile).map(([filePath, results]) => {
                                         const displayPath = workspacePath 
-                                            ? path.relative(uriToPath(workspacePath) || '', uriToPath(filePath) || filePath)
+                                            ? path.relative(uriToPath(workspacePath), uriToPath(filePath)) 
                                             : uriToPath(filePath);
                                         
                                         const totalMatches = results.reduce((sum, r) => sum + (r.matches?.length || 0), 0);
@@ -1704,7 +1698,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                 {Object.entries(resultsByFile).length > 0 ? (
                                     Object.entries(resultsByFile).map(([filePath, results]) => {
                                         const displayPath = workspacePath 
-                                            ? path.relative(uriToPath(workspacePath) || '', uriToPath(filePath) || filePath) 
+                                            ? path.relative(uriToPath(workspacePath), uriToPath(filePath)) 
                                             : uriToPath(filePath);
                                         
                                         const totalMatches = results.reduce((sum, r) => sum + (r.matches?.length || 0), 0);
