@@ -20,6 +20,7 @@ import {
 } from './SearchReplaceViewTypes'
 import path from 'path-browserify' // Use path-browserify for web compatibility
 import { URI } from 'vscode-uri'; // Import URI library
+import { getIconForFile, getIconForFolder, getIconForOpenFolder } from 'vscode-icons-js';
 
 // Helper function to get highlighted match context
 function getHighlightedMatchContext(source: string | undefined, start: number, end: number): React.ReactNode {
@@ -361,7 +362,7 @@ const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                     {/* Chevron only visible if there are matches to expand */}
                     <span className={`codicon codicon-chevron-${isExpanded ? 'down' : 'right'}`}
                           style={{ visibility: canExpand ? 'visible' : 'hidden' }}/>
-                    <span className="codicon codicon-file" style={{ marginRight: '4px' }} />
+                    {getFileIcon(node.name)}
                     {/* Make filename itself always clickable to open file */}
                     <span className={css`font-weight: bold; flex-grow: 1; cursor: pointer;`} 
                           onClick={(e) => { e.stopPropagation(); handleFileClick(node.absolutePath); }} 
@@ -437,6 +438,52 @@ function getAllFilePaths(node: FileTreeNode | null): string[] {
   }
   // For a folder, return paths from all children
   return node.children.flatMap(getAllFilePaths);
+}
+
+// Функция для получения иконки файла из vscode-icons-js
+function getFileIcon(filePath: string): React.ReactNode {
+    // Получаем имя иконки из библиотеки
+    const iconName = getIconForFile(filePath);
+    
+    // Базовый URL для иконок
+    const iconBaseUrl = "https://raw.githubusercontent.com/vscode-icons/vscode-icons/master/icons/";
+    
+    // Создаем элемент img с соответствующей иконкой
+    return (
+        <img 
+            src={`${iconBaseUrl}${iconName}`} 
+            alt={`Icon for ${path.basename(filePath)}`}
+            style={{ 
+                width: '16px', 
+                height: '16px', 
+                marginRight: '4px', 
+                verticalAlign: 'middle' 
+            }}
+        />
+    );
+}
+
+// Дополнительно добавим функции для папок
+function getFolderIcon(folderPath: string, isOpen = false): React.ReactNode {
+    // Получаем имя иконки из библиотеки
+    const iconName = isOpen ? getIconForOpenFolder(folderPath) : getIconForFolder(folderPath);
+    
+    // Базовый URL для иконок
+    const iconBaseUrl = "https://raw.githubusercontent.com/vscode-icons/vscode-icons/master/icons/";
+    
+    // Создаем элемент img с соответствующей иконкой
+    return (
+        <img 
+            src={`${iconBaseUrl}${iconName}`} 
+            alt={`Icon for folder ${path.basename(folderPath)}`}
+            style={{ 
+                width: '16px', 
+                height: '16px', 
+                marginRight: '4px', 
+                verticalAlign: 'middle' 
+            }}
+        />
+    );
 }
 
 export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): React.ReactElement {
@@ -1239,7 +1286,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                     {/* --- Search Input Row with Options --- */}
                     <div className={css` display: flex; align-items: center; gap: 2px; `}>
                          <VSCodeTextArea
-                            placeholder="search within results"
+                            placeholder="search"
                             aria-label="Nested Search Pattern"
                             name="nestedSearch"
                             rows={1}

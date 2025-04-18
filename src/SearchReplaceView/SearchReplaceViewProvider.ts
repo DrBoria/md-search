@@ -73,18 +73,19 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
         switch (message.type) {
           case 'mount': {
             // Получаем путь к рабочей области
-            const workspaceFolders = vscode.workspace.workspaceFolders || [];
-            const workspacePath = workspaceFolders.length > 0 
-              ? workspaceFolders[0].uri.toString() 
-              : '';
-            
+            const workspaceFolders = vscode.workspace.workspaceFolders || []
+            const workspacePath =
+              workspaceFolders.length > 0
+                ? workspaceFolders[0].uri.toString()
+                : ''
+
             // Отправляем initialData вместо отдельных сообщений
             webviewView.webview.postMessage({
               type: 'initialData',
-              values: {find: '', replace: '', ...this.extension.getParams()},
+              values: { find: '', replace: '', ...this.extension.getParams() },
               status,
-              workspacePath
-            });
+              workspacePath,
+            })
 
             break
           }
@@ -357,22 +358,18 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
 
     const nonce = Buffer.from(randomUUID()).toString('base64')
 
-    // Изменяем CSP для разрешения подключения к webpack-dev-server в режиме разработки
-    const csp = isProduction
-      ? `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; font-src ${webview.cspSource}; img-src ${webview.cspSource}; script-src 'nonce-${nonce}'`
-      : `default-src 'none'; style-src ${webview.cspSource} http://localhost:${port} 'unsafe-inline'; font-src ${webview.cspSource}; img-src ${webview.cspSource}; script-src http://localhost:${port} 'unsafe-eval'`
+    // CSP полностью удален для разрешения загрузки любых ресурсов
 
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="${csp}">
   <link rel="stylesheet" type="text/css" href="${stylesUri}">
   <link rel="stylesheet" type="text/css" href="${codiconsUri}/codicon.css">
   <title>Search & Replace</title>
 </head>
-<body>
+<body style="padding: 0;">
   <div id="root"></div>
   <script ${isProduction ? `nonce="${nonce}"` : ''} src="${scriptUri}"></script>
 </body>
