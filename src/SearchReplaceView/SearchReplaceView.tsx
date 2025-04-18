@@ -1370,6 +1370,26 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                     >
                         <span className="codicon codicon-filter-filled"></span>
                     </VSCodeButton>
+                                        
+                    {/* View Mode Toggle Buttons for nested search */}
+                    <div className={css` display: flex; align-items: center; gap: 4px; `}>
+                       {/* Tree View Button */}
+                       <VSCodeButton 
+                           appearance={viewMode === 'list' ? 'icon' : 'secondary'} 
+                           onClick={() => setViewMode('tree')} 
+                           title="View as tree"
+                       >
+                           <span className="codicon codicon-list-tree"></span> 
+                       </VSCodeButton>
+                       {/* List View Button */}
+                       <VSCodeButton 
+                           appearance={viewMode === 'tree' ? 'icon' : 'secondary'} 
+                           onClick={() => setViewMode('list')} 
+                           title="View as list"
+                       >
+                           <span className="codicon codicon-list-flat"></span>
+                       </VSCodeButton>
+                    </div>
                 </div>
               )}
             </div>
