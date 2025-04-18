@@ -74,6 +74,29 @@ function getHighlightedMatchContext(source: string | undefined, start: number, e
   }
 }
 
+// Добавляю функцию для получения целой строки без украшений
+function getLineFromSource(source: string | undefined, start: number, end: number): string {
+    if (!source || start === undefined || end === undefined) {
+        return '';
+    }
+
+    try {
+        // Находим начало строки с совпадением
+        const lineStart = source.lastIndexOf('\n', start - 1) + 1;
+        
+        // Находим конец строки с совпадением
+        let lineEnd = source.indexOf('\n', start);
+        if (lineEnd === -1) {
+            lineEnd = source.length;
+        }
+
+        // Возвращаем текст строки без обрезки
+        return source.substring(lineStart, lineEnd);
+    } catch (e) {
+        return '';
+    }
+}
+
 // --- Types for File Tree ---
 interface FileTreeNodeBase {
   name: string
@@ -269,7 +292,7 @@ const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
     handleResultItemClick,
 }) => {
     const indent = level * 15 // Indentation level
-
+    
     if (node.type === 'folder') {
         const isExpanded = expandedFolders.has(node.relativePath);
         return (
@@ -360,14 +383,18 @@ const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                             res.matches?.map((match, matchIdx) => (
                                 <div key={`${idx}-${matchIdx}`}
                                     className={css`
-                                        padding: 1px 5px;
+                                        padding: 3px 5px;
                                         cursor: pointer;
                                         font-family: var(--vscode-editor-font-family);
                                         font-size: var(--vscode-editor-font-size);
                                         &:hover { background-color: var(--vscode-list-hoverBackground); }
+                                        white-space: nowrap;
+                                        overflow: hidden;
+                                        text-overflow: ellipsis;
+                                        position: relative;
                                     `}
                                     onClick={() => handleResultItemClick(node.absolutePath, { start: match.start, end: match.end })}
-                                    title={`Click to open match in ${node.name}`}
+                                    title={getLineFromSource(res.source, match.start, match.end)}
                                 >
                                     {/* Display highlighted context */}
                                     {getHighlightedMatchContext(res.source, match.start, match.end)}
@@ -1626,7 +1653,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                                                         &:hover { background-color: var(--vscode-list-hoverBackground); }
                                                                     `}
                                                                     onClick={() => handleResultItemClick(filePath, match)}
-                                                                    title={`Click to open match in ${uriToPath(filePath)}`}
+                                                                    title={getLineFromSource(result.source, match.start, match.end)}
                                                                 >
                                                                     {getHighlightedMatchContext(result.source, match.start, match.end)}
                                                                 </div>
@@ -1763,7 +1790,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                                                         &:hover { background-color: var(--vscode-list-hoverBackground); }
                                                                     `}
                                                                     onClick={() => handleResultItemClick(filePath, match)}
-                                                                    title={`Click to open match in ${uriToPath(filePath)}`}
+                                                                    title={getLineFromSource(result.source, match.start, match.end)}
                                                                 >
                                                                     {getHighlightedMatchContext(result.source, match.start, match.end)}
                                                                 </div>
