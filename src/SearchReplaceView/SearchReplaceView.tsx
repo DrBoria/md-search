@@ -22,6 +22,13 @@ import path from 'path-browserify' // Use path-browserify for web compatibility
 import { URI } from 'vscode-uri'; // Import URI library
 import { getIconForFile, getIconForFolder, getIconForOpenFolder } from 'vscode-icons-js';
 
+// Объявление типа для глобальной переменной
+declare global {
+    interface Window {
+        activeSearchReplaceValues?: SearchReplaceViewValues;
+    }
+}
+
 // Helper function to get highlighted match context
 function getHighlightedMatchContext(source: string | undefined, start: number, end: number): React.ReactNode {
   if (!source || start === undefined || end === undefined) {
@@ -71,6 +78,97 @@ function getHighlightedMatchContext(source: string | undefined, start: number, e
     );
   } catch (e) {
     // console.error("Error creating highlighted context:", e); // Keep console.error commented out or handle differently
+    return `Match at ${start}...${end}`; // Fallback on error
+  }
+}
+
+// Helper function to get highlighted match context with replacement preview
+function getHighlightedMatchContextWithReplacement(
+  source: string | undefined, 
+  start: number, 
+  end: number, 
+  find: string,
+  replace: string,
+  searchMode: string,
+  matchCase: boolean,
+  wholeWord: boolean
+): React.ReactNode {
+  if (!source || start === undefined || end === undefined) {
+    return `Match at ${start}...${end}`; // Fallback
+  }
+
+  try {
+    // Find the start of the line containing the match start
+    const lineStart = source.lastIndexOf('\n', start - 1) + 1;
+    // Find the end of the line containing the match start
+    let lineEnd = source.indexOf('\n', start);
+    if (lineEnd === -1) {
+      lineEnd = source.length; // Handle last line
+    }
+
+    const lineText = source.substring(lineStart, lineEnd);
+    const originalMatch = source.substring(start, end);
+
+    // Calculate highlight positions relative to the start of the original line substring
+    const highlightStart = start - lineStart;
+    const highlightEnd = end - lineStart;
+
+    // Ensure highlight indices are within the bounds of the extracted line
+    if (highlightStart < 0 || highlightEnd < 0 || highlightStart > lineText.length || 
+        highlightEnd > lineText.length || highlightStart >= highlightEnd) {
+      return lineText || `Match at ${start}...${end}`;
+    }
+
+    // Создаем замену в зависимости от режима поиска
+    let replacement = replace;
+    
+    if (searchMode === 'regex') {
+      try {
+        // Для regex применяем замену с поддержкой групп захвата
+        const flags = matchCase ? 'g' : 'gi';
+        const regex = new RegExp(find, flags);
+        
+        // Сбрасываем lastIndex и применяем regex к оригинальному совпадению
+        regex.lastIndex = 0;
+        replacement = originalMatch.replace(regex, replace);
+      } catch (e) {
+        // В случае ошибки с regex, используем прямую замену
+        // console.error("Regex replacement error:", e);
+      }
+    } else if (searchMode === 'text') {
+      // Для текстового режима - простая замена
+      replacement = replace;
+    }
+    // Для режима AST (astx) мы не можем точно предсказать замену в UI, 
+    // поэтому просто показываем значение replace как есть
+
+    const before = lineText.substring(0, highlightStart);
+    const highlighted = lineText.substring(highlightStart, highlightEnd);
+    const after = lineText.substring(highlightEnd);
+
+    // Return JSX with highlighted span + replacement preview
+    return (
+      <>
+        {before}
+        <span style={{
+           backgroundColor: 'var(--vscode-editor-findMatchHighlightBackground)',
+           color: 'var(--vscode-errorForeground)',
+           textDecoration: 'line-through',
+        }}>{highlighted}</span>
+        {replacement && (
+          <span style={{
+            backgroundColor: 'var(--vscode-diffEditor-insertedTextBackground)',
+            color: 'var(--vscode-gitDecoration-addedResourceForeground)', // Зеленый цвет для замены
+            marginRight: '5px',
+            padding: '0 3px',
+            borderRadius: '2px',
+          }}>{`${replacement}`}</span>
+        )}
+        {after}
+      </>
+    );
+  } catch (e) {
+    // console.error("Error creating replacement preview:", e);
     return `Match at ${start}...${end}`; // Fallback on error
   }
 }
@@ -280,6 +378,7 @@ interface TreeViewNodeProps {
     toggleFileExpansion: (filePath: string) => void;
     handleFileClick: (filePath: string) => void;
     handleResultItemClick: (filePath: string, range?: { start: number; end: number }) => void;
+    currentSearchValues: SearchReplaceViewValues; // Добавляем текущие значения поиска как проп
 }
 
 const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
@@ -291,6 +390,7 @@ const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
     toggleFileExpansion,
     handleFileClick,
     handleResultItemClick,
+    currentSearchValues // Получаем значения через пропсы
 }) => {
     const indent = level * 15 // Indentation level
     
@@ -328,6 +428,7 @@ const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                                 toggleFileExpansion={toggleFileExpansion}
                                 handleFileClick={handleFileClick}
                                 handleResultItemClick={handleResultItemClick}
+                                currentSearchValues={currentSearchValues}
                             />
                         ))}
                     </div>
@@ -397,8 +498,19 @@ const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                                     onClick={() => handleResultItemClick(node.absolutePath, { start: match.start, end: match.end })}
                                     title={getLineFromSource(res.source, match.start, match.end)}
                                 >
-                                    {/* Display highlighted context */}
-                                    {getHighlightedMatchContext(res.source, match.start, match.end)}
+                                    {/* Display highlighted context with replacement preview if replace exists */}
+                                    {currentSearchValues.replace && currentSearchValues.replace.length > 0
+                                      ? getHighlightedMatchContextWithReplacement(
+                                          res.source, 
+                                          match.start, 
+                                          match.end, 
+                                          currentSearchValues.find, 
+                                          currentSearchValues.replace,
+                                          currentSearchValues.searchMode,
+                                          currentSearchValues.matchCase,
+                                          currentSearchValues.wholeWord
+                                        )
+                                      : getHighlightedMatchContext(res.source, match.start, match.end)}
                                 </div>
                             ))
                         ))}
@@ -1149,6 +1261,11 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
         }
     }, [searchLevels.length]); // Зависимость только от количества уровней поиска
 
+    // Хранение текущих значений поиска в глобальной переменной для доступа из разных компонентов
+    useEffect(() => {
+        window.activeSearchReplaceValues = values;
+    }, [values]);
+
     return (
         <div
           onKeyDown={handleKeyDown}
@@ -1580,7 +1697,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                       </>
                     )}
                 </div>
-             )}
+            )}
           </div>
 
           {/* --- Results Section --- */}
@@ -1633,6 +1750,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                                 toggleFileExpansion={toggleFileExpansion}
                                                 handleFileClick={handleFileClick}
                                                 handleResultItemClick={handleResultItemClick}
+                                                currentSearchValues={values}
                                             />
                                         ))
                                     ) : (
@@ -1770,6 +1888,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                             toggleFileExpansion={toggleFileExpansion}
                                             handleFileClick={handleFileClick}
                                             handleResultItemClick={handleResultItemClick}
+                                            currentSearchValues={values}
                                         />
                                     ))
                                 ) : (

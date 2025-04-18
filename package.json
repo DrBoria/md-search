@@ -15,7 +15,10 @@
     "workspace"
   ],
   "activationEvents": [
-    "onView:mdSearch.SearchReplaceView"
+    "onView:mdSearch.SearchReplaceView",
+    "onCommand:mdSearch.replace",
+    "onCommand:mdSearch.findInFolder",
+    "onCommand:mdSearch.findInFile"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -69,28 +72,16 @@
         "title": "MD: Show Debug Output"
       },
       {
-        "command": "mdSearch.search",
-        "title": "MD: Find/Replace..."
-      },
-      {
-        "command": "mdSearch.setAsTransformFile",
-        "title": "MD: Set as Transform File"
-      },
-      {
-        "command": "mdSearch.findInFile",
-        "title": "MD: Find in File..."
-      },
-      {
         "command": "mdSearch.findInFolder",
         "title": "MD: Find in Folder..."
       },
       {
-        "command": "mdSearch.transformInFile",
-        "title": "MD: Transform in File..."
+        "command": "mdSearch.replace",
+        "title": "MD: Find in Folder..."
       },
       {
-        "command": "mdSearch.transformInFolder",
-        "title": "MD: Transform in Folder..."
+        "command": "mdSearch.findInFile",
+        "title": "MD: Find in File..."
       }
     ],
     "keybindings": [
@@ -101,7 +92,7 @@
         "when": "!editorFocus"
       },
       {
-        "command": "mdSearch.search",
+        "command": "mdSearch.replace",
         "key": "ctrl+shift+h",
         "mac": "cmd+shift+h",
         "when": "!editorFocus"
@@ -112,60 +103,6 @@
         {
           "when": "explorerResourceIsFolder",
           "command": "mdSearch.findInFolder",
-          "group": "mdSearch"
-        },
-        {
-          "when": "explorerResourceIsFolder",
-          "command": "mdSearch.transformInFolder",
-          "group": "mdSearch"
-        },
-        {
-          "when": "!explorerResourceIsFolder",
-          "command": "mdSearch.findInFile",
-          "group": "mdSearch"
-        },
-        {
-          "when": "!explorerResourceIsFolder",
-          "command": "mdSearch.transformInFile",
-          "group": "mdSearch"
-        },
-        {
-          "when": "resourceExtname == .js || resourceExtname == .cjs || resourceExtname == .mjs || resourceExtname == .ts",
-          "command": "mdSearch.setAsTransformFile",
-          "group": "mdSearch"
-        }
-      ],
-      "editor/context": [
-        {
-          "when": "resourceExtname == .js || resourceExtname == .cjs || resourceExtname == .mjs || resourceExtname == .ts",
-          "command": "mdSearch.setAsTransformFile",
-          "group": "mdSearch"
-        },
-        {
-          "when": "resourceExtname == .js || resourceExtname == .cjs || resourceExtname == .mjs || resourceExtname == .jsx || resourceExtname == .ts || resourceExtname == .tsx || resourceExtname == .cts || resourceExtname == .mts",
-          "command": "mdSearch.findInFile",
-          "group": "mdSearch"
-        },
-        {
-          "when": "resourceExtname == .js || resourceExtname == .cjs || resourceExtname == .mjs || resourceExtname == .jsx || resourceExtname == .ts || resourceExtname == .tsx || resourceExtname == .cts || resourceExtname == .mts",
-          "command": "mdSearch.transformInFile",
-          "group": "mdSearch"
-        }
-      ],
-      "editor/title/context": [
-        {
-          "when": "resourceExtname == .js || resourceExtname == .cjs || resourceExtname == .mjs || resourceExtname == .ts",
-          "command": "mdSearch.setAsTransformFile",
-          "group": "mdSearch"
-        },
-        {
-          "when": "resourceExtname == .js || resourceExtname == .cjs || resourceExtname == .mjs || resourceExtname == .jsx || resourceExtname == .ts || resourceExtname == .tsx || resourceExtname == .cts || resourceExtname == .mts",
-          "command": "mdSearch.findInFile",
-          "group": "mdSearch"
-        },
-        {
-          "when": "resourceExtname == .js || resourceExtname == .cjs || resourceExtname == .mjs || resourceExtname == .jsx || resourceExtname == .ts || resourceExtname == .tsx || resourceExtname == .cts || resourceExtname == .mts",
-          "command": "mdSearch.transformInFile",
           "group": "mdSearch"
         }
       ]

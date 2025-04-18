@@ -1,6 +1,6 @@
-# md-search
+# MD Search
 
-VSCode extension for advanced code search and replace functionality
+VSCode extension for nested code search and replace functionality
 
 ![Screenshot](screenshot.png)
 
