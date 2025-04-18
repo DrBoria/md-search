@@ -188,6 +188,7 @@
     "watch:extension": "webpack --config extension.webpack.config.js --watch",
     "build:webviews": "NODE_ENV=production webpack --config webviews.webpack.config.js",
     "watch:webviews": "webpack serve --config webviews.webpack.config.js",
+    "dev:webviews-debug": "webpack serve --config webviews.webpack.config.js --mode development",
     "test": "rimraf .nyc_output; npm run test:unit && node ./out/extension/test/runTest.js && nyc report && nyc report --reporter=lcov",
     "codecov": "nyc report --reporter=text-lcov > coverage.lcov; codecov",
     "open:coverage": "open coverage/lcov-report/index.html",

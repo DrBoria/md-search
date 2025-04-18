@@ -43,7 +43,31 @@
       "args": ["--extensionDevelopmentPath=${workspaceRoot}"],
       "sourceMaps": true,
       "outFiles": ["${workspaceRoot}/out/**/*.js"],
-      "preLaunchTask": "watch"
+      "preLaunchTask": "watch:debug"
+    },
+    {
+      "name": "Debug Webview",
+      "type": "chrome",
+      "request": "launch",
+      "webRoot": "${workspaceFolder}",
+      "sourceMapPathOverrides": {
+        "webpack:///./src/*": "${workspaceFolder}/src/*",
+        "webpack:///src/*": "${workspaceFolder}/src/*"
+      },
+      "url": "http://localhost:9099", 
+      "presentation": {
+        "hidden": true
+      }
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Debug Extension and Webview",
+      "configurations": ["Debug Extension with Breakpoints"],
+      "presentation": {
+        "group": "debug",
+        "order": 1
+      }
     }
   ]
 }

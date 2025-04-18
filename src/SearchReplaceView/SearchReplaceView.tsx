@@ -115,14 +115,21 @@ function uriToPath(uriString: string | undefined): string | undefined {
     }
 }
 
+// Обёртка с логированием для uriToPath
+function loggedUriToPath(uriString: string | undefined, logToExtension: (level: 'info' | 'warn' | 'error', message: string, data?: unknown) => void): string | undefined {
+    const result = uriToPath(uriString);
+    console.log('info', `URI to Path: input="${uriString}", output="${result}", isURI=${uriString?.startsWith('file:') || false}`);
+    return result;
+}
+
 // --- Helper Function to Build File Tree ---
 function buildFileTree(
   resultsByFile: Record<string, SerializedTransformResultEvent[]>,
-  workspacePathUri: string | undefined // Expect URI or path string
+  workspacePathUri: string | undefined, // Expect URI or path string
+  logToExtension: (level: 'info' | 'warn' | 'error', message: string, data?: unknown) => void
 ): FolderNode {
   const root: FolderNode = { name: '', relativePath: '', type: 'folder', children: [] }
-  const workspacePath = uriToPath(workspacePathUri); // Convert workspace URI to path
-
+  const workspacePath = loggedUriToPath(workspacePathUri, logToExtension); // Convert workspace URI to path
   // Helper to find or create folder nodes
   const findOrCreateFolder = (
     parent: FolderNode,
@@ -151,11 +158,12 @@ function buildFileTree(
     });
     return newFolder
   }
+  debugger;
 
   // Use absolute path as key initially
   Object.entries(resultsByFile).forEach(([absoluteFilePathOrUri, fileResults]) => {
     // Convert file URI/path to a standard path
-    const absoluteFilePath = uriToPath(absoluteFilePathOrUri);
+    const absoluteFilePath = loggedUriToPath(absoluteFilePathOrUri, logToExtension);
     if (!absoluteFilePath) {
       // console.error("Could not determine absolute path for:", absoluteFilePathOrUri);
       return; // Skip if path conversion fails
@@ -165,6 +173,9 @@ function buildFileTree(
     const displayPath = workspacePath 
         ? path.relative(workspacePath, absoluteFilePath) 
         : absoluteFilePath; // Fallback to absolute if no workspace
+    
+    // Отправляем пути в Output панель VS Code
+    logToExtension('info', `Path debug: displayPath="${displayPath}", workspacePath="${workspacePath}", absoluteFilePath="${absoluteFilePath}", absoluteFilePathOrUri="${absoluteFilePathOrUri}"`);
 
     // Ensure consistent POSIX separators for internal logic
     const posixDisplayPath = displayPath.replace(/\\/g, '/'); // Replace backslashes with forward slashes
@@ -251,6 +262,14 @@ const rightAnim = keyframes`
 const getFilename = (filePathOrUri: string): string => {
   const filePath = uriToPath(filePathOrUri) || filePathOrUri; // Convert first
   return path.basename(filePath); 
+}
+
+// Версия с логированием
+const loggedGetFilename = (filePathOrUri: string, logToExtension: (level: 'info' | 'warn' | 'error', message: string, data?: unknown) => void): string => {
+  const filePath = loggedUriToPath(filePathOrUri, logToExtension) || filePathOrUri;
+  const basename = path.basename(filePath);
+  logToExtension('info', `Getting filename: input="${filePathOrUri}", convertedPath="${filePath}", basename="${basename}"`);
+  return basename;
 }
 
 // Define props including the vscode api from controller
@@ -345,7 +364,7 @@ const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
           hasError,
           canExpand
         });
-
+        debugger;
         return (
             <div key={node.relativePath} className={css` margin-bottom: 1px; `}>
                 {/* File Entry */}
@@ -746,8 +765,8 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     // Build the initial, unfiltered tree
     const unfilteredFileTree = useMemo(() => {
          // logToExtension('info', 'Building unfiltered file tree', { resultsCount: Object.keys(resultsByFile).length, workspacePath });
-         return buildFileTree(resultsByFile, workspacePath);
-    }, [resultsByFile, workspacePath]);
+         return buildFileTree(resultsByFile, workspacePath, logToExtension);
+    }, [resultsByFile, workspacePath, logToExtension]);
 
     // Filter the tree for nodes with matches
     const filteredFileTree = useMemo(() => {
@@ -1088,6 +1107,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
             ]);
         }
     }, [values, isReplaceVisible, isInNestedSearch]);
+    debugger;
 
     return (
         <div
@@ -1570,10 +1590,15 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                     {/* Group results by file */}
                                     {Object.entries(searchLevels[searchLevels.length - 1].resultsByFile).map(([filePath, results]) => {
                                         const displayPath = workspacePath 
-                                            ? path.relative(uriToPath(workspacePath) || '', uriToPath(filePath) || filePath)
-                                            : getFilename(filePath);
+                                            ? path.relative(loggedUriToPath(workspacePath, logToExtension) || '', loggedUriToPath(filePath, logToExtension) || filePath)
+                                            : loggedGetFilename(filePath, logToExtension);
+                                        
+                                        // Добавляем логирование для отладки путей
+                                        logToExtension('info', `List View Path Debug: displayPath="${displayPath}", workspacePath="${workspacePath}", filePath="${filePath}", uriWorkspacePath="${loggedUriToPath(workspacePath, logToExtension)}", uriFilePath="${loggedUriToPath(filePath, logToExtension)}"`);
                                         
                                         const totalMatches = results.reduce((sum, r) => sum + (r.matches?.length || 0), 0);
+                                        if (totalMatches === 0) return null; // Don't show files without matches
+                                        
                                         const filePathKey = filePath; // Use original path as key
                                         const isExpanded = expandedFiles.has(displayPath);
                                         
@@ -1633,7 +1658,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                                                         &:hover { background-color: var(--vscode-list-hoverBackground); }
                                                                     `}
                                                                     onClick={() => handleResultItemClick(filePath, match)}
-                                                                    title={`Click to open match in ${getFilename(filePath)}`}
+                                                                    title={`Click to open match in ${loggedGetFilename(filePath, logToExtension)}`}
                                                                 >
                                                                     {getHighlightedMatchContext(result.source, match.start, match.end)}
                                                                 </div>
@@ -1706,8 +1731,11 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                 {Object.entries(resultsByFile).length > 0 ? (
                                     Object.entries(resultsByFile).map(([filePath, results]) => {
                                         const displayPath = workspacePath 
-                                            ? path.relative(uriToPath(workspacePath) || '', uriToPath(filePath) || filePath) 
-                                            : getFilename(filePath);
+                                            ? path.relative(loggedUriToPath(workspacePath, logToExtension) || '', loggedUriToPath(filePath, logToExtension) || filePath) 
+                                            : loggedGetFilename(filePath, logToExtension);
+                                        
+                                        // Добавляем логирование для отладки путей
+                                        logToExtension('info', `List View Path Debug: displayPath="${displayPath}", workspacePath="${workspacePath}", filePath="${filePath}", uriWorkspacePath="${loggedUriToPath(workspacePath, logToExtension)}", uriFilePath="${loggedUriToPath(filePath, logToExtension)}"`);
                                         
                                         const totalMatches = results.reduce((sum, r) => sum + (r.matches?.length || 0), 0);
                                         if (totalMatches === 0) return null; // Don't show files without matches
@@ -1771,7 +1799,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                                                         &:hover { background-color: var(--vscode-list-hoverBackground); }
                                                                     `}
                                                                     onClick={() => handleResultItemClick(filePath, match)}
-                                                                    title={`Click to open match in ${getFilename(filePath)}`}
+                                                                    title={`Click to open match in ${loggedGetFilename(filePath, logToExtension)}`}
                                                                 >
                                                                     {getHighlightedMatchContext(result.source, match.start, match.end)}
                                                                 </div>

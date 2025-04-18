@@ -3,7 +3,7 @@
 const path = require('path')
 const webpack = require('webpack')
 const isProduction = process.env.NODE_ENV === 'production'
-const port = 8378
+const port = 9098
 
 module.exports = {
   mode: isProduction ? 'production' : 'development',

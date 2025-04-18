@@ -63,8 +63,46 @@
       }
     },
     {
+      "type": "shell",
+      "label": "dev:webviews-debug",
+      "command": "npm",
+      "args": ["run", "dev:webviews-debug"],
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "webpack",
+        "fileLocation": "relative",
+        "pattern": {
+          "regexp": "^([^\\s].*)\\((\\d+|\\d+,\\d+|\\d+,\\d+,\\d+,\\d+)\\):\\s+(error|warning|info)\\s+(TS\\d+)\\s*:\\s*(.*)$",
+          "file": 1,
+          "location": 2,
+          "severity": 3,
+          "code": 4,
+          "message": 5
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^dev server running at:",
+          "endsPattern": "compiled"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "group": {
+        "kind": "build"
+      }
+    },
+    {
       "label": "watch",
       "dependsOn": ["watch:extension", "watch:webviews"],
+      "group": {
+        "kind": "build"
+      }
+    },
+    {
+      "label": "watch:debug",
+      "dependsOn": ["watch:extension", "dev:webviews-debug"],
       "group": {
         "kind": "build"
       }
