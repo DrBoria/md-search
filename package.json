@@ -1,9 +1,9 @@
 {
-  "name": "vscode-astx",
+  "name": "md-search",
   "version": "0.0.1",
   "displayName": "astx",
   "description": "structural search and replace for JavaScript and TypeScript",
-  "publisher": "jedwards1211",
+  "publisher": "drboria",
   "engines": {
     "vscode": "^1.84.0"
   },
@@ -204,7 +204,7 @@
       [
         "@semantic-release/exec",
         {
-          "prepareCmd": "vsce package 0.0.1 --no-git-tag-version --out vscode-astx-${nextRelease.version}.vsix"
+          "prepareCmd": "vsce package 0.0.1 --no-git-tag-version --out md-search-${nextRelease.version}.vsix"
         }
       ],
       [
@@ -237,9 +237,7 @@
   },
   "husky": {
     "hooks": {
-      "pre-commit": "lint-staged && npm run lint && npm run check:types",
-      "commit-msg": "commitlint -e $GIT_PARAMS",
-      "pre-push": "npm run test:unit"
+      "pre-commit": "lint-staged && npm run lint && npm run check:types"
     }
   },
   "lint-staged": {
@@ -249,7 +247,7 @@
   },
   "commitlint": {
     "extends": [
-      "@jedwards1211/commitlint-config"
+      "@drboria/commitlint-config"
     ]
   },
   "prettier": {
@@ -272,7 +270,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/codemodsquad/vscode-astx.git"
+    "url": "https://github.com/codemodsquad/md-search.git"
   },
   "keywords": [
     "ast",
@@ -300,16 +298,16 @@
   "author": "Andy Edwards",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/codemodsquad/vscode-astx/issues"
+    "url": "https://github.com/codemodsquad/md-search/issues"
   },
-  "homepage": "https://github.com/codemodsquad/vscode-astx#readme",
+  "homepage": "https://github.com/codemodsquad/md-search#readme",
   "devDependencies": {
     "@babel/node": "^7.19.1",
     "@commitlint/cli": "^11.0.0",
     "@commitlint/config-conventional": "^11.0.0",
-    "@jedwards1211/commitlint-config": "^1.0.2",
-    "@jedwards1211/eslint-config": "^2.0.2",
-    "@jedwards1211/eslint-config-typescript": "^2.0.2",
+    "@drboria/commitlint-config": "^1.0.2",
+    "@drboria/eslint-config": "^2.0.2",
+    "@drboria/eslint-config-typescript": "^2.0.2",
     "@semantic-release/commit-analyzer": "^9.0.2",
     "@semantic-release/exec": "^6.0.3",
     "@semantic-release/github": "^8.0.6",

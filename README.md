@@ -1,16 +1,55 @@
-# vscode-astx
+# md-search
 
-[![CircleCI](https://circleci.com/gh/codemodsquad/vscode-astx.svg?style=svg)](https://circleci.com/gh/codemodsquad/vscode-astx)
-[![Coverage Status](https://codecov.io/gh/codemodsquad/vscode-astx/branch/master/graph/badge.svg)](https://codecov.io/gh/codemodsquad/vscode-astx)
-[![semantic-release](https://img.shields.io/badge/%20%20%F0%9F%93%A6%F0%9F%9A%80-semantic--release-e10079.svg)](https://github.com/semantic-release/semantic-release)
-[![Commitizen friendly](https://img.shields.io/badge/commitizen-friendly-brightgreen.svg)](http://commitizen.github.io/cz-cli/)
-[![Visual Studio Marketplace Version](https://img.shields.io/visual-studio-marketplace/v/jedwards1211.vscode-astx)](https://marketplace.visualstudio.com/items?itemName=jedwards1211.vscode-astx)
-
-VSCode extension for [`astx`](https://github.com/codemodsquad/astx) structural search and replace for JavaScript and TypeScript
+VSCode extension for advanced code search and replace functionality
 
 ![Screenshot](screenshot.png)
 
+## Features
+
+- Powerful search and replace in found matches
+- Multiple search modes: text, regex, and structural search
+- Live preview of search results
+- Support for code transformations in found matches
+- Filter results by file or pattern
+
+<sub>Based on [astx](https://github.com/codemodsquad/astx) structural search technology</sub>
+
 ## Installation
 
-This is currently in beta. Install it by going to [Releases](/releases), downloading `vscode-astx-1.0.0-beta.#.vsix` in
-the assets of the latest release, and installing by running `code --install-extension vscode-astx-1.0.0-beta.#.vsix`.
+### From Marketplace
+
+You can install this extension directly from the Visual Studio Code Marketplace:
+
+1. Open VSCode
+2. Go to Extensions view (Ctrl+Shift+X / Cmd+Shift+X)
+3. Search for "md-search"
+4. Click "Install"
+
+### Manual Installation
+
+For manual installation:
+
+1. Download the latest `.vsix` file from the [Releases](/releases) page
+2. Run: `code --install-extension path/to/md-search-x.x.x.vsix`
+
+## Usage
+
+1. Open the Search panel from the Activity Bar
+2. Enter your search query
+3. Optionally configure search settings:
+   - Search mode (text, regex, astx)
+   - Include/exclude patterns
+   - Case sensitivity
+   - Search in results
+4. Review matches in the results panel
+5. Enter replacement text if needed
+6. Preview changes before applying
+7. Apply changes to selected files
+
+## Requirements
+
+- Visual Studio Code 1.60.0 or higher
+
+## License
+
+MIT
