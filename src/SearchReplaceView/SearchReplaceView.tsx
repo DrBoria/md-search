@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useEffect } from 'react'
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import {
   VSCodeTextArea,
   VSCodeTextField,
@@ -118,7 +118,7 @@ function uriToPath(uriString: string | undefined): string | undefined {
 // Обёртка с логированием для uriToPath
 function loggedUriToPath(uriString: string | undefined, logToExtension: (level: 'info' | 'warn' | 'error', message: string, data?: unknown) => void): string | undefined {
     const result = uriToPath(uriString);
-    console.log('info', `URI to Path: input="${uriString}", output="${result}", isURI=${uriString?.startsWith('file:') || false}`);
+    logToExtension('info', `URI to Path`, { input: uriString, output: result, isURI: uriString?.startsWith('file:') || false });
     return result;
 }
 
@@ -158,7 +158,6 @@ function buildFileTree(
     });
     return newFolder
   }
-  debugger;
 
   // Use absolute path as key initially
   Object.entries(resultsByFile).forEach(([absoluteFilePathOrUri, fileResults]) => {
@@ -364,7 +363,7 @@ const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
           hasError,
           canExpand
         });
-        debugger;
+
         return (
             <div key={node.relativePath} className={css` margin-bottom: 1px; `}>
                 {/* File Entry */}
@@ -534,6 +533,9 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     
     // Flag for server-side search in results
     const [searchInResults, setSearchInResults] = useState(values.searchInResults || false);
+
+    // Ref для отслеживания последнего поиска, чтобы избежать циклической перерисовки
+    const lastSearchRef = useRef('');
 
     // --- Save State Effect ---
     useEffect(() => {
@@ -764,9 +766,13 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     // --- Memoized Data ---
     // Build the initial, unfiltered tree
     const unfilteredFileTree = useMemo(() => {
-         // logToExtension('info', 'Building unfiltered file tree', { resultsCount: Object.keys(resultsByFile).length, workspacePath });
-         return buildFileTree(resultsByFile, workspacePath, logToExtension);
-    }, [resultsByFile, workspacePath, logToExtension]);
+        // Determine which results to use based on whether we're in nested search
+        const activeResults = isInNestedSearch && searchLevels.length > 0 
+            ? searchLevels[searchLevels.length - 1].resultsByFile 
+            : resultsByFile;
+        
+        return buildFileTree(activeResults, workspacePath, logToExtension);
+    }, [resultsByFile, searchLevels, isInNestedSearch, workspacePath, logToExtension]);
 
     // Filter the tree for nodes with matches
     const filteredFileTree = useMemo(() => {
@@ -962,14 +968,29 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
         setIsNestedReplaceVisible((prev: boolean) => !prev);
     }, []);
 
-    // Fix the useEffect that performs nested search
+    // Исправляем useEffect для вложенного поиска
     useEffect(() => {
-        if (isInNestedSearch && searchLevels[searchLevels.length - 1].values.find) {
+        // Check if we're in nested search and we have search levels with a valid search query
+        if (isInNestedSearch && 
+            searchLevels.length > 0 && 
+            searchLevels[searchLevels.length - 1]?.values?.find) {
+            
             const currentLevel = searchLevels[searchLevels.length - 1];
+            const searchQuery = currentLevel.values.find;
+            const currentSearchValue = `${searchQuery}_${currentLevel.values.matchCase}_${currentLevel.values.wholeWord}_${currentLevel.values.searchMode}`;
+            
+            // Skip if this exact search was already performed
+            if (lastSearchRef.current === currentSearchValue && Object.keys(currentLevel.resultsByFile).length > 0) {
+                return;
+            }
+            
+            // Update the last search reference
+            lastSearchRef.current = currentSearchValue;
+            
             // Create search regex based on current settings
             const pattern = currentLevel.values.searchMode === 'regex' 
-                ? currentLevel.values.find
-                : escapeRegExp(currentLevel.values.find);
+                ? searchQuery
+                : escapeRegExp(searchQuery);
                 
             const modifiedPattern = currentLevel.values.wholeWord && currentLevel.values.searchMode === 'text' 
                 ? `\\b${pattern}\\b` 
@@ -982,7 +1003,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
             const newResults: Record<string, SerializedTransformResultEvent[]> = {};
             
             // Get results from the previous level (or base results if only one level back)
-            const sourceResults = searchLevels.length > 2 
+            const sourceResults = searchLevels.length > 2
                 ? searchLevels[searchLevels.length - 2].resultsByFile
                 : resultsByFile;
             
@@ -993,6 +1014,9 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                     if (result.source) {
                         const matches: Array<{ start: number; end: number }> = [];
                         let match;
+                        
+                        // Reset lastIndex to start search from beginning of string
+                        regex.lastIndex = 0;
                         
                         while ((match = regex.exec(result.source)) !== null) {
                             matches.push({
@@ -1020,15 +1044,21 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                 }
             });
             
-            setSearchLevels((prev: SearchLevel[]) => [
-                ...prev.slice(0, -1),
-                {
-                    ...prev[prev.length - 1],
+            // Use a stable way to update searchLevels to avoid infinite loops
+            setSearchLevels((prev: SearchLevel[]) => {
+                const updated = [...prev];
+                updated[updated.length - 1] = {
+                    ...updated[updated.length - 1],
                     resultsByFile: newResults
-                }
-            ]);
+                };
+                return updated;
+            });
         }
-    }, [isInNestedSearch, searchLevels, resultsByFile]);
+    }, [isInNestedSearch, searchLevels[searchLevels.length - 1]?.values?.find, 
+        searchLevels[searchLevels.length - 1]?.values?.matchCase,
+        searchLevels[searchLevels.length - 1]?.values?.wholeWord,
+        searchLevels[searchLevels.length - 1]?.values?.searchMode,
+        resultsByFile]);
 
     const handleNestedReplaceAllClick = useCallback(() => {
         // First, update the main values with nested values temporarily
@@ -1107,7 +1137,6 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
             ]);
         }
     }, [values, isReplaceVisible, isInNestedSearch]);
-    debugger;
 
     return (
         <div
@@ -1720,7 +1749,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                         padding: 10px;
                                         color: var(--vscode-descriptionForeground);
                                         text-align: center;
-                                    `}>
+                                        `}>
                                         No matches found. Try adjusting your search terms or filters.
                                     </div>
                                 )}
