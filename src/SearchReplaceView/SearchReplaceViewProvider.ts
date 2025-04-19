@@ -399,17 +399,20 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
   }
 
   postMessage(message: MessageToWebview): void {
-    // Log the message type for debugging
-    this.extension.channel.appendLine(
-      `[SearchReplaceView] Sending message of type: ${message.type}`
-    )
-
-    try {
-      this._view?.webview.postMessage(message)
-    } catch (error) {
-      this.extension.channel.appendLine(
-        `Error posting message to webview: ${error}`
-      )
+    if (this._view) {
+      this._view.webview.postMessage(message)
     }
+  }
+
+  // Метод для отправки уведомления о завершении замены
+  notifyReplacementComplete(
+    totalReplacements: number,
+    totalFilesChanged: number
+  ): void {
+    this.postMessage({
+      type: 'replacementComplete',
+      totalReplacements,
+      totalFilesChanged,
+    })
   }
 }

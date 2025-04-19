@@ -146,7 +146,7 @@
     "semantic-release": "semantic-release",
     "build:watch": "nodemon -e js,ts,json --watch src --exec \"(pnpm build)\"",
     "pretest": "BABEL_ENV=coverage npm run build",
-    "vscode:prepublish": "npm run clean && npm run prettier:check && npm run lint && npm run build"
+    "vscode:prepublish": "pnpm run clean && pnpm run prettier:check && pnpm run lint && pnpm run build"
   },
   "release": {
     "plugins": [

@@ -617,6 +617,17 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     const [resultsByFile, setResultsByFile] = useState<Record<string, SerializedTransformResultEvent[]>>(initialState.resultsByFile || {}); 
     const [workspacePath, setWorkspacePath] = useState<string>(initialState.workspacePath || '');
 
+    // Состояние для отображения результатов замены
+    const [replacementResult, setReplacementResult] = useState<{
+        totalReplacements: number;
+        totalFilesChanged: number;
+        show: boolean;
+    }>({
+        totalReplacements: 0,
+        totalFilesChanged: 0,
+        show: false
+    });
+
     // --- UI State ---
     const [isReplaceVisible, setIsReplaceVisible] = useState(initialState.isReplaceVisible ?? false);
     const [showSettings, setShowSettings] = useState(initialState.showSettings ?? true);
@@ -736,6 +747,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                     }));
                     setExpandedFiles(new Set()); // Clear expanded state
                     setExpandedFolders(new Set());
+                    setReplacementResult({ totalReplacements: 0, totalFilesChanged: 0, show: false });
                     break;
                 case 'addResult': {
                     const newResult = message.data;
@@ -744,6 +756,27 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                         // Use original absolute path/URI as key
                         [newResult.file]: [...(prev[newResult.file] || []), newResult] 
                     }));
+                    break;
+                }
+                case 'replacementComplete': {
+                    // При получении сообщения о завершении замены, очищаем дерево и показываем результат
+                    setResultsByFile({});
+                    setStatus(prev => ({ 
+                        ...prev, 
+                        numMatches: 0, 
+                        numFilesWithMatches: 0,
+                        completed: 0,
+                        total: 0,
+                    }));
+                    setExpandedFiles(new Set());
+                    setExpandedFolders(new Set());
+                    
+                    // Устанавливаем результаты замены для отображения
+                    setReplacementResult({
+                        totalReplacements: message.totalReplacements,
+                        totalFilesChanged: message.totalFilesChanged,
+                        show: true
+                    });
                     break;
                 }
             }
@@ -763,7 +796,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     const postValuesChange = useCallback((changed: Partial<SearchReplaceViewValues>) => {
         // Immediately update local state for responsiveness
         setValues(prev => {
-            const next = { ...prev, ...changed };
+            const next = { ...prev, ...changed, isReplacement: false };
              // Update dependent local state right away
             if (changed.searchMode !== undefined) setCurrentSearchMode(changed.searchMode);
             if (changed.matchCase !== undefined) setMatchCase(changed.matchCase);
@@ -1196,6 +1229,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
             type: 'values', 
             values: {
                 ...values,
+                isReplacement: true,
                 find: currentLevel.values.find,
                 replace: currentLevel.values.replace,
                 matchCase: currentLevel.values.matchCase,
@@ -1651,7 +1685,6 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                 )}
             </div>
             
-            {/* --- Collapsible Settings Panel --- */} 
             {!isInNestedSearch && showSettings && (
                 <div className={css` display: flex; flex-direction: column; gap: 5px; padding: 5px; border-top: 1px solid var(--vscode-divider-background); margin-top: 4px;`}>
                     <VSCodeTextField name="filesToInclude" value={values.include || ''} onInput={handleIncludeChange}> files to include </VSCodeTextField>
@@ -1730,8 +1763,57 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                     </div>
                 )}
 
+                {/* Display replacement results */}
+                {replacementResult.show && (
+                    <div className={css`
+                        display: flex;
+                        flex-direction: column;
+                        justify-content: center;
+                        align-items: center;
+                        height: 100%;
+                        text-align: center;
+                        padding: 20px;
+                    `}>
+                        <div className={css`
+                            font-size: 1.2em;
+                            margin-bottom: 10px;
+                            color: var(--vscode-gitDecoration-addedResourceForeground);
+                        `}>
+                            <span className="codicon codicon-check-all" style={{ marginRight: '8px' }}></span>
+                            Replacement completed successfully
+                        </div>
+                        <div className={css`
+                            margin-bottom: 5px;
+                            color: var(--vscode-foreground);
+                        `}>
+                            Replaced <strong>{replacementResult.totalReplacements}</strong> matches 
+                            in <strong>{replacementResult.totalFilesChanged}</strong> files
+                        </div>
+                        <VSCodeButton
+                            appearance="secondary"
+                            onClick={() => {
+                                // Reset replacement results state
+                                setReplacementResult({
+                                    totalReplacements: 0,
+                                    totalFilesChanged: 0,
+                                    show: false
+                                });
+                                // Launch new search
+                                if (values.find) {
+                                    vscode.postMessage({ 
+                                        type: 'search', 
+                                        ...values 
+                                    });
+                                }
+                            }}
+                        >
+                            New search
+                        </VSCodeButton>
+                    </div>
+                )}
+
                 {/* Show either nested results or regular results based on state */}
-                {isInNestedSearch ? (
+                {!replacementResult.show && isInNestedSearch ? (
                     // Nested search results view
                     Object.keys(searchLevels[searchLevels.length - 1].resultsByFile).length > 0 ? (
                         <div>
@@ -1869,6 +1951,140 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                             Enter a search term to find within the results
                         </div>
                     )
+                ) : !replacementResult.show ? (
+                    // Original results view
+                    <>
+                        {/* Regular Results View */}
+                        {viewMode === 'tree' ? (
+                            // Tree view of results
+                            <div>
+                                {filteredFileTree.children.length > 0 ? (
+                                    filteredFileTree.children.map(node => (
+                                        <TreeViewNode
+                                            key={node.relativePath}
+                                            node={node}
+                                            level={0}
+                                            expandedFolders={expandedFolders}
+                                            toggleFolderExpansion={toggleFolderExpansion}
+                                            expandedFiles={expandedFiles}
+                                            toggleFileExpansion={toggleFileExpansion}
+                                            handleFileClick={handleFileClick}
+                                            handleResultItemClick={handleResultItemClick}
+                                            currentSearchValues={values}
+                                        />
+                                    ))
+                                ) : (
+                                    <div className={css`
+                                        padding: 10px;
+                                        color: var(--vscode-descriptionForeground);
+                                        text-align: center;
+                                        `}>
+                                        No matches found. Try adjusting your search terms or filters.
+                                    </div>
+                                )}
+                            </div>
+                        ) : (
+                            // List view of results
+                            <div>
+                                {Object.entries(resultsByFile).length > 0 ? (
+                                    Object.entries(resultsByFile).map(([filePath, results]) => {
+                                        const displayPath = workspacePath 
+                                            ? path.relative(uriToPath(workspacePath), uriToPath(filePath)) 
+                                            : uriToPath(filePath);
+                                        
+                                        const totalMatches = results.reduce((sum, r) => sum + (r.matches?.length || 0), 0);
+                                        if (totalMatches === 0) return null; // Don't show files without matches
+                                        
+                                        const filePathKey = filePath; // Use original path as key
+                                        const isExpanded = expandedFiles.has(displayPath);
+                                        
+                                        return (
+                                            <div key={filePathKey} className={css`
+                                                margin-bottom: 8px;
+                                                border-radius: 3px;
+                                                overflow: hidden;
+                                            `}>
+                                                {/* File Header */}
+                                                <div 
+                                                    className={css`
+                                                        display: flex;
+                                                        align-items: center;
+                                                        background-color: var(--vscode-list-dropBackground);
+                                                        padding: 4px 8px;
+                                                        gap: 8px;
+                                                        cursor: pointer;
+                                                        &:hover { background-color: var(--vscode-list-hoverBackground); }
+                                                    `}
+                                                    onClick={() => toggleFileExpansion(displayPath)}
+                                                >
+                                                    <span className={`codicon codicon-chevron-${isExpanded ? 'down' : 'right'}`} />
+                                                    <span 
+                                                        className={css`font-weight: bold; cursor: pointer;`}
+                                                        onClick={(e) => { 
+                                                            e.stopPropagation(); 
+                                                            handleFileClick(filePath); 
+                                                        }}
+                                                        title={`Click to open ${displayPath}`}
+                                                    >
+                                                        {displayPath}
+                                                    </span>
+                                                    <span className={css`
+                                                        margin-left: auto;
+                                                        color: var(--vscode-descriptionForeground);
+                                                    `}>
+                                                        {totalMatches} matches
+                                                    </span>
+                                                </div>
+                                                
+                                                {/* Expanded Matches */}
+                                                {isExpanded && (
+                                                    <div className={css`
+                                                        padding: 4px 0;
+                                                        background-color: var(--vscode-editor-background);
+                                                    `}>
+                                                        {results.map((result, resultIdx) => 
+                                                            result.matches?.map((match, matchIdx) => (
+                                                                <div 
+                                                                    key={`${resultIdx}-${matchIdx}`}
+                                                                    className={css`
+                                                                        padding: 2px 24px;
+                                                                        font-family: var(--vscode-editor-font-family);
+                                                                        font-size: var(--vscode-editor-font-size);
+                                                                        cursor: pointer;
+                                                                        &:hover { background-color: var(--vscode-list-hoverBackground); }
+                                                                    `}
+                                                                    onClick={() => handleResultItemClick(filePath, match)}
+                                                                    title={getLineFromSource(result.source, match.start, match.end)}
+                                                                >
+                                                                    {getHighlightedMatchContext(result.source, match.start, match.end)}
+                                                                </div>
+                                                            ))
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })
+                                ) : running ? (
+                                    <div className={css`
+                                        padding: 10px;
+                                        color: var(--vscode-descriptionForeground);
+                                        text-align: center;
+                                    `}>
+                                        Searching... {completed} / {total} files
+                                    </div>
+                                ) : (
+                                    <div className={css`
+                                        padding: 10px;
+                                        color: var(--vscode-descriptionForeground);
+                                        text-align: center;
+                                    `}>
+                                        No matches found. Try adjusting your search terms or filters.
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </>
                 ) : (
                     // Original results view
                     <>

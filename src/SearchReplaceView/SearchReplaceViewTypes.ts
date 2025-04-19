@@ -103,6 +103,11 @@ export type MessageToWebview =
   | { type: 'stop' }
   | { type: 'focusSearchInput' }
   | { type: 'focusReplaceInput' }
+  | {
+      type: 'replacementComplete'
+      totalReplacements: number
+      totalFilesChanged: number
+    }
 
 export type MessageFromWebview =
   | {

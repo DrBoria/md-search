@@ -35,6 +35,7 @@ export type Params = {
   matchCase: boolean
   wholeWord: boolean
   searchInResults?: boolean
+  isReplacement?: boolean
 }
 
 const paramsInConfig: (keyof Params)[] = [
@@ -167,8 +168,12 @@ export class AstxExtension {
         `[Debug] Setting params: find="${params.find}", replace="${params.replace}", searchInResults=${params.searchInResults}`
       )
       this.params = { ...params }
-      this.runner.setParams({ ...this.params })
-      this.searchReplaceViewProvider.setParams({ ...this.params })
+
+      // No deed to set params if replacement is in progress
+      if (!params.isReplacement) {
+        this.runner.setParams({ ...this.params })
+        this.searchReplaceViewProvider.setParams({ ...this.params })
+      }
     }
   }
 
@@ -222,7 +227,6 @@ export class AstxExtension {
 
     vscode.workspace.onDidChangeTextDocument(
       this.handleTextDocumentChange,
-      this,
       context.subscriptions
     )
 
@@ -249,25 +253,25 @@ export class AstxExtension {
 
     const setIncludePaths =
       ({ useTransformFile }: { useTransformFile: boolean }) =>
-      (dir: vscode.Uri, arg2: vscode.Uri[]) => {
-        const dirs =
-          Array.isArray(arg2) &&
-          arg2.every((item) => item instanceof vscode.Uri)
-            ? arg2
-            : [dir || vscode.window.activeTextEditor?.document.uri].filter(
+        (dir: vscode.Uri, arg2: vscode.Uri[]) => {
+          const dirs =
+            Array.isArray(arg2) &&
+              arg2.every((item) => item instanceof vscode.Uri)
+              ? arg2
+              : [dir || vscode.window.activeTextEditor?.document.uri].filter(
                 (x): x is vscode.Uri => x instanceof vscode.Uri
               )
-        if (!dirs.length) return
-        const newParams: Params = {
-          ...this.getParams(),
-          useTransformFile,
-          include: dirs.map(normalizeFsPath).join(', '),
+          if (!dirs.length) return
+          const newParams: Params = {
+            ...this.getParams(),
+            useTransformFile,
+            include: dirs.map(normalizeFsPath).join(', '),
+          }
+          this.setParams(newParams)
+          vscode.commands.executeCommand(
+            `${SearchReplaceViewProvider.viewType}.focus`
+          )
         }
-        this.setParams(newParams)
-        vscode.commands.executeCommand(
-          `${SearchReplaceViewProvider.viewType}.focus`
-        )
-      }
     const findInPath = setIncludePaths({ useTransformFile: false })
     const transformInPath = setIncludePaths({ useTransformFile: true })
 
@@ -296,8 +300,8 @@ export class AstxExtension {
         Array.isArray(arg2) && arg2.every((item) => item instanceof vscode.Uri)
           ? arg2
           : [dir || vscode.window.activeTextEditor?.document.uri].filter(
-              (x): x is vscode.Uri => x instanceof vscode.Uri
-            )
+            (x): x is vscode.Uri => x instanceof vscode.Uri
+          )
       if (!dirs.length) return
 
       // Set include to the selected folder paths plus MD file pattern
@@ -414,6 +418,8 @@ export class AstxExtension {
         }
 
         const modificationPromises: Promise<void>[] = []
+        let totalReplacements = 0
+        let totalFilesChanged = 0
 
         for (const [uriString, result] of resultsMap.entries()) {
           // Process only files that actually had matches reported by the initial search
@@ -442,13 +448,19 @@ export class AstxExtension {
                   const regex = new RegExp(pattern, flags)
 
                   // Perform the replacement
-                  newContent = originalContent.replace(regex, replace)
+                  let replacementCount = 0
+                  newContent = originalContent.replace(regex, (match) => {
+                    replacementCount++
+                    return replace
+                  })
 
                   // Write back only if content changed
                   if (newContent !== originalContent) {
                     this.channel.appendLine(
-                      `Replacing matches in: ${uri.fsPath}`
+                      `Replacing ${replacementCount} matches in: ${uri.fsPath}`
                     )
+                    totalReplacements += replacementCount
+                    totalFilesChanged++
                     const newContentBytes = Buffer.from(newContent, 'utf8')
                     await vscode.workspace.fs.writeFile(uri, newContentBytes)
                   } else {
@@ -470,23 +482,28 @@ export class AstxExtension {
         // Wait for all file modifications to complete
         await Promise.all(modificationPromises)
 
-        // Clear results after text/regex replacement - TODO: Find correct way to clear results
-        // this.transformResultProvider.clear()
-        // Notify the webview to clear its display
-        // Assuming searchReplaceViewProvider has a method or way to trigger clear
-        // This might need adjustment based on SearchReplaceViewProvider implementation
-        // this.searchReplaceViewProvider.clearResults()
+        // Отправляем сообщение в webview с результатами замены
+        this.searchReplaceViewProvider.notifyReplacementComplete(
+          totalReplacements,
+          totalFilesChanged
+        )
+
+        // Очищаем результаты поиска
+        this.transformResultProvider.clear()
 
         this.channel.appendLine(
-          `${params.searchMode} replace finished. Results may be stale until next search.`
+          `${params.searchMode} replace finished. Replaced ${totalReplacements} occurrences in ${totalFilesChanged} files.`
         )
-        // Optionally show a notification
-        vscode.window.showInformationMessage('Text/Regex replacement complete.')
+        // Удаляем уведомление
+        // vscode.window.showInformationMessage('Text/Regex replacement complete.')
       }
     } catch (error: any) {
       this.logError(error)
     } finally {
-      this.replacing = false
+      // FS change event triggers in about 250 ms
+      setTimeout(() => {
+        this.replacing = false
+      }, 300)
     }
   }
 
@@ -511,7 +528,7 @@ export class AstxExtension {
       e.document.uri.scheme === 'file' &&
       (!transformFile ||
         e.document.uri.toString() !==
-          this.resolveFsPath(transformFile).toString())
+        this.resolveFsPath(transformFile).toString())
     ) {
       this.runner.handleChange(e.document.uri)
     }
@@ -531,11 +548,10 @@ export async function deactivate(): Promise<void> {
 function normalizeFsPath(uri: vscode.Uri): string {
   const folder = vscode.workspace.getWorkspaceFolder(uri)
   return folder
-    ? `${
-        (vscode.workspace.workspaceFolders?.length ?? 0) > 1
-          ? path.basename(folder.uri.path) + '/'
-          : ''
-      }${path.relative(folder.uri.path, uri.path)}`
+    ? `${(vscode.workspace.workspaceFolders?.length ?? 0) > 1
+      ? path.basename(folder.uri.path) + '/'
+      : ''
+    }${path.relative(folder.uri.path, uri.path)}`
     : uri.fsPath
 }
 

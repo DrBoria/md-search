@@ -99,4 +99,15 @@ export default class TransformResultProvider
     }
     return new vscode.FileDecoration()
   }
+
+  // Метод для очистки всех результатов и уведомления о изменениях
+  clear(): void {
+    const uris = [...this.results.keys()].flatMap((raw) => [
+      vscode.Uri.parse(raw).with({ scheme: ASTX_RESULT_SCHEME }),
+      vscode.Uri.parse(raw).with({ scheme: ASTX_REPORTS_SCHEME }),
+    ])
+    this.results.clear()
+    this._onDidChangeFileDecorations.fire(uris)
+    for (const uri of uris) this._onDidChange.fire(uri)
+  }
 }
