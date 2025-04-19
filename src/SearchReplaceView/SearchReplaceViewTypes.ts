@@ -108,6 +108,11 @@ export type MessageToWebview =
       totalReplacements: number
       totalFilesChanged: number
     }
+  | {
+      type: 'fileUpdated'
+      filePath: string
+      newSource: string
+    }
 
 export type MessageFromWebview =
   | {

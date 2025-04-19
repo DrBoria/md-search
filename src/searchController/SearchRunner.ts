@@ -39,6 +39,7 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
       transformed: string
     }
   > = new Map()
+  private fileDocs: Map<string, vscode.TextDocument> = new Map()
   private fs: Fs | undefined
   private config: AstxConfig | undefined
   private startupPromise: Promise<void> = Promise.reject(
@@ -201,6 +202,51 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
     250,
     { leading: false, trailing: true }
   )
+
+  // Handles document updates for changed or deleted files
+  updateDocumentsForChangedFile(fileUri: vscode.Uri): void {
+    // Remove the file from fileDocs cache
+    if (this.fileDocs.has(fileUri.fsPath)) {
+      this.fileDocs.delete(fileUri.fsPath)
+    }
+    
+    // Mark file as changed to ensure it's reprocessed in next search
+    this.processedFiles.delete(fileUri.fsPath)
+    
+    // Update params from extension to ensure latest settings
+    this.params = this.extension.getParams()
+    
+    // Если файл в результатах поиска - обновить его содержимое в UI
+    this.refreshFileSourceInSearchResults(fileUri)
+  }
+  
+  // Обновляет исходный код файла в результатах поиска
+  private async refreshFileSourceInSearchResults(fileUri: vscode.Uri): Promise<void> {
+    // Проверяем, есть ли файл в результатах поиска
+    if (this.previousSearchFiles.has(fileUri.fsPath)) {
+      try {
+        // Читаем актуальное содержимое файла
+        const source = await vscode.workspace.fs.readFile(fileUri);
+        const newContent = new TextDecoder('utf-8').decode(source);
+        
+        // Отправляем сообщение в SearchReplaceViewProvider об обновлении файла
+        this.extension.channel.appendLine(
+          `[Debug] Sending updated source for ${Path.basename(fileUri.fsPath)} to SearchReplaceView`
+        );
+        
+        // Отправляем событие обновления файла в SearchReplaceViewProvider
+        this.extension.searchReplaceViewProvider.postMessage({
+          type: 'fileUpdated',
+          filePath: fileUri.toString(),
+          newSource: newContent
+        });
+      } catch (error) {
+        this.extension.channel.appendLine(
+          `[Debug] Error updating source for ${fileUri.fsPath}: ${error}`
+        );
+      }
+    }
+  }
 
   async handleChange(fileUri: vscode.Uri): Promise<void> {
     // Log entry into handleChange
@@ -456,16 +502,17 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
         ? convertGlobPattern(this.params.exclude, workspaceFolders)
         : null
 
-      const fileDocs: Map<string, vscode.TextDocument> = new Map()
+      // Update in-memory document cache
+      this.fileDocs.clear()
       for (const doc of vscode.workspace.textDocuments) {
         if (doc.uri.scheme === 'file' && !doc.isClosed)
-          fileDocs.set(doc.uri.fsPath, doc)
+          this.fileDocs.set(doc.uri.fsPath, doc)
       }
 
       const FsImpl: any = {
         // Временно используем any, чтобы избежать ошибок типизации
         readFile: async (file: string, encoding: string): Promise<string> => {
-          const doc = fileDocs.get(file)
+          const doc = this.fileDocs.get(file)
           if (doc) return doc.getText()
           try {
             const raw = await vscode.workspace.fs.readFile(

@@ -508,29 +508,52 @@ export class AstxExtension {
   }
 
   handleFsChange = (uri: vscode.Uri): void => {
-    if (this.replacing) return
     const { transformFile } = this.getParams()
+    
+    // Проверяем, не в режиме ли замены мы находимся
+    if (this.replacing) {
+      this.channel.appendLine(`[Debug] File changed during replace: ${uri.fsPath}`)
+      this.runner.updateDocumentsForChangedFile(uri)
+      return
+    }
+    
+    // Если это изменение трансформационного файла
     if (
       transformFile &&
       uri.toString() === this.resolveFsPath(transformFile).toString()
     ) {
       this.runner.restartSoon()
-    } else if (this.searchReplaceViewProvider.visible) {
+      return
+    }
+    
+    // Нормальная обработка, когда поисковое представление видимо
+    if (this.searchReplaceViewProvider.visible) {
       this.runner.handleChange(uri)
     }
   }
 
   handleTextDocumentChange = (e: vscode.TextDocumentChangeEvent): void => {
-    if (this.replacing) return
     const { transformFile } = this.getParams()
+    const uri = e.document.uri
+    
+    // Проверяем, не в режиме ли замены мы находимся
+    if (this.replacing) {
+      this.channel.appendLine(`[Debug] Document changed during replace: ${uri.fsPath}`)
+      this.runner.updateDocumentsForChangedFile(uri)
+      return
+    }
+    
+    // Пропускаем, если это не файл или это трансформационный файл
     if (
-      this.searchReplaceViewProvider.visible &&
-      e.document.uri.scheme === 'file' &&
-      (!transformFile ||
-        e.document.uri.toString() !==
-        this.resolveFsPath(transformFile).toString())
+      uri.scheme !== 'file' ||
+      (transformFile && uri.toString() === this.resolveFsPath(transformFile).toString())
     ) {
-      this.runner.handleChange(e.document.uri)
+      return
+    }
+    
+    // Нормальная обработка, когда поисковое представление видимо
+    if (this.searchReplaceViewProvider.visible) {
+      this.runner.handleChange(uri)
     }
   }
 }

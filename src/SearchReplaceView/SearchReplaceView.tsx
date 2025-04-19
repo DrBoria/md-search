@@ -758,6 +758,59 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                     }));
                     break;
                 }
+                case 'fileUpdated': {
+                    // Обновляем source в результатах поиска и во всех searchLevels
+                    const { filePath, newSource } = message;
+                    
+                    // Обновляем source в основных результатах
+                    setResultsByFile(prev => {
+                        if (!prev[filePath] || prev[filePath].length === 0) {
+                            return prev;
+                        }
+                        
+                        // Создаем новый массив результатов с обновленным source
+                        const updatedResults = prev[filePath].map(result => ({
+                            ...result,
+                            source: newSource
+                        }));
+                        
+                        return {
+                            ...prev,
+                            [filePath]: updatedResults
+                        };
+                    });
+                    
+                    // Обновляем source во всех уровнях поиска
+                    setSearchLevels(prev => {
+                        // Если нет уровней поиска, возвращаем как есть
+                        if (prev.length === 0) return prev;
+                        
+                        // Обновляем каждый уровень поиска
+                        return prev.map(level => {
+                            // Если в данном уровне нет результатов для этого файла, оставляем как есть
+                            if (!level.resultsByFile[filePath] || level.resultsByFile[filePath].length === 0) {
+                                return level;
+                            }
+                            
+                            // Обновляем source в результатах для этого файла
+                            const updatedResults = level.resultsByFile[filePath].map(result => ({
+                                ...result,
+                                source: newSource
+                            }));
+                            
+                            // Создаем новый объект уровня с обновленными результатами
+                            return {
+                                ...level,
+                                resultsByFile: {
+                                    ...level.resultsByFile,
+                                    [filePath]: updatedResults
+                                }
+                            };
+                        });
+                    });
+                    
+                    break;
+                }
                 case 'replacementComplete': {
                     // При получении сообщения о завершении замены, очищаем дерево и показываем результат
                     setResultsByFile({});
