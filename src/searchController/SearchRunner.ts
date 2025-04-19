@@ -426,13 +426,6 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
       )
     }
 
-    // Add logging for initial parameters
-    this.extension.channel.appendLine(
-      `[Debug] Initial params in run(): searchMode=${this.params.searchMode}, searchInResults=${this.params.searchInResults}, paused=${this.params.paused}`
-    )
-    this.extension.channel.appendLine(
-      `[Debug] Find pattern: "${this.params.find}", Replace: "${this.params.replace}"`
-    )
 
     // Skip search if find pattern is empty
     if (!this.params.find || this.params.find.trim() === '') {
@@ -498,9 +491,21 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
             '**/*'
           )
 
+      this.extension.channel.appendLine(
+        `[Debug] Converted include pattern: ${includePattern.toString()}`
+      )
+      
       const excludePattern: vscode.GlobPattern | null = this.params.exclude
         ? convertGlobPattern(this.params.exclude, workspaceFolders)
         : null
+
+      if (excludePattern) {
+        this.extension.channel.appendLine(
+          `[Debug] Converted exclude pattern: ${excludePattern.toString()}`
+        )
+      } else {
+        this.extension.channel.appendLine(`[Debug] No exclude pattern set`)
+      }
 
       // Update in-memory document cache
       this.fileDocs.clear()
@@ -582,6 +587,10 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
     cancellationToken: vscode.CancellationToken
   ): Promise<void> {
     this.extension.channel.appendLine('Executing Text Search...')
+    this.extension.channel.appendLine(`[Debug] Text search with includePattern: ${includePattern.toString()}`)
+    if (excludePattern) {
+      this.extension.channel.appendLine(`[Debug] Text search with excludePattern: ${excludePattern.toString()}`)
+    }
 
     try {
       let fileUris: vscode.Uri[]
@@ -675,6 +684,15 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
           )
         }
       } else {
+        this.extension.channel.appendLine(
+          `[Debug] Calling vscode.workspace.findFiles with includePattern: ${includePattern.toString()}`
+        )
+        if (combinedExcludePattern) {
+          this.extension.channel.appendLine(
+            `[Debug] Combined exclude pattern: ${combinedExcludePattern.toString()}`
+          )
+        }
+        
         fileUris = await vscode.workspace.findFiles(
           includePattern,
           combinedExcludePattern,

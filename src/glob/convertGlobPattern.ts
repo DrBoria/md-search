@@ -1,5 +1,9 @@
 import { splitGlobPattern } from './splitGlobPattern'
 import path from 'path'
+import * as vscode from 'vscode'
+
+// Создаем канал для логирования
+const globLogger = vscode.window.createOutputChannel('VSCode Deep Search Glob Patterns')
 
 export function joinPatterns(patterns: readonly string[]): string {
   return patterns.length === 1 ? patterns[0] : `{${patterns.join(',')}}`
@@ -8,13 +12,28 @@ export function joinPatterns(patterns: readonly string[]): string {
 export function convertGlobPattern(
   patterns: string,
   workspaceFolders: readonly string[]
-): string {
+): string | vscode.RelativePattern {
+  // Добавляем отладочную информацию
+  globLogger.appendLine(`Converting glob pattern: "${patterns}"`)
+  
+  // Проверяем, является ли шаблон простым путем к директории
+  // без глобальных символов (* ? [ ] { })
+  if (/^[^*?[\]{}]+$/.test(patterns) && !path.extname(patterns)) {
+    globLogger.appendLine(`Detected simple directory path: "${patterns}"`)
+    return new vscode.RelativePattern(
+      vscode.workspace.workspaceFolders![0],
+      `${patterns}/**/*`
+    )
+  }
+
   const specificFolderPatterns: Map<string, string[]> = new Map()
   const byName = new Map(workspaceFolders.map((f) => [path.basename(f), f]))
   const generalPatterns: string[] = []
   const resultPatterns = []
 
   for (const pattern of splitGlobPattern(patterns)) {
+    globLogger.appendLine(`Processing pattern part: "${pattern}"`)
+    
     if (path.isAbsolute(pattern)) {
       resultPatterns.push(pattern)
       continue
@@ -43,5 +62,13 @@ export function convertGlobPattern(
     )
   }
 
-  return joinPatterns(resultPatterns)
+  // Если паттерн содержит только имя директории без глобальных шаблонов, добавим '**/*'
+  if (resultPatterns.length === 0 && patterns && !patterns.includes('*')) {
+    globLogger.appendLine(`Adding recursive pattern for directory: "${patterns}"`)
+    resultPatterns.push(path.join(patterns, '**', '*'))
+  }
+
+  const result = joinPatterns(resultPatterns)
+  globLogger.appendLine(`Final converted pattern: "${result}"`)
+  return result
 }
