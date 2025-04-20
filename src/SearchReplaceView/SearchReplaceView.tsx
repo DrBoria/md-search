@@ -1383,7 +1383,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                 values: {
                     ...values,
                     find: '', // Start with empty search
-                    replace: ''
+                    replace: '' // Always start with empty replace
                 },
                 resultsByFile: {},
                 matchCase: values.matchCase,
@@ -1395,6 +1395,9 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                 label: `Search ${updatedLevels.length + 1}`
             }];
         });
+
+        // Clear the replace input field
+        setIsNestedReplaceVisible(false);
 
         postValuesChange({ searchInResults: true });
     }, [values, postValuesChange, status]);
@@ -2260,7 +2263,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                                 handleFileClick={handleFileClick}
                                                 handleResultItemClick={handleResultItemClick}
                                                 handleReplace={handleReplaceSelectedFiles}
-                                                currentSearchValues={values}
+                                                currentSearchValues={searchLevels[searchLevels.length - 1].values}
                                             />
                                         ))
                                     ) : (
@@ -2354,10 +2357,21 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                                                         delete (e.currentTarget as HTMLElement).dataset.hovered;
                                                                     }}
                                                                 >
-                                                                    {getHighlightedMatchContext(result.source, match.start, match.end)}
+                                                                    {searchLevels[searchLevels.length - 1].values.replace && searchLevels[searchLevels.length - 1].values.replace.length > 0
+                                                                        ? getHighlightedMatchContextWithReplacement(
+                                                                            result.source,
+                                                                            match.start,
+                                                                            match.end,
+                                                                            searchLevels[searchLevels.length - 1].values.find,
+                                                                            searchLevels[searchLevels.length - 1].values.replace,
+                                                                            searchLevels[searchLevels.length - 1].values.searchMode,
+                                                                            searchLevels[searchLevels.length - 1].values.matchCase,
+                                                                            searchLevels[searchLevels.length - 1].values.wholeWord
+                                                                        )
+                                                                        : getHighlightedMatchContext(result.source, match.start, match.end)}
 
                                                                     {/* Replace button for individual match */}
-                                                                    {currentSearchValues.replace && (
+                                                                    {searchLevels[searchLevels.length - 1].values.replace && (
                                                                         <div
                                                                             className={css`
                                                                                 position: absolute;
@@ -2374,7 +2388,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                                                                 e.stopPropagation();
                                                                                 // For now, just replace all matches in this file
                                                                                 // In the future we could implement single match replacement
-                                                                                handleReplace([node.absolutePath]);
+                                                                                handleReplace([filePath]);
                                                                             }}
                                                                         >
                                                                             <button
@@ -2542,10 +2556,21 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                                                         delete (e.currentTarget as HTMLElement).dataset.hovered;
                                                                     }}
                                                                 >
-                                                                    {getHighlightedMatchContext(result.source, match.start, match.end)}
+                                                                    {searchLevels[searchLevels.length - 1].values.replace && searchLevels[searchLevels.length - 1].values.replace.length > 0
+                                                                        ? getHighlightedMatchContextWithReplacement(
+                                                                            result.source,
+                                                                            match.start,
+                                                                            match.end,
+                                                                            searchLevels[searchLevels.length - 1].values.find,
+                                                                            searchLevels[searchLevels.length - 1].values.replace,
+                                                                            searchLevels[searchLevels.length - 1].values.searchMode,
+                                                                            searchLevels[searchLevels.length - 1].values.matchCase,
+                                                                            searchLevels[searchLevels.length - 1].values.wholeWord
+                                                                        )
+                                                                        : getHighlightedMatchContext(result.source, match.start, match.end)}
 
                                                                     {/* Replace button for individual match */}
-                                                                    {currentSearchValues.replace && (
+                                                                    {searchLevels[searchLevels.length - 1].values.replace && (
                                                                         <div
                                                                             className={css`
                                                                                 position: absolute;
@@ -2725,10 +2750,21 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                                                         delete (e.currentTarget as HTMLElement).dataset.hovered;
                                                                     }}
                                                                 >
-                                                                    {getHighlightedMatchContext(result.source, match.start, match.end)}
+                                                                    {searchLevels[searchLevels.length - 1].values.replace && searchLevels[searchLevels.length - 1].values.replace.length > 0
+                                                                        ? getHighlightedMatchContextWithReplacement(
+                                                                            result.source,
+                                                                            match.start,
+                                                                            match.end,
+                                                                            searchLevels[searchLevels.length - 1].values.find,
+                                                                            searchLevels[searchLevels.length - 1].values.replace,
+                                                                            searchLevels[searchLevels.length - 1].values.searchMode,
+                                                                            searchLevels[searchLevels.length - 1].values.matchCase,
+                                                                            searchLevels[searchLevels.length - 1].values.wholeWord
+                                                                        )
+                                                                        : getHighlightedMatchContext(result.source, match.start, match.end)}
 
                                                                     {/* Replace button for individual match */}
-                                                                    {currentSearchValues.replace && (
+                                                                    {searchLevels[searchLevels.length - 1].values.replace && (
                                                                         <div
                                                                             className={css`
                                                                                 position: absolute;
