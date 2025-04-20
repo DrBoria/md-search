@@ -4,6 +4,7 @@ const path = require('path')
 const webpack = require('webpack')
 const isProduction = process.env.NODE_ENV === 'production'
 const port = 9098
+const CopyPlugin = require('copy-webpack-plugin')
 
 module.exports = {
   mode: isProduction ? 'production' : 'development',
@@ -29,9 +30,28 @@ module.exports = {
     extensions: ['.ts', '.js'],
     alias: {
       'ts-node$': path.resolve(__dirname, 'src', 'ts-node-alias.ts'),
+      '@vscode/codicons': path.resolve(
+        __dirname,
+        'node_modules/@vscode/codicons'
+      ),
+      'vscode-icons-js': path.resolve(
+        __dirname,
+        'node_modules/vscode-icons-js'
+      ),
     },
     conditionNames: ['import', 'require', 'node'],
   },
+  plugins: [
+    new CopyPlugin({
+      patterns: [
+        { from: 'media', to: 'media' },
+        {
+          from: 'node_modules/@vscode/codicons/dist/codicon.ttf',
+          to: 'fonts/',
+        },
+      ],
+    }),
+  ],
   module: {
     parser: {
       javascript: {
@@ -50,6 +70,20 @@ module.exports = {
             },
           },
         ],
+      },
+      {
+        test: /\.(woff|woff2|ttf|eot)$/i,
+        type: 'asset/resource',
+        generator: {
+          filename: 'fonts/[name][ext]',
+        },
+      },
+      {
+        test: /\.(svg|png|jpg|gif)$/i,
+        type: 'asset/resource',
+        generator: {
+          filename: 'images/[name][ext]',
+        },
       },
     ],
   },

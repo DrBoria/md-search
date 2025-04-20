@@ -26,6 +26,7 @@ import { getIconForFile, getIconForFolder, getIconForOpenFolder } from 'vscode-i
 declare global {
     interface Window {
         activeSearchReplaceValues?: SearchReplaceViewValues;
+        iconsPath?: string;
     }
 }
 
@@ -557,8 +558,10 @@ function getFileIcon(filePath: string): React.ReactNode {
     // Получаем имя иконки из библиотеки
     const iconName = getIconForFile(filePath);
     
-    // Базовый URL для иконок
-    const iconBaseUrl = "https://raw.githubusercontent.com/vscode-icons/vscode-icons/master/icons/";
+    // Проверяем наличие глобальной переменной с путем к иконкам
+    const iconBaseUrl = (window as any).iconsPath 
+        ? `${(window as any).iconsPath}/` 
+        : "https://raw.githubusercontent.com/vscode-icons/vscode-icons/master/icons/";
     
     // Создаем элемент img с соответствующей иконкой
     return (
@@ -580,8 +583,10 @@ function getFolderIcon(folderPath: string, isOpen = false): React.ReactNode {
     // Получаем имя иконки из библиотеки
     const iconName = isOpen ? getIconForOpenFolder(folderPath) : getIconForFolder(folderPath);
     
-    // Базовый URL для иконок
-    const iconBaseUrl = "https://raw.githubusercontent.com/vscode-icons/vscode-icons/master/icons/";
+    // Проверяем наличие глобальной переменной с путем к иконкам
+    const iconBaseUrl = (window as any).iconsPath 
+        ? `${(window as any).iconsPath}/` 
+        : "https://raw.githubusercontent.com/vscode-icons/vscode-icons/master/icons/";
     
     // Создаем элемент img с соответствующей иконкой
     return (

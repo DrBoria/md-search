@@ -41,6 +41,7 @@ export interface SearchReplaceViewValues {
   matchCase: boolean
   wholeWord: boolean
   searchInResults: boolean
+  isReplacement?: boolean
 }
 
 // Represents a single level of search in the Find in Found stack

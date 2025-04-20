@@ -209,41 +209,45 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
     if (this.fileDocs.has(fileUri.fsPath)) {
       this.fileDocs.delete(fileUri.fsPath)
     }
-    
+
     // Mark file as changed to ensure it's reprocessed in next search
     this.processedFiles.delete(fileUri.fsPath)
-    
+
     // Update params from extension to ensure latest settings
     this.params = this.extension.getParams()
-    
+
     // Если файл в результатах поиска - обновить его содержимое в UI
     this.refreshFileSourceInSearchResults(fileUri)
   }
-  
+
   // Обновляет исходный код файла в результатах поиска
-  private async refreshFileSourceInSearchResults(fileUri: vscode.Uri): Promise<void> {
+  private async refreshFileSourceInSearchResults(
+    fileUri: vscode.Uri
+  ): Promise<void> {
     // Проверяем, есть ли файл в результатах поиска
     if (this.previousSearchFiles.has(fileUri.fsPath)) {
       try {
         // Читаем актуальное содержимое файла
-        const source = await vscode.workspace.fs.readFile(fileUri);
-        const newContent = new TextDecoder('utf-8').decode(source);
-        
+        const source = await vscode.workspace.fs.readFile(fileUri)
+        const newContent = new TextDecoder('utf-8').decode(source)
+
         // Отправляем сообщение в SearchReplaceViewProvider об обновлении файла
         this.extension.channel.appendLine(
-          `[Debug] Sending updated source for ${Path.basename(fileUri.fsPath)} to SearchReplaceView`
-        );
-        
+          `[Debug] Sending updated source for ${Path.basename(
+            fileUri.fsPath
+          )} to SearchReplaceView`
+        )
+
         // Отправляем событие обновления файла в SearchReplaceViewProvider
         this.extension.searchReplaceViewProvider.postMessage({
           type: 'fileUpdated',
           filePath: fileUri.toString(),
-          newSource: newContent
-        });
+          newSource: newContent,
+        })
       } catch (error) {
         this.extension.channel.appendLine(
           `[Debug] Error updating source for ${fileUri.fsPath}: ${error}`
-        );
+        )
       }
     }
   }
@@ -426,7 +430,6 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
       )
     }
 
-
     // Skip search if find pattern is empty
     if (!this.params.find || this.params.find.trim() === '') {
       this.extension.channel.appendLine(
@@ -494,7 +497,7 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
       this.extension.channel.appendLine(
         `[Debug] Converted include pattern: ${includePattern.toString()}`
       )
-      
+
       const excludePattern: vscode.GlobPattern | null = this.params.exclude
         ? convertGlobPattern(this.params.exclude, workspaceFolders)
         : null
@@ -587,9 +590,13 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
     cancellationToken: vscode.CancellationToken
   ): Promise<void> {
     this.extension.channel.appendLine('Executing Text Search...')
-    this.extension.channel.appendLine(`[Debug] Text search with includePattern: ${includePattern.toString()}`)
+    this.extension.channel.appendLine(
+      `[Debug] Text search with includePattern: ${includePattern.toString()}`
+    )
     if (excludePattern) {
-      this.extension.channel.appendLine(`[Debug] Text search with excludePattern: ${excludePattern.toString()}`)
+      this.extension.channel.appendLine(
+        `[Debug] Text search with excludePattern: ${excludePattern.toString()}`
+      )
     }
 
     try {
@@ -692,7 +699,7 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
             `[Debug] Combined exclude pattern: ${combinedExcludePattern.toString()}`
           )
         }
-        
+
         fileUris = await vscode.workspace.findFiles(
           includePattern,
           combinedExcludePattern,

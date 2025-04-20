@@ -15,10 +15,7 @@
     "workspace"
   ],
   "activationEvents": [
-    "onView:mdSearch.SearchReplaceView",
-    "onCommand:mdSearch.replace",
-    "onCommand:mdSearch.findInFolder",
-    "onCommand:mdSearch.findInFile"
+    "*"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -146,6 +143,9 @@
     "semantic-release": "semantic-release",
     "build:watch": "nodemon -e js,ts,json --watch src --exec \"(pnpm build)\"",
     "pretest": "BABEL_ENV=coverage npm run build",
+    "copy-icon-assets": "mkdir -p out/codicons && cp -r node_modules/@vscode/codicons/dist/* out/codicons/ && mkdir -p out/icons && cp -r node_modules/vscode-icons-js/dist/* out/icons/",
+    "prepare-package": "npm run build && npm run copy-icon-assets",
+    "package": "npm run prepare-package && vsce package",
     "vscode:prepublish": "pnpm run clean && pnpm run prettier:check && pnpm run lint && pnpm run build"
   },
   "release": {
@@ -177,7 +177,15 @@
   },
   "vsce": {
     "dependencies": true,
-    "yarn": false
+    "yarn": false,
+    "bundleIconPaths": [
+      "out/fonts/**/*",
+      "out/css/**/*",
+      "out/images/**/*",
+      "out/codicons/**/*",
+      "out/icons/**/*",
+      "media/**/*"
+    ]
   },
   "config": {
     "lint": "--cache --ext .js,.ts src",
@@ -278,6 +286,7 @@
     "chai": "^4.2.0",
     "codecov": "^3.8.1",
     "copy": "^0.3.2",
+    "copy-webpack-plugin": "^11.0.0",
     "cross-env": "^7.0.3",
     "css-loader": "^6.7.2",
     "eslint": "^7.32.0",
@@ -314,7 +323,6 @@
     "@vscode/codicons": "^0.0.32",
     "@vscode/ripgrep": "^1.15.11",
     "@vscode/webview-ui-toolkit": "^1.2.2",
-    "Icon": "link:@fluentui/react/lib/Icon",
     "astx": "3.0.0-beta.29",
     "babel-parse-wild-code": "^1.2.0",
     "empty": "^0.10.1",

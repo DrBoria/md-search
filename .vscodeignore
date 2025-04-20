@@ -3,4 +3,7 @@
 !README.md
 !LICENSE.md
 !package.json
-!media
+!media/**
+!node_modules/@vscode/codicons/dist/**
+!node_modules/vscode-icons-js/**
+!node_modules/@fluentui/react/lib/Icon/**

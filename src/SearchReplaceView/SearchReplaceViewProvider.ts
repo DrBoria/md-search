@@ -369,14 +369,32 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
         )
       : `http://localhost:${port}/SearchReplaceView.css`
 
-    const codiconsUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(
-        this._extensionUri,
-        'node_modules',
-        '@vscode/codicons',
-        'dist'
-      )
-    )
+    // Обновляем путь к иконкам, используя скопированные в out файлы
+    const codiconsUri = isProduction
+      ? webview.asWebviewUri(
+          vscode.Uri.joinPath(this._extensionUri, 'out', 'codicons')
+        )
+      : webview.asWebviewUri(
+          vscode.Uri.joinPath(
+            this._extensionUri,
+            'node_modules',
+            '@vscode/codicons',
+            'dist'
+          )
+        )
+
+    const iconsUri = isProduction
+      ? webview.asWebviewUri(
+          vscode.Uri.joinPath(this._extensionUri, 'out', 'icons')
+        )
+      : webview.asWebviewUri(
+          vscode.Uri.joinPath(
+            this._extensionUri,
+            'node_modules',
+            'vscode-icons-js',
+            'dist'
+          )
+        )
 
     const nonce = Buffer.from(randomUUID()).toString('base64')
 
@@ -393,6 +411,11 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
 </head>
 <body style="padding: 0;">
   <div id="root"></div>
+  <script>
+    // Делаем глобальными пути к иконкам для компонентов
+    window.codiconsPath = "${codiconsUri}";
+    window.iconsPath = "${iconsUri}";
+  </script>
   <script ${isProduction ? `nonce="${nonce}"` : ''} src="${scriptUri}"></script>
 </body>
 </html>`

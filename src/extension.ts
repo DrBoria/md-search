@@ -253,25 +253,25 @@ export class AstxExtension {
 
     const setIncludePaths =
       ({ useTransformFile }: { useTransformFile: boolean }) =>
-        (dir: vscode.Uri, arg2: vscode.Uri[]) => {
-          const dirs =
-            Array.isArray(arg2) &&
-              arg2.every((item) => item instanceof vscode.Uri)
-              ? arg2
-              : [dir || vscode.window.activeTextEditor?.document.uri].filter(
+      (dir: vscode.Uri, arg2: vscode.Uri[]) => {
+        const dirs =
+          Array.isArray(arg2) &&
+          arg2.every((item) => item instanceof vscode.Uri)
+            ? arg2
+            : [dir || vscode.window.activeTextEditor?.document.uri].filter(
                 (x): x is vscode.Uri => x instanceof vscode.Uri
               )
-          if (!dirs.length) return
-          const newParams: Params = {
-            ...this.getParams(),
-            useTransformFile,
-            include: dirs.map(normalizeFsPath).join(', '),
-          }
-          this.setParams(newParams)
-          vscode.commands.executeCommand(
-            `${SearchReplaceViewProvider.viewType}.focus`
-          )
+        if (!dirs.length) return
+        const newParams: Params = {
+          ...this.getParams(),
+          useTransformFile,
+          include: dirs.map(normalizeFsPath).join(', '),
         }
+        this.setParams(newParams)
+        vscode.commands.executeCommand(
+          `${SearchReplaceViewProvider.viewType}.focus`
+        )
+      }
     const findInPath = setIncludePaths({ useTransformFile: false })
     const transformInPath = setIncludePaths({ useTransformFile: true })
 
@@ -300,8 +300,8 @@ export class AstxExtension {
         Array.isArray(arg2) && arg2.every((item) => item instanceof vscode.Uri)
           ? arg2
           : [dir || vscode.window.activeTextEditor?.document.uri].filter(
-            (x): x is vscode.Uri => x instanceof vscode.Uri
-          )
+              (x): x is vscode.Uri => x instanceof vscode.Uri
+            )
       if (!dirs.length) return
 
       // Set include to the selected folder paths plus MD file pattern
@@ -509,14 +509,16 @@ export class AstxExtension {
 
   handleFsChange = (uri: vscode.Uri): void => {
     const { transformFile } = this.getParams()
-    
+
     // Проверяем, не в режиме ли замены мы находимся
     if (this.replacing) {
-      this.channel.appendLine(`[Debug] File changed during replace: ${uri.fsPath}`)
+      this.channel.appendLine(
+        `[Debug] File changed during replace: ${uri.fsPath}`
+      )
       this.runner.updateDocumentsForChangedFile(uri)
       return
     }
-    
+
     // Если это изменение трансформационного файла
     if (
       transformFile &&
@@ -525,7 +527,7 @@ export class AstxExtension {
       this.runner.restartSoon()
       return
     }
-    
+
     // Нормальная обработка, когда поисковое представление видимо
     if (this.searchReplaceViewProvider.visible) {
       this.runner.handleChange(uri)
@@ -535,22 +537,25 @@ export class AstxExtension {
   handleTextDocumentChange = (e: vscode.TextDocumentChangeEvent): void => {
     const { transformFile } = this.getParams()
     const uri = e.document.uri
-    
+
     // Проверяем, не в режиме ли замены мы находимся
     if (this.replacing) {
-      this.channel.appendLine(`[Debug] Document changed during replace: ${uri.fsPath}`)
+      this.channel.appendLine(
+        `[Debug] Document changed during replace: ${uri.fsPath}`
+      )
       this.runner.updateDocumentsForChangedFile(uri)
       return
     }
-    
+
     // Пропускаем, если это не файл или это трансформационный файл
     if (
       uri.scheme !== 'file' ||
-      (transformFile && uri.toString() === this.resolveFsPath(transformFile).toString())
+      (transformFile &&
+        uri.toString() === this.resolveFsPath(transformFile).toString())
     ) {
       return
     }
-    
+
     // Нормальная обработка, когда поисковое представление видимо
     if (this.searchReplaceViewProvider.visible) {
       this.runner.handleChange(uri)
@@ -571,10 +576,11 @@ export async function deactivate(): Promise<void> {
 function normalizeFsPath(uri: vscode.Uri): string {
   const folder = vscode.workspace.getWorkspaceFolder(uri)
   return folder
-    ? `${(vscode.workspace.workspaceFolders?.length ?? 0) > 1
-      ? path.basename(folder.uri.path) + '/'
-      : ''
-    }${path.relative(folder.uri.path, uri.path)}`
+    ? `${
+        (vscode.workspace.workspaceFolders?.length ?? 0) > 1
+          ? path.basename(folder.uri.path) + '/'
+          : ''
+      }${path.relative(folder.uri.path, uri.path)}`
     : uri.fsPath
 }
 

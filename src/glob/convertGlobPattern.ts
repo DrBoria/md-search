@@ -3,7 +3,9 @@ import path from 'path'
 import * as vscode from 'vscode'
 
 // Создаем канал для логирования
-const globLogger = vscode.window.createOutputChannel('VSCode Deep Search Glob Patterns')
+const globLogger = vscode.window.createOutputChannel(
+  'VSCode Deep Search Glob Patterns'
+)
 
 export function joinPatterns(patterns: readonly string[]): string {
   return patterns.length === 1 ? patterns[0] : `{${patterns.join(',')}}`
@@ -15,7 +17,7 @@ export function convertGlobPattern(
 ): string | vscode.RelativePattern {
   // Добавляем отладочную информацию
   globLogger.appendLine(`Converting glob pattern: "${patterns}"`)
-  
+
   // Проверяем, является ли шаблон простым путем к директории
   // без глобальных символов (* ? [ ] { })
   if (/^[^*?[\]{}]+$/.test(patterns) && !path.extname(patterns)) {
@@ -33,7 +35,7 @@ export function convertGlobPattern(
 
   for (const pattern of splitGlobPattern(patterns)) {
     globLogger.appendLine(`Processing pattern part: "${pattern}"`)
-    
+
     if (path.isAbsolute(pattern)) {
       resultPatterns.push(pattern)
       continue
@@ -64,7 +66,9 @@ export function convertGlobPattern(
 
   // Если паттерн содержит только имя директории без глобальных шаблонов, добавим '**/*'
   if (resultPatterns.length === 0 && patterns && !patterns.includes('*')) {
-    globLogger.appendLine(`Adding recursive pattern for directory: "${patterns}"`)
+    globLogger.appendLine(
+      `Adding recursive pattern for directory: "${patterns}"`
+    )
     resultPatterns.push(path.join(patterns, '**', '*'))
   }
 
