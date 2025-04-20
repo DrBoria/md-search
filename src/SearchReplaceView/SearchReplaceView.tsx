@@ -20,13 +20,18 @@ import {
 } from './SearchReplaceViewTypes'
 import path from 'path-browserify' // Use path-browserify for web compatibility
 import { URI } from 'vscode-uri'; // Import URI library
-import { getIconForFile, getIconForFolder, getIconForOpenFolder } from 'vscode-icons-js';
+// Используем file-icons-js через window.FileIcons. Импорт файла CSS происходит в SearchReplaceViewEntry.tsx
 
 // Объявление типа для глобальной переменной
 declare global {
     interface Window {
         activeSearchReplaceValues?: SearchReplaceViewValues;
         iconsPath?: string;
+        MaterialIcons?: {
+            getIconForFilePath: (filePath: string) => string;
+            getIconUrlForFilePath: (filePath: string, iconsBasePath?: string) => string;
+        };
+        materialIconsPath?: string;
     }
 }
 
@@ -413,7 +418,7 @@ const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                     title={`Click to ${isExpanded ? 'collapse' : 'expand'} ${node.name}`}
                 >
                     <span className={`codicon codicon-chevron-${isExpanded ? 'down' : 'right'}`} />
-                    <span className="codicon codicon-folder" style={{ marginRight: '4px' }} />
+                    {getFolderIcon(node.relativePath, isExpanded)}
                     <span>{node.name}</span>
                 </div>
                 {isExpanded && (
@@ -553,52 +558,78 @@ function getAllFilePaths(node: FileTreeNode | null): string[] {
   return node.children.flatMap(getAllFilePaths);
 }
 
-// Функция для получения иконки файла из vscode-icons-js
+// Функция для получения иконки файла из vscode-material-icons
 function getFileIcon(filePath: string): React.ReactNode {
-    // Получаем имя иконки из библиотеки
-    const iconName = getIconForFile(filePath);
+    // Проверяем доступность MaterialIcons
+    const materialIcons = (window as any).MaterialIcons;
+    if (!materialIcons) {
+        console.warn('MaterialIcons library not found');
+        // Возвращаем codicon как запасной вариант
+        return (
+            <span 
+                className="codicon codicon-file"
+                style={{ 
+                    width: '16px', 
+                    height: '16px', 
+                    marginRight: '4px',
+                    verticalAlign: 'middle'
+                }}
+                title={path.basename(filePath)}
+            />
+        );
+    }
     
-    // Проверяем наличие глобальной переменной с путем к иконкам
-    const iconBaseUrl = (window as any).iconsPath 
-        ? `${(window as any).iconsPath}/` 
-        : "https://raw.githubusercontent.com/vscode-icons/vscode-icons/master/icons/";
-    
-    // Создаем элемент img с соответствующей иконкой
-    return (
-        <img 
-            src={`${iconBaseUrl}${iconName}`} 
-            alt={`Icon for ${path.basename(filePath)}`}
-            style={{ 
-                width: '16px', 
-                height: '16px', 
-                marginRight: '4px', 
-                verticalAlign: 'middle' 
-            }}
-        />
-    );
+    try {
+        // Получаем название иконки для файла
+        const iconName = materialIcons.getIconForFilePath(filePath);
+        // Используем путь к иконкам из window
+        const materialIconsPath = window.materialIconsPath || '/material-icons';
+        // Получаем URL иконки с учетом пути к иконкам
+        const iconUrl = materialIcons.getIconUrlForFilePath(filePath, materialIconsPath);
+        
+        return (
+            <img 
+                src={iconUrl}
+                alt={path.basename(filePath)}
+                style={{ 
+                    width: '16px', 
+                    height: '16px', 
+                    marginRight: '4px',
+                    verticalAlign: 'middle'
+                }}
+                title={path.basename(filePath)}
+            />
+        );
+    } catch (error) {
+        console.warn(`Error getting icon for ${filePath}:`, error);
+        // Запасной вариант в случае ошибки
+        return (
+            <span 
+                className="codicon codicon-file"
+                style={{ 
+                    width: '16px', 
+                    height: '16px', 
+                    marginRight: '4px',
+                    verticalAlign: 'middle'
+                }}
+                title={path.basename(filePath)}
+            />
+        );
+    }
 }
 
-// Дополнительно добавим функции для папок
+// Функция для папок (используем codicons, так как material icons не имеет специальных иконок для папок)
 function getFolderIcon(folderPath: string, isOpen = false): React.ReactNode {
-    // Получаем имя иконки из библиотеки
-    const iconName = isOpen ? getIconForOpenFolder(folderPath) : getIconForFolder(folderPath);
-    
-    // Проверяем наличие глобальной переменной с путем к иконкам
-    const iconBaseUrl = (window as any).iconsPath 
-        ? `${(window as any).iconsPath}/` 
-        : "https://raw.githubusercontent.com/vscode-icons/vscode-icons/master/icons/";
-    
-    // Создаем элемент img с соответствующей иконкой
     return (
-        <img 
-            src={`${iconBaseUrl}${iconName}`} 
-            alt={`Icon for folder ${path.basename(folderPath)}`}
+        <span 
+            className={`codicon codicon-folder${isOpen ? '-opened' : ''}`}
             style={{ 
                 width: '16px', 
                 height: '16px', 
-                marginRight: '4px', 
-                verticalAlign: 'middle' 
+                marginRight: '4px',
+                verticalAlign: 'middle'
             }}
+            title={path.basename(folderPath)}
         />
     );
 }

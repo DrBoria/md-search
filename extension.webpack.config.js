@@ -38,19 +38,31 @@ module.exports = {
         __dirname,
         'node_modules/vscode-icons-js'
       ),
+      'vscode-material-icons': path.resolve(
+        __dirname,
+        'node_modules/vscode-material-icons'
+      ),
     },
     conditionNames: ['import', 'require', 'node'],
   },
   plugins: [
-    new CopyPlugin({
-      patterns: [
-        { from: 'media', to: 'media' },
-        {
-          from: 'node_modules/@vscode/codicons/dist/codicon.ttf',
-          to: 'fonts/',
-        },
-      ],
-    }),
+        new CopyPlugin({
+          patterns: [
+            {
+              from: 'node_modules/vscode-icons-js/dist',
+              to: 'icons/'
+            },
+            {
+              from: 'node_modules/vscode-material-icons/generated/icons',
+              to: 'material-icons/'
+            },
+            { from: 'media', to: 'media' },
+            {
+              from: 'node_modules/@vscode/codicons/dist/codicon.ttf',
+              to: 'fonts/',
+            },
+          ],
+        }),
   ],
   module: {
     parser: {

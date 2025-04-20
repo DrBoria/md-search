@@ -383,16 +383,18 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
           )
         )
 
-    const iconsUri = isProduction
+    // Добавляем URI для material-icons
+    const materialIconsUri = isProduction
       ? webview.asWebviewUri(
-          vscode.Uri.joinPath(this._extensionUri, 'out', 'icons')
+          vscode.Uri.joinPath(this._extensionUri, 'out', 'material-icons')
         )
       : webview.asWebviewUri(
           vscode.Uri.joinPath(
             this._extensionUri,
             'node_modules',
-            'vscode-icons-js',
-            'dist'
+            'vscode-material-icons',
+            'generated',
+            'icons'
           )
         )
 
@@ -412,9 +414,8 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
 <body style="padding: 0;">
   <div id="root"></div>
   <script>
-    // Делаем глобальными пути к иконкам для компонентов
     window.codiconsPath = "${codiconsUri}";
-    window.iconsPath = "${iconsUri}";
+    window.materialIconsPath = "${materialIconsUri}";
   </script>
   <script ${isProduction ? `nonce="${nonce}"` : ''} src="${scriptUri}"></script>
 </body>

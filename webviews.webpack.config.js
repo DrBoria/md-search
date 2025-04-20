@@ -45,12 +45,26 @@ module.exports = {
         __dirname,
         'node_modules/vscode-icons-js'
       ),
+      'vscode-material-icons': path.resolve(
+        __dirname,
+        'node_modules/vscode-material-icons'
+      ),
     },
   },
   plugins: [
     new MiniCssExtractPlugin(),
     new CopyPlugin({
       patterns: [
+        // Копируем шрифты иконок
+        {
+          from: 'node_modules/vscode-icons-js/dist',
+          to: 'icons/'
+        },
+        // Копируем vscode-material-icons файлы
+        {
+          from: 'node_modules/vscode-material-icons/generated/icons',
+          to: 'material-icons/'
+        },
         // Копируем шрифты иконок
         {
           from: 'node_modules/@vscode/codicons/dist/codicon.ttf',

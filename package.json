@@ -326,6 +326,7 @@
     "astx": "3.0.0-beta.29",
     "babel-parse-wild-code": "^1.2.0",
     "empty": "^0.10.1",
+    "file-icons-js": "^1.1.0",
     "gitignore-fs": "^2.1.0",
     "lodash": "^4.17.21",
     "minimatch": "^5.1.0",
@@ -335,6 +336,7 @@
     "react-dom": "^18.2.0",
     "tiny-typed-emitter": "^2.1.0",
     "vscode-icons-js": "^11.6.1",
+    "vscode-material-icons": "^0.1.1",
     "vscode-uri": "^3.1.0"
   }
 }
