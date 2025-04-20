@@ -10,6 +10,7 @@ import {
   MessageFromWebview,
   SearchReplaceViewStatus,
   MessageToWebview,
+  SearchReplaceViewValues,
 } from './SearchReplaceViewTypes'
 import { AstxRunnerEvents } from '../searchController/SearchRunnerTypes'
 import { randomUUID } from 'crypto'
@@ -18,12 +19,180 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'mdSearch.SearchReplaceView'
 
   private _view?: vscode.WebviewView
+  private _persistedState: {
+    status: SearchReplaceViewStatus;
+    params: Params;
+    results: any[];
+  } = {
+    status: {
+      running: false,
+      completed: 0,
+      total: 0,
+      numMatches: 0,
+      numFilesThatWillChange: 0,
+      numFilesWithMatches: 0,
+      numFilesWithErrors: 0,
+    },
+    params: {} as Params,
+    results: [],
+  }
+  private _listenerRegistered = false;
 
   constructor(
     private extension: AstxExtension,
     private readonly _extensionUri: vscode.Uri = extension.context.extensionUri,
     private readonly runner: AstxRunner = extension.runner
-  ) {}
+  ) {
+    // Восстановление состояния из хранилища при инициализации
+    this._restoreStateFromStorage();
+    
+    // Регистрируем глобальных слушателей событий при создании провайдера
+    this._registerGlobalEventListeners();
+    
+    // Инициализация с параметрами расширения
+    this._persistedState.params = { ...extension.getParams() };
+  }
+
+  private _registerGlobalEventListeners(): void {
+    if (this._listenerRegistered) return;
+
+    const globalListeners = {
+      result: (e: TransformResultEvent) => {
+        // Обновляем состояние даже если view не активен
+        this._updateStatus(e);
+        // Сохраняем результат
+        this._addResult(e);
+      },
+      start: () => {
+        this._persistedState.status.running = true;
+        this._persistedState.status.numMatches = 0;
+        this._persistedState.status.numFilesThatWillChange = 0;
+        this._persistedState.status.numFilesWithMatches = 0;
+        this._persistedState.status.numFilesWithErrors = 0;
+        this._saveStateToStorage();
+        this._notifyWebviewIfActive('status', { status: this._persistedState.status });
+      },
+      stop: () => {
+        this._persistedState.status.running = false;
+        this._persistedState.status.numMatches = 0;
+        this._persistedState.status.numFilesThatWillChange = 0;
+        this._persistedState.status.numFilesWithMatches = 0;
+        this._persistedState.status.numFilesWithErrors = 0;
+        this._persistedState.results = [];
+        this._saveStateToStorage();
+        this._notifyWebviewIfActive('status', { status: this._persistedState.status });
+        this._notifyWebviewIfActive('clearResults', {});
+      },
+      done: () => {
+        this._persistedState.status.running = false;
+        this._saveStateToStorage();
+        this._notifyWebviewIfActive('status', { status: this._persistedState.status });
+      },
+      progress: ({ completed, total }: ProgressEvent) => {
+        this._persistedState.status.completed = completed;
+        this._persistedState.status.total = total;
+        this._saveStateToStorage();
+        this._notifyWebviewIfActive('status', { status: this._persistedState.status });
+      },
+    };
+
+    for (const [event, listener] of Object.entries(globalListeners)) {
+      this.runner.on(event as keyof AstxRunnerEvents, listener);
+    }
+
+    // Сохраняем состояние при закрытии VS Code
+    this.extension.context.subscriptions.push(
+      vscode.workspace.onDidChangeConfiguration(() => {
+        this._saveStateToStorage();
+      })
+    );
+
+    this._listenerRegistered = true;
+  }
+
+  private _updateStatus(e: TransformResultEvent): void {
+    const status = this._persistedState.status;
+    
+    if (e.transformed && e.transformed !== e.source) {
+      status.numFilesThatWillChange++;
+    }
+    if (e.matches?.length) {
+      status.numMatches += e.matches.length;
+      status.numFilesWithMatches++;
+    }
+    if (e.error) {
+      status.numFilesWithErrors++;
+    }
+
+    this._saveStateToStorage();
+  }
+
+  private _addResult(e: TransformResultEvent): void {
+    // Преобразуем результат в сериализуемый объект
+    const stringifiedEvent = {
+      file: e.file.toString(),
+      source: e.source,
+      transformed: e.transformed,
+      matches: e.matches || [],
+      reports: e.reports,
+      error: e.error
+        ? {
+            message: e.error.message,
+            name: e.error.name,
+            stack: e.error.stack,
+          }
+        : undefined,
+    };
+
+    // Добавляем результат в сохраненный список
+    this._persistedState.results.push(stringifiedEvent);
+    this._saveStateToStorage();
+
+    // Отправляем в webview, если активен
+    this._notifyWebviewIfActive('addResult', { data: stringifiedEvent });
+  }
+
+  private _notifyWebviewIfActive(type: string, data: any): void {
+    if (this._view?.visible) {
+      this._view.webview.postMessage({ type, ...data });
+    }
+  }
+
+  private _saveStateToStorage(): void {
+    try {
+      // Сохраняем только необходимые данные, ограничивая размер
+      const stateToSave = {
+        status: this._persistedState.status,
+        params: this._persistedState.params,
+        // Ограничиваем количество результатов для сохранения
+        resultCount: this._persistedState.results.length,
+      };
+      this.extension.context.workspaceState.update('searchReplaceViewState', stateToSave);
+    } catch (error) {
+      this.extension.channel.appendLine(`Error saving state: ${error}`);
+    }
+  }
+
+  private _restoreStateFromStorage(): void {
+    try {
+      const savedState = this.extension.context.workspaceState.get('searchReplaceViewState') as { 
+        status?: SearchReplaceViewStatus; 
+        params?: Params; 
+      } | undefined;
+      
+      if (savedState) {
+        if (savedState.status) {
+          this._persistedState.status = savedState.status;
+        }
+        if (savedState.params) {
+          this._persistedState.params = savedState.params;
+        }
+        // Результаты не восстанавливаем полностью из хранилища из-за потенциального размера
+      }
+    } catch (error) {
+      this.extension.channel.appendLine(`Error restoring state: ${error}`);
+    }
+  }
 
   public resolveWebviewView(webviewView: vscode.WebviewView): void {
     this._view = webviewView
@@ -52,15 +221,6 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
 
     webviewView.webview.html = this._getHtmlForWebview(webviewView.webview)
 
-    const status: SearchReplaceViewStatus = {
-      running: false,
-      completed: 0,
-      total: 0,
-      numMatches: 0,
-      numFilesThatWillChange: 0,
-      numFilesWithMatches: 0,
-      numFilesWithErrors: 0,
-    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     webviewView.webview.onDidReceiveMessage((_message: any) => {
       const message: MessageFromWebview = _message
@@ -79,19 +239,31 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
                 ? workspaceFolders[0].uri.toString()
                 : ''
 
-            // Отправляем initialData вместо отдельных сообщений
+            // Отправляем initialData с сохраненными значениями
             webviewView.webview.postMessage({
               type: 'initialData',
-              values: { find: '', replace: '', ...this.extension.getParams() },
-              status,
+              values: this._persistedState.params,
+              status: this._persistedState.status,
               workspacePath,
             })
+
+            // Отправляем сохраненные результаты, если есть
+            if (this._persistedState.results.length > 0) {
+              for (const result of this._persistedState.results) {
+                webviewView.webview.postMessage({
+                  type: 'addResult',
+                  data: result,
+                });
+              }
+            }
 
             break
           }
           case 'values': {
-            // @ts-expect-error TS2345: Parser type incompatibility
-            this.extension.setParams(message.values)
+            const newParams = message.values as Params;
+            this._persistedState.params = newParams;
+            this._saveStateToStorage();
+            this.extension.setParams(newParams);
             break
           }
           case 'replace': {
@@ -226,96 +398,24 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
       })
     })
 
-    const listeners = {
-      progress: ({ completed, total }: ProgressEvent) => {
-        status.completed = completed
-        status.total = total
-        webviewView.webview.postMessage({
-          type: 'status',
-          status,
-        })
-      },
-      result: (e: TransformResultEvent) => {
-        if (e.transformed && e.transformed !== e.source) {
-          status.numFilesThatWillChange++
-        }
-        if (e.matches?.length) {
-          status.numMatches += e.matches.length
-          status.numFilesWithMatches++
-        }
-        if (e.error) {
-          status.numFilesWithErrors++
-        }
-        webviewView.webview.postMessage({
-          type: 'status',
-          status,
-        })
-        // Send the result data to the webview
-        const stringifiedEvent = {
-          file: e.file.toString(), // Convert URI first
-          source: e.source,
-          transformed: e.transformed,
-          matches: e.matches || [], // Ensure matches is always an array
-          reports: e.reports,
-          // Serialize error properly for postMessage
-          error: e.error
-            ? {
-                message: e.error.message,
-                name: e.error.name,
-                stack: e.error.stack,
-              }
-            : undefined,
-        }
-        webviewView.webview.postMessage({
-          type: 'addResult',
-          data: stringifiedEvent,
-        })
-      },
-      start: () => {
-        status.running = true
-        webviewView.webview.postMessage({
-          type: 'status',
-          status,
-        })
-      },
-      stop: () => {
-        status.running = false
-        status.numMatches = 0
-        status.numFilesThatWillChange = 0
-        status.numFilesWithMatches = 0
-        status.numFilesWithErrors = 0
-        webviewView.webview.postMessage({
-          type: 'status',
-          status,
-        })
-        // Clear results in the webview
-        webviewView.webview.postMessage({ type: 'clearResults' })
-      },
-      done: () => {
-        status.running = false
-        webviewView.webview.postMessage({
-          type: 'status',
-          status,
-        })
-      },
-    }
-
-    for (const [event, listener] of Object.entries(listeners)) {
-      this.runner.on(event as keyof AstxRunnerEvents, listener)
-    }
-
     webviewView.onDidDispose(() => {
-      for (const [event, listener] of Object.entries(listeners)) {
-        this.runner.removeListener(event as keyof AstxRunnerEvents, listener)
-      }
+      // При закрытии view не удаляем глобальные слушатели событий
+      // чтобы расширение продолжило работу в фоне
+      this._view = undefined;
+      this._saveStateToStorage();
     })
   }
 
   setParams(params: Params): void {
-    this._view?.webview?.postMessage({
-      type: 'values',
-      values: params,
-    })
+    this._persistedState.params = params;
+    this._saveStateToStorage();
+    
+    if (this._view?.webview) {
+      this._view.webview.postMessage({
+        type: 'values',
+        values: params,
+      });
+    }
   }
 
   show(): void {

@@ -72,6 +72,10 @@ export class AstxExtension {
       context.extensionMode === vscode.ExtensionMode.Production
     this.runner = new AstxRunner(this)
     this.transformResultProvider = new TransformResultProvider(this)
+    
+    // Инициализируем SearchReplaceViewProvider сразу после создания расширения,
+    // чтобы он начал отслеживать события и сохранять состояние даже если пользователь
+    // не открывал его UI.
     this.searchReplaceViewProvider = new SearchReplaceViewProvider(this)
   }
 
@@ -194,6 +198,9 @@ export class AstxExtension {
         this.channel.show()
       })
     )
+    
+    // Команда поиска теперь не только фокусирует вид, но и гарантирует, 
+    // что SearchReplaceViewProvider уже инициализирован
     context.subscriptions.push(
       vscode.commands.registerCommand('mdSearch.search', () => {
         vscode.commands.executeCommand(
@@ -340,6 +347,8 @@ export class AstxExtension {
       vscode.window.registerFileDecorationProvider(this.transformResultProvider)
     )
 
+    // Регистрируем WebView провайдер. Даже если пользователь не открывает UI,
+    // SearchReplaceViewProvider уже инициализирован и слушает события
     context.subscriptions.push(
       vscode.window.registerWebviewViewProvider(
         SearchReplaceViewProvider.viewType,
@@ -528,10 +537,9 @@ export class AstxExtension {
       return
     }
 
-    // Нормальная обработка, когда поисковое представление видимо
-    if (this.searchReplaceViewProvider.visible) {
-      this.runner.handleChange(uri)
-    }
+    // Нормальная обработка, независимо от видимости представления поиска
+    // Это обеспечивает актуальность данных даже если UI закрыт
+    this.runner.handleChange(uri)
   }
 
   handleTextDocumentChange = (e: vscode.TextDocumentChangeEvent): void => {
@@ -556,16 +564,42 @@ export class AstxExtension {
       return
     }
 
-    // Нормальная обработка, когда поисковое представление видимо
-    if (this.searchReplaceViewProvider.visible) {
-      this.runner.handleChange(uri)
-    }
+    // Обрабатываем изменения независимо от видимости UI
+    this.runner.handleChange(uri)
   }
 }
 
 export function activate(context: vscode.ExtensionContext): void {
   extension = new AstxExtension(context)
   extension.activate(context)
+  
+  // Ensure the search view is activated as soon as possible
+  // This ensures the event listeners and state persistence are active
+  // even if the user hasn't opened the UI yet
+  activateSearchView(context)
+}
+
+// Helper function to activate the search view programmatically
+function activateSearchView(context: vscode.ExtensionContext): void {
+  // Try to activate the search view programmatically
+  vscode.commands.executeCommand(`${SearchReplaceViewProvider.viewType}.focus`)
+    .then(() => {
+      // After focusing, hide it unless the user explicitly wanted it
+      // This is just to initialize the view's state
+      // Hide it only in setInterval to avoid flickering the UI
+      setTimeout(() => {
+        if (extension.searchReplaceViewProvider.visible) {
+          // If the view was already visible before we focused it, keep it open
+          // The user probably opened it manually before this was called
+        } else {
+          // Otherwise, we can safely hide it since we only needed to initialize it
+          vscode.commands.executeCommand(`workbench.action.closePanel`)
+        }
+      }, 100)
+    }, (error: Error) => {
+      // If the command fails (e.g., in tests), log the error but don't fail the activation
+      extension.channel.appendLine(`Failed to programmatically activate search view: ${error.message}`)
+    })
 }
 
 export async function deactivate(): Promise<void> {

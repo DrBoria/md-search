@@ -1,6 +1,4 @@
 import { AstxConfig, Transform } from 'astx'
-import type { IpcMatch, AstxWorkerPool, IpcError } from 'astx/node'
-import type * as AstxNodeTypes from 'astx/node'
 import { TypedEmitter } from 'tiny-typed-emitter'
 import * as vscode from 'vscode'
 import { debounce, isEqual } from 'lodash'
@@ -15,6 +13,25 @@ import { AstxSearchRunner } from './AstxSearchRunner'
 import { AstxRunnerEvents, TransformResultEvent } from './SearchRunnerTypes'
 
 export type { TransformResultEvent } from './SearchRunnerTypes'
+
+// Константа с шаблонами игнорируемых файлов
+const DEFAULT_IGNORED_PATTERNS = [
+  // Git директории
+  '**/.git/**',
+  // Картинки
+  '**/*.png', '**/*.jpg', '**/*.jpeg', '**/*.gif', '**/*.ico', '**/*.svg', '**/*.webp', '**/*.bmp', '**/*.tiff', '**/*.psd',
+  // Видео
+  '**/*.mp4', '**/*.webm', '**/*.avi', '**/*.mov', '**/*.wmv', '**/*.flv', '**/*.mkv',
+  // Аудио
+  '**/*.mp3', '**/*.wav', '**/*.ogg', '**/*.aac', '**/*.flac',
+  // Документы и архивы
+  '**/*.pdf', '**/*.doc', '**/*.docx', '**/*.xls', '**/*.xlsx', '**/*.ppt', '**/*.pptx',
+  '**/*.zip', '**/*.rar', '**/*.7z', '**/*.tar', '**/*.gz',
+  // Шрифты
+  '**/*.ttf', '**/*.otf', '**/*.woff', '**/*.woff2', '**/*.eot',
+  // Другие бинарные файлы
+  '**/*.exe', '**/*.dll', '**/*.so', '**/*.dylib', '**/*.class', '**/*.jar',
+]
 
 export type ProgressEvent = {
   completed: number
@@ -632,6 +649,9 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
         }
       }
 
+      // Добавляем стандартные паттерны для игнорирования
+      vsCodeExcludePatterns.push(...DEFAULT_IGNORED_PATTERNS)
+
       // Log the exclude patterns we're using
       this.extension.channel.appendLine(
         `[Debug] Using VSCode exclude patterns: ${vsCodeExcludePatterns.join(
@@ -798,6 +818,9 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
           vsCodeExcludePatterns.push(pattern)
         }
       }
+
+      // Добавляем стандартные паттерны для игнорирования
+      vsCodeExcludePatterns.push(...DEFAULT_IGNORED_PATTERNS)
 
       // Log the exclude patterns we're using
       this.extension.channel.appendLine(

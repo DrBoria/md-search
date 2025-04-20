@@ -2388,7 +2388,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                                                                 e.stopPropagation();
                                                                                 // For now, just replace all matches in this file
                                                                                 // In the future we could implement single match replacement
-                                                                                handleReplace([filePath]);
+                                                                                handleReplaceSelectedFiles([filePath]);
                                                                             }}
                                                                         >
                                                                             <button
