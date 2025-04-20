@@ -48,6 +48,38 @@ export default function SearchReplaceViewController({
     vscode.postMessage({
       type: 'mount',
     })
+
+    // Добавляем обработчики горячих клавиш
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Проверяем сочетания клавиш
+      const isCmdOrCtrl = event.metaKey || event.ctrlKey
+      const isShift = event.shiftKey
+      
+      if (isCmdOrCtrl && isShift) {
+        switch (event.key.toLowerCase()) {
+          case 'c':
+            vscode.postMessage({ type: 'copyMatches' })
+            event.preventDefault()
+            break
+          case 'x':
+            vscode.postMessage({ type: 'cutMatches' })
+            event.preventDefault()
+            break
+          case 'v':
+            vscode.postMessage({ type: 'pasteToMatches' })
+            event.preventDefault()
+            break
+        }
+      }
+    }
+
+    // Добавляем обработчик
+    window.addEventListener('keydown', handleKeyDown)
+
+    // Удаляем обработчик при размонтировании компонента
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
   }, [])
 
   const [status, setStatus] = React.useState<SearchReplaceViewStatus>({
@@ -135,6 +167,31 @@ export default function SearchReplaceViewController({
             vscode.postMessage({ type: 'log', level: 'error', message: `Error focusing replace input: ${e}` })
           }
         }, 100)
+        break
+      case 'copyMatchesComplete':
+        vscode.postMessage({ 
+          type: 'log', 
+          level: 'info', 
+          message: `Copied ${data.count} matches to buffer` 
+        })
+        // Можно добавить всплывающее уведомление или обновить UI при необходимости
+        break
+      case 'cutMatchesComplete':
+        vscode.postMessage({ 
+          type: 'log', 
+          level: 'info', 
+          message: `Cut ${data.count} matches to buffer` 
+        })
+        // Очищаем результаты, так как текст был вырезан
+        setResults([])
+        break
+      case 'pasteToMatchesComplete':
+        vscode.postMessage({ 
+          type: 'log', 
+          level: 'info', 
+          message: `Pasted to ${data.count} matches` 
+        })
+        // Можно добавить всплывающее уведомление или обновить UI при необходимости
         break
     }
   })

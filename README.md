@@ -46,6 +46,29 @@ For manual installation:
 6. Preview changes before applying
 7. Apply changes to selected files
 
+## Keyboard Shortcuts
+
+The extension includes several helpful keyboard shortcuts to enhance your workflow:
+
+| Shortcut (Windows/Linux) | Shortcut (macOS) | Command | Description |
+|--------------------------|------------------|---------|-------------|
+| `Ctrl+Shift+F` | `Cmd+Shift+F` | Find | Opens the search panel and focuses the find input |
+| `Ctrl+Shift+H` | `Cmd+Shift+H` | Replace | Opens the search panel and focuses the replace input |
+| `Ctrl+Shift+C` | `Cmd+Shift+C` | Copy All Matches | Copies all found matches to clipboard, separated by newlines |
+| `Ctrl+Shift+X` | `Cmd+Shift+X` | Cut All Matches | Cuts all found matches and copies them to clipboard |
+| `Ctrl+Shift+V` | `Cmd+Shift+V` | Paste to All Matches | Replaces all found matches with clipboard content |
+
+The copy/cut/paste operations work with multiple matches at once, allowing you to:
+- Copy hundreds of matches with a single keystroke
+- Cut multiple occurrences across files and paste them elsewhere
+- Replace multiple occurrences with either single or multiple values from the clipboard
+
+These shortcuts are active when the search panel has focus.
+
+> **Note:** If keyboard shortcuts don't work, they might conflict with shortcuts from other extensions. You can customize them in VS Code's Keyboard Shortcuts settings (File > Preferences > Keyboard Shortcuts).
+
+> **Performance Note:** When working with a large number of files or matches, operations like Copy All Matches, Cut All Matches, or Paste to All Matches may experience a slight delay. This is normal as the extension processes all matches across multiple files.
+
 ## Requirements
 
 - Visual Studio Code 1.60.0 or higher

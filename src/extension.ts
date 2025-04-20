@@ -58,6 +58,8 @@ export class AstxExtension {
   private params: Params
   private externalWatchPattern: vscode.GlobPattern | undefined
   private externalFsWatcher: vscode.FileSystemWatcher | undefined
+  // Буфер для хранения скопированных/вырезанных совпадений
+  private matchesBuffer: string[] = []
 
   constructor(public context: vscode.ExtensionContext) {
     const config = vscode.workspace.getConfiguration('astx')
@@ -356,6 +358,28 @@ export class AstxExtension {
       )
     )
 
+    // Регистрируем новые команды
+    context.subscriptions.push(
+      vscode.commands.registerCommand('mdSearch.copyMatches', async () => {
+        const count = await this.copyMatches()
+        this.searchReplaceViewProvider.notifyCopyMatchesComplete(count)
+      })
+    )
+
+    context.subscriptions.push(
+      vscode.commands.registerCommand('mdSearch.cutMatches', async () => {
+        const count = await this.cutMatches()
+        this.searchReplaceViewProvider.notifyCutMatchesComplete(count)
+      })
+    )
+
+    context.subscriptions.push(
+      vscode.commands.registerCommand('mdSearch.pasteToMatches', async () => {
+        const count = await this.pasteToMatches()
+        this.searchReplaceViewProvider.notifyPasteToMatchesComplete(count)
+      })
+    )
+
     context.subscriptions.push({
       dispose: () => {
         this.setExternalWatchPattern(undefined)
@@ -402,7 +426,12 @@ export class AstxExtension {
     try {
       // Get current parameters
       const params = this.getParams()
-      if (!params.replace) {
+      
+      // Проверяем, не вызван ли replace в режиме замены (из cut или paste)
+      const isReplacementOperation = params.isReplacement === true
+      
+      // Проверяем replace строку только если это не операция замены
+      if (!isReplacementOperation && !params.replace) {
         // Don't do anything if replace string is empty
         this.channel.appendLine('Replace cancelled: Replace string is empty.')
         return
@@ -460,7 +489,7 @@ export class AstxExtension {
                   let replacementCount = 0
                   newContent = originalContent.replace(regex, (match) => {
                     replacementCount++
-                    return replace
+                    return replace || ''
                   })
 
                   // Write back only if content changed
@@ -497,8 +526,10 @@ export class AstxExtension {
           totalFilesChanged
         )
 
-        // Очищаем результаты поиска
-        this.transformResultProvider.clear()
+        // Очищаем результаты поиска только если это не операция вырезания
+        if (!isReplacementOperation) {
+          this.transformResultProvider.clear()
+        }
 
         this.channel.appendLine(
           `${params.searchMode} replace finished. Replaced ${totalReplacements} occurrences in ${totalFilesChanged} files.`
@@ -566,6 +597,191 @@ export class AstxExtension {
 
     // Обрабатываем изменения независимо от видимости UI
     this.runner.handleChange(uri)
+  }
+
+  // Метод для копирования всех найденных совпадений в буфер
+  async copyMatches(): Promise<number> {
+    this.channel.appendLine('Copying all matches to buffer...')
+    const resultsMap = this.transformResultProvider.results
+    this.matchesBuffer = []
+    let count = 0
+
+    for (const [uriString, result] of resultsMap.entries()) {
+      if (result.matches && result.matches.length > 0 && result.source) {
+        for (const match of result.matches) {
+          const matchText = result.source.substring(match.start, match.end)
+          this.matchesBuffer.push(matchText)
+          count++
+        }
+      }
+    }
+
+    // Копируем ВСЕ совпадения в системный буфер обмена, разделенные новой строкой
+    if (this.matchesBuffer.length > 0) {
+      const clipboardText = this.matchesBuffer.join('\n\n')
+      await vscode.env.clipboard.writeText(clipboardText)
+    }
+
+    this.channel.appendLine(`Copied ${count} matches to buffer.`)
+    return count
+  }
+
+  // Метод для вырезания всех найденных совпадений в буфер
+  async cutMatches(): Promise<number> {
+    this.channel.appendLine('Cutting all matches to buffer...')
+    const resultsMap = this.transformResultProvider.results
+    this.matchesBuffer = []
+    let count = 0
+
+    // Сначала копируем все совпадения в буфер
+    for (const [uriString, result] of resultsMap.entries()) {
+      if (result.matches && result.matches.length > 0 && result.source) {
+        for (const match of result.matches) {
+          const matchText = result.source.substring(match.start, match.end)
+          this.matchesBuffer.push(matchText)
+          count++
+        }
+      }
+    }
+
+    // Копируем ВСЕ совпадения в системный буфер обмена, разделенные новой строкой
+    if (this.matchesBuffer.length > 0) {
+      const clipboardText = this.matchesBuffer.join('\n\n')
+      await vscode.env.clipboard.writeText(clipboardText)
+    }
+
+    // Теперь выполняем замену на пустую строку
+    if (count > 0) {
+      // Сохраняем текущие параметры
+      const originalReplace = this.params.replace
+      
+      // Устанавливаем пустую строку для замены
+      this.setParams({
+        ...this.params,
+        replace: '',
+        isReplacement: true
+      })
+
+      // Выполняем замену
+      await this.replace()
+
+      // Восстанавливаем параметры
+      this.setParams({
+        ...this.params,
+        replace: originalReplace,
+        isReplacement: false
+      })
+    }
+
+    this.channel.appendLine(`Cut ${count} matches to buffer.`)
+    return count
+  }
+
+  // Метод для вставки значения из буфера во все найденные совпадения
+  async pasteToMatches(): Promise<number> {
+    // Получаем текст из системного буфера обмена
+    const clipboardText = await vscode.env.clipboard.readText()
+    
+    // Обрабатываем случай, когда у нас несколько значений в буфере
+    // или несколько строк в системном буфере обмена
+    let valuesToInsert: string[] = []
+    
+    if (this.matchesBuffer.length > 0) {
+      // Используем внутренний буфер, если он не пустой
+      valuesToInsert = [...this.matchesBuffer]
+    } else if (clipboardText) {
+      // Иначе разбиваем значение из системного буфера по строкам
+      valuesToInsert = clipboardText.split('\n\n').filter(text => text.trim().length > 0)
+    }
+
+    if (valuesToInsert.length === 0) {
+      this.channel.appendLine('Paste cancelled: Buffer is empty.')
+      return 0
+    }
+
+    this.channel.appendLine(`Pasting ${valuesToInsert.length} values from buffer to matches...`)
+
+    // Используем текущие matches и прямую замену вместо регулярных выражений
+    const resultsMap = this.transformResultProvider.results
+    let totalReplacements = 0
+    let totalFilesChanged = 0
+
+    const modificationPromises: Promise<void>[] = []
+
+    for (const [uriString, result] of resultsMap.entries()) {
+      if (result.matches && result.matches.length > 0) {
+        const uri = vscode.Uri.parse(uriString)
+        modificationPromises.push(
+          (async () => {
+            try {
+              // Читаем содержимое файла напрямую
+              const contentBytes = await vscode.workspace.fs.readFile(uri)
+              const originalContent = Buffer.from(contentBytes).toString('utf8')
+              
+              // Обрабатываем совпадения в обратном порядке, чтобы индексы не сбивались
+              const sortedMatches = [...result.matches].sort((a, b) => b.start - a.start)
+              
+              let newContent = originalContent
+              let replacementsInFile = 0
+              
+              // Применяем замены к каждому совпадению
+              for (let i = 0; i < sortedMatches.length; i++) {
+                const match = sortedMatches[i]
+                // Берем значение из буфера циклично
+                const replaceValue = valuesToInsert[i % valuesToInsert.length]
+                
+                // Делаем прямую замену без каких-либо модификаций
+                newContent = 
+                  newContent.substring(0, match.start) + 
+                  replaceValue + 
+                  newContent.substring(match.end)
+                
+                replacementsInFile++
+              }
+              
+              // Записываем изменения только если они действительно есть
+              if (newContent !== originalContent) {
+                this.channel.appendLine(
+                  `Replacing ${replacementsInFile} matches in: ${uri.fsPath}`
+                )
+                totalReplacements += replacementsInFile
+                totalFilesChanged++
+                
+                // Записываем напрямую в файл
+                const newContentBytes = Buffer.from(newContent, 'utf8')
+                await vscode.workspace.fs.writeFile(uri, newContentBytes)
+              }
+            } catch (error: any) {
+              this.logError(
+                new Error(
+                  `Failed to replace in ${uri.fsPath}: ${error.message}`
+                )
+              )
+            }
+          })()
+        )
+      }
+    }
+
+    // Ждем завершения всех операций с файлами
+    await Promise.all(modificationPromises)
+
+    // Отправляем сообщение в webview с результатами замены
+    this.searchReplaceViewProvider.notifyReplacementComplete(
+      totalReplacements, 
+      totalFilesChanged
+    )
+
+    this.channel.appendLine(
+      `Paste finished. Replaced ${totalReplacements} occurrences in ${totalFilesChanged} files.`
+    )
+
+    return totalFilesChanged
+  }
+
+  // Метод для получения буфера совпадений
+  getMatchesBuffer(): string[] {
+    return [...this.matchesBuffer]
   }
 }
 

@@ -114,6 +114,18 @@ export type MessageToWebview =
       filePath: string
       newSource: string
     }
+  | {
+      type: 'copyMatchesComplete'
+      count: number
+    }
+  | {
+      type: 'cutMatchesComplete'
+      count: number
+    }
+  | {
+      type: 'pasteToMatchesComplete'
+      count: number
+    }
 
 export type MessageFromWebview =
   | {
@@ -142,6 +154,9 @@ export type MessageFromWebview =
       data?: any // Optional structured data
     }
   | { type: 'stop' }
+  | { type: 'copyMatches' }
+  | { type: 'cutMatches' }
+  | { type: 'pasteToMatches' }
 
 // === Combined Message Type (for use in component) ===
 export type Message = MessageFromWebview | MessageToWebview

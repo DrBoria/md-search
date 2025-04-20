@@ -302,6 +302,48 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
             }
             break
           }
+          case 'copyMatches': {
+            // Выполняем копирование совпадений
+            try {
+              const count = await this.extension.copyMatches();
+              this.notifyCopyMatchesComplete(count);
+            } catch (error) {
+              this.extension.logError(
+                error instanceof Error
+                  ? error
+                  : new Error(`Failed to copy matches: ${error}`)
+              );
+            }
+            break;
+          }
+          case 'cutMatches': {
+            // Выполняем вырезание совпадений
+            try {
+              const count = await this.extension.cutMatches();
+              this.notifyCutMatchesComplete(count);
+            } catch (error) {
+              this.extension.logError(
+                error instanceof Error
+                  ? error
+                  : new Error(`Failed to cut matches: ${error}`)
+              );
+            }
+            break;
+          }
+          case 'pasteToMatches': {
+            // Выполняем вставку из буфера
+            try {
+              const count = await this.extension.pasteToMatches();
+              this.notifyPasteToMatchesComplete(count);
+            } catch (error) {
+              this.extension.logError(
+                error instanceof Error
+                  ? error
+                  : new Error(`Failed to paste to matches: ${error}`)
+              );
+            }
+            break;
+          }
           case 'openFile': {
             const uri = vscode.Uri.parse(message.filePath)
             const range = message.range
@@ -537,6 +579,30 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
       type: 'replacementComplete',
       totalReplacements,
       totalFilesChanged,
+    })
+  }
+
+  // Метод для отправки уведомления о завершении копирования
+  notifyCopyMatchesComplete(count: number): void {
+    this.postMessage({
+      type: 'copyMatchesComplete',
+      count
+    })
+  }
+
+  // Метод для отправки уведомления о завершении вырезания
+  notifyCutMatchesComplete(count: number): void {
+    this.postMessage({
+      type: 'cutMatchesComplete',
+      count
+    })
+  }
+
+  // Метод для отправки уведомления о завершении вставки
+  notifyPasteToMatchesComplete(count: number): void {
+    this.postMessage({
+      type: 'pasteToMatchesComplete',
+      count
     })
   }
 }

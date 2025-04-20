@@ -80,6 +80,18 @@
       {
         "command": "mdSearch.findInFile",
         "title": "MD: Find in File..."
+      },
+      {
+        "command": "mdSearch.copyMatches",
+        "title": "MD: Copy All Matches"
+      },
+      {
+        "command": "mdSearch.cutMatches",
+        "title": "MD: Cut All Matches"
+      },
+      {
+        "command": "mdSearch.pasteToMatches",
+        "title": "MD: Paste to All Matches"
       }
     ],
     "keybindings": [
@@ -94,6 +106,24 @@
         "key": "ctrl+shift+h",
         "mac": "cmd+shift+h",
         "when": "!editorFocus"
+      },
+      {
+        "command": "mdSearch.copyMatches",
+        "key": "ctrl+shift+c",
+        "mac": "cmd+shift+c",
+        "when": "focusedView == mdSearch.SearchReplaceView"
+      },
+      {
+        "command": "mdSearch.cutMatches",
+        "key": "ctrl+shift+x",
+        "mac": "cmd+shift+x",
+        "when": "focusedView == mdSearch.SearchReplaceView"
+      },
+      {
+        "command": "mdSearch.pasteToMatches",
+        "key": "ctrl+shift+v",
+        "mac": "cmd+shift+v",
+        "when": "focusedView == mdSearch.SearchReplaceView"
       }
     ],
     "menus": {
