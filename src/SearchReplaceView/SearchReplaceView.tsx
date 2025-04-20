@@ -211,6 +211,10 @@ interface FileTreeNodeBase {
 interface FolderNode extends FileTreeNodeBase {
     type: 'folder'
     children: FileTreeNode[]
+    stats?: {
+        numMatches: number
+        numFilesWithMatches: number
+    }
 }
 
 interface FileNode extends FileTreeNodeBase {
@@ -243,7 +247,7 @@ function buildFileTree(
     resultsByFile: Record<string, SerializedTransformResultEvent[]>,
     workspacePathUri: string, // No longer undefined - it's a required parameter
 ): FolderNode {
-    const root: FolderNode = { name: '', relativePath: '', type: 'folder', children: [] }
+    const root: FolderNode = { name: '', relativePath: '', type: 'folder', children: [], stats: { numMatches: 0, numFilesWithMatches: 0 } }
     const workspacePath = uriToPath(workspacePathUri); // Convert workspace URI to path
     // Helper to find or create folder nodes
     const findOrCreateFolder = (
@@ -262,6 +266,7 @@ function buildFileTree(
             relativePath: currentRelativePath,
             type: 'folder',
             children: [],
+            stats: { numMatches: 0, numFilesWithMatches: 0 }
         }
         parent.children.push(newFolder)
         // Sort children: folders first, then files, alphabetically
@@ -290,6 +295,16 @@ function buildFileTree(
         let currentNode = root;
         let currentRelativePath = '';
 
+        // Calculate file statistics
+        const fileMatches = fileResults.reduce((sum, r) => sum + (r.matches?.length || 0), 0);
+        const hasMatches = fileMatches > 0;
+
+        // Update root stats for this file
+        if (hasMatches) {
+            root.stats!.numMatches += fileMatches;
+            root.stats!.numFilesWithMatches += 1;
+        }
+
         segments.forEach((segment, index) => {
             // Use posix.join for consistency in relative path construction
             currentRelativePath = currentRelativePath ? path.posix.join(currentRelativePath, segment) : segment;
@@ -313,6 +328,12 @@ function buildFileTree(
             } else {
                 // It's a folder
                 currentNode = findOrCreateFolder(currentNode, segment, currentRelativePath);
+
+                // Update folder stats as we traverse
+                if (hasMatches) {
+                    currentNode.stats!.numMatches += fileMatches;
+                    currentNode.stats!.numFilesWithMatches += 1;
+                }
             }
         })
     })
@@ -334,6 +355,26 @@ function filterTreeForMatches(node: FileTreeNode): FileTreeNode | null {
 
         // Keep folder only if it has children after filtering
         if (filteredChildren.length > 0) {
+            // Recalculate stats for the filtered folder
+            const stats = {
+                numMatches: 0,
+                numFilesWithMatches: 0
+            };
+
+            // Calculate stats by summing up stats from children
+            filteredChildren.forEach(child => {
+                if (child.type === 'folder' && child.stats) {
+                    stats.numMatches += child.stats.numMatches;
+                    stats.numFilesWithMatches += child.stats.numFilesWithMatches;
+                } else if (child.type === 'file') {
+                    const fileMatches = child.results.reduce((sum, r) => sum + (r.matches?.length || 0), 0);
+                    stats.numMatches += fileMatches;
+                    if (fileMatches > 0) {
+                        stats.numFilesWithMatches += 1;
+                    }
+                }
+            });
+
             // Sort children again after filtering
             filteredChildren.sort((a, b) => {
                 if (a.type !== b.type) {
@@ -341,7 +382,8 @@ function filterTreeForMatches(node: FileTreeNode): FileTreeNode | null {
                 }
                 return a.name.localeCompare(b.name);
             });
-            return { ...node, children: filteredChildren };
+
+            return { ...node, children: filteredChildren, stats };
         } else {
             return null;
         }
@@ -384,6 +426,7 @@ interface TreeViewNodeProps {
     toggleFileExpansion: (filePath: string) => void;
     handleFileClick: (filePath: string) => void;
     handleResultItemClick: (filePath: string, range?: { start: number; end: number }) => void;
+    handleReplace: (paths: string[]) => void; // Добавляем обработчик для замены
     currentSearchValues: SearchReplaceViewValues; // Добавляем текущие значения поиска как проп
 }
 
@@ -396,12 +439,32 @@ const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
     toggleFileExpansion,
     handleFileClick,
     handleResultItemClick,
+    handleReplace,
     currentSearchValues // Получаем значения через пропсы
 }) => {
     const indent = level * 15 // Indentation level
+    const [isHovered, setIsHovered] = React.useState(false);
 
     if (node.type === 'folder') {
         const isExpanded = expandedFolders.has(node.relativePath);
+
+        // Calculate all file paths in this folder for the Replace operation
+        const getAllFilePathsInFolder = (): string[] => {
+            const result: string[] = [];
+            const traverse = (node: FileTreeNode) => {
+                if (node.type === 'file') {
+                    result.push(node.absolutePath);
+                } else if (node.type === 'folder') {
+                    node.children.forEach(traverse);
+                }
+            };
+            traverse(node);
+            return result;
+        };
+
+        // Only show stats and Replace button if there are matches
+        const hasMatches = node.stats && node.stats.numMatches > 0;
+
         return (
             <div className={css`margin-bottom: 1px;`}>
                 <div
@@ -409,17 +472,69 @@ const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                         display: flex;
                         align-items: center;
                         gap: 4px;
-                        padding: 2px 5px;
                         cursor: pointer;
                         padding-left: ${indent + 5}px; /* Indent folder */
+                        padding-top: 2px; /* Add vertical padding */
+                        padding-bottom: 2px; /* Add vertical padding */
                         &:hover { background-color: var(--vscode-list-hoverBackground); }
+                        position: relative;
                     `}
                     onClick={() => toggleFolderExpansion(node.relativePath)}
                     title={`Click to ${isExpanded ? 'collapse' : 'expand'} ${node.name}`}
+                    onMouseEnter={() => setIsHovered(true)}
+                    onMouseLeave={() => setIsHovered(false)}
                 >
                     <span className={`codicon codicon-chevron-${isExpanded ? 'down' : 'right'}`} />
                     {getFolderIcon(node.relativePath, isExpanded)}
                     <span>{node.name}</span>
+                    <span className={css`flex-grow: 1;`}></span>
+
+                    {/* Stats & Replace button container */}
+                    <div className={css`
+                        position: relative;
+                        display: flex;
+                        align-items: center;
+                        gap: 4px;
+                    `}>
+                        {/* Stats */}
+                        {hasMatches && node.stats && (
+                            <span className={css`
+                                color: var(--vscode-descriptionForeground);
+                                opacity: ${isHovered && currentSearchValues.replace ? '0.3' : '1'};
+                                transition: opacity 0.2s;
+                            `}>
+                                ({node.stats.numFilesWithMatches} files, {node.stats.numMatches} matches)
+                            </span>
+                        )}
+
+                        {/* Replace button shown on hover */}
+                        {isHovered && hasMatches && currentSearchValues.replace && (
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation(); // Prevent folder expansion
+                                    handleReplace(getAllFilePathsInFolder());
+                                }}
+                                title={`Replace all matches in ${node.name} folder`}
+                                className={css`
+                                    background: transparent;
+                                    border: none;
+                                    padding: 0px 2px;
+                                    cursor: pointer;
+                                    display: flex;
+                                    align-items: center;
+                                    color: #bcbbbc;
+                                    justify-content: center;
+                                    min-width: auto;
+                                    border-radius: 3px;
+                                    &:hover {
+                                        background-color: rgba(128, 128, 128, 0.2);
+                                    }
+                                `}
+                            >
+                                <span className="codicon codicon-replace-all" />
+                            </button>
+                        )}
+                    </div>
                 </div>
                 {isExpanded && (
                     <div>
@@ -434,6 +549,7 @@ const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                                 toggleFileExpansion={toggleFileExpansion}
                                 handleFileClick={handleFileClick}
                                 handleResultItemClick={handleResultItemClick}
+                                handleReplace={handleReplace}
                                 currentSearchValues={currentSearchValues}
                             />
                         ))}
@@ -457,14 +573,18 @@ const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                         display: flex;
                         align-items: center;
                         gap: 4px;
-                        padding: 2px 5px;
                         cursor: pointer;
                         padding-left: ${indent + 5}px; /* Indent file */
+                        padding-top: 2px; /* Add vertical padding */
+                        padding-bottom: 2px; /* Add vertical padding */
                         &:hover { background-color: var(--vscode-list-hoverBackground); }
+                        position: relative;
                     `}
                     // Click toggles expansion only if there are matches, otherwise opens file
                     onClick={() => canExpand ? toggleFileExpansion(node.relativePath) : handleFileClick(node.absolutePath)}
                     title={canExpand ? `Click to ${isExpanded ? 'collapse' : 'expand'} matches in ${node.name}` : `Click to open ${node.name}`}
+                    onMouseEnter={() => setIsHovered(true)}
+                    onMouseLeave={() => setIsHovered(false)}
                 >
                     {/* Chevron only visible if there are matches to expand */}
                     <span className={`codicon codicon-chevron-${isExpanded ? 'down' : 'right'}`}
@@ -474,15 +594,58 @@ const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                     <span className={css`font-weight: bold; flex-grow: 1; cursor: pointer;`}
                         onClick={(e) => { e.stopPropagation(); handleFileClick(node.absolutePath); }}
                         title={`Click to open ${node.name}`}>{node.name}</span>
-                    <span className={css`color: var(--vscode-descriptionForeground);`}>
-                        {/* Prioritize match count, then check for error */}
-                        {totalMatches > 0
-                            ? `${totalMatches} matches`
-                            : (hasError ? 'Error' : 'Changed')}
-                    </span>
-                    {/* Show (Error) indicator only if there are no matches AND there is an error */}
-                    {totalMatches === 0 && hasError &&
-                        <span className={css`margin-left: 8px; color: var(--vscode-errorForeground);`}>(Error)</span>}
+
+                    {/* Stats & Replace button container */}
+                    <div className={css`
+                        position: relative;
+                        display: flex;
+                        align-items: center;
+                        gap: 4px;
+                    `}>
+                        {/* Match count or error status */}
+                        <span className={css`
+                            color: var(--vscode-descriptionForeground);
+                            opacity: ${isHovered && totalMatches > 0 && currentSearchValues.replace ? '0.3' : '1'};
+                            transition: opacity 0.2s;
+                        `}>
+                            {/* Prioritize match count, then check for error */}
+                            {totalMatches > 0
+                                ? `${totalMatches} matches`
+                                : (hasError ? 'Error' : 'Changed')}
+                        </span>
+
+                        {/* Show (Error) indicator only if there are no matches AND there is an error */}
+                        {totalMatches === 0 && hasError &&
+                            <span className={css`margin-left: 8px; color: var(--vscode-errorForeground);`}>(Error)</span>}
+
+                        {/* Replace button shown on hover */}
+                        {isHovered && totalMatches > 0 && currentSearchValues.replace && (
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleReplace([node.absolutePath]);
+                                }}
+                                title={`Replace all matches in ${node.name}`}
+                                className={css`
+                                    background: transparent;
+                                    border: none;
+                                    padding: 0px 2px;
+                                    cursor: pointer;
+                                    display: flex;
+                                    align-items: center;
+                                    color: #bcbbbc;
+                                    justify-content: center;
+                                    min-width: auto;
+                                    border-radius: 3px;
+                                    &:hover {
+                                        background-color: rgba(128, 128, 128, 0.2);
+                                    }
+                                `}
+                            >
+                                <span className="codicon codicon-replace-all" />
+                            </button>
+                        )}
+                    </div>
                 </div>
                 {/* Expanded Matches */}
                 {isExpanded && canExpand && (
@@ -492,6 +655,8 @@ const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                                 <div key={`${idx}-${matchIdx}`}
                                     className={css`
                                         padding: 3px 5px;
+                                        padding-top: 2px; /* Add vertical padding */
+                                        padding-bottom: 2px; /* Add vertical padding */
                                         cursor: pointer;
                                         font-family: var(--vscode-editor-font-family);
                                         font-size: var(--vscode-editor-font-size);
@@ -732,7 +897,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
 
         const now = Date.now();
         const timeSinceLastUpdate = now - lastUpdateTimeRef.current;
-        
+
         // Адаптивный throttling: увеличиваем задержку, если накопилось много результатов
         const resultCount = Object.keys(pendingResultsRef.current).length;
         if (resultCount > 50) {
@@ -742,19 +907,19 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
         } else {
             throttleDelayRef.current = 100; // Маленькая задержка для небольшого количества результатов
         }
-        
+
         setResultsByFile(prev => {
             const newResults = { ...prev };
-            
+
             // Применяем все накопленные результаты
             Object.entries(pendingResultsRef.current).forEach(([filePath, results]) => {
                 newResults[filePath] = [...(newResults[filePath] || []), ...results];
             });
-            
+
             // Очищаем накопленные результаты
             pendingResultsRef.current = {};
             lastUpdateTimeRef.current = now;
-            
+
             return newResults;
         });
     }, []);
@@ -840,21 +1005,21 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                     break;
                 case 'addResult': {
                     const newResult = message.data;
-                    
+
                     // Проверяем, есть ли совпадения
                     const hasMatches = newResult.matches && newResult.matches.length > 0;
-                    
+
                     // Если результат без совпадений и не ошибка, можем пропустить
                     if (!hasMatches && !newResult.error) {
                         return;
                     }
-                    
+
                     // Добавляем результат в накопитель
                     if (!pendingResultsRef.current[newResult.file]) {
                         pendingResultsRef.current[newResult.file] = [];
                     }
                     pendingResultsRef.current[newResult.file].push(newResult);
-                    
+
                     // Если это первый результат, применяем его немедленно
                     if (Object.keys(resultsByFile).length === 0 && Object.keys(pendingResultsRef.current).length === 1) {
                         flushPendingResults();
@@ -1003,21 +1168,21 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
 
     const handleFindChange = useCallback((e: any) => {
         const newValue = e.target.value;
-        
+
         // Если поиск выполняется, отменяем его перед запуском нового
         if (status.running) {
             // Отправляем сообщение отмены текущего поиска
             vscode.postMessage({ type: 'stop' });
-            
+
             // Сбрасываем результаты, оставляя интерфейс чистым для нового поиска
             setResultsByFile({});
             pendingResultsRef.current = {};
-            
+
             if (throttleTimeoutRef.current) {
                 clearTimeout(throttleTimeoutRef.current);
                 throttleTimeoutRef.current = null;
             }
-            
+
             // Обновляем статус чтобы показать, что поиск остановлен
             setStatus(prev => ({
                 ...prev,
@@ -1030,7 +1195,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                 total: 0,
             }));
         }
-        
+
         postValuesChange({ find: newValue });
 
         // If search field is cleared (empty), clear the search results
@@ -1278,15 +1443,15 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
         // Если поиск выполняется, отменяем его перед запуском нового
         if (status.running) {
             vscode.postMessage({ type: 'stop' });
-            
+
             // Очищаем накопленные результаты
             pendingResultsRef.current = {};
-            
+
             if (throttleTimeoutRef.current) {
                 clearTimeout(throttleTimeoutRef.current);
                 throttleTimeoutRef.current = null;
             }
-            
+
             // Обновляем статус
             setStatus(prev => ({
                 ...prev,
@@ -1539,6 +1704,20 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     useEffect(() => {
         window.activeSearchReplaceValues = values;
     }, [values]);
+
+    // Функция-обработчик для замены в выбранных файлах
+    const handleReplaceSelectedFiles = (filePaths: string[]) => {
+        // Проверяем, что у нас есть что заменять
+        if (!values.find || !values.replace || filePaths.length === 0) {
+            return;
+        }
+
+        // Если поиск в режиме замены, отправляем сообщение с путями файлов
+        vscode.postMessage({
+            type: 'replace',
+            filePaths
+        });
+    };
 
     return (
         <div
@@ -2080,6 +2259,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                                 toggleFileExpansion={toggleFileExpansion}
                                                 handleFileClick={handleFileClick}
                                                 handleResultItemClick={handleResultItemClick}
+                                                handleReplace={handleReplaceSelectedFiles}
                                                 currentSearchValues={values}
                                             />
                                         ))
@@ -2165,8 +2345,57 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                                                     `}
                                                                     onClick={() => handleResultItemClick(filePath, match)}
                                                                     title={getLineFromSource(result.source, match.start, match.end)}
+                                                                    onMouseEnter={(e) => {
+                                                                        // Set hovering state for the match item
+                                                                        (e.currentTarget as HTMLElement).dataset.hovered = 'true';
+                                                                    }}
+                                                                    onMouseLeave={(e) => {
+                                                                        // Clear hovering state
+                                                                        delete (e.currentTarget as HTMLElement).dataset.hovered;
+                                                                    }}
                                                                 >
                                                                     {getHighlightedMatchContext(result.source, match.start, match.end)}
+
+                                                                    {/* Replace button for individual match */}
+                                                                    {currentSearchValues.replace && (
+                                                                        <div
+                                                                            className={css`
+                                                                                position: absolute;
+                                                                                right: 5px;
+                                                                                top: 50%;
+                                                                                transform: translateY(-50%);
+                                                                                opacity: 0;
+                                                                                transition: opacity 0.2s;
+                                                                                [data-hovered="true"] & {
+                                                                                    opacity: 1;
+                                                                                }
+                                                                            `}
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                // For now, just replace all matches in this file
+                                                                                // In the future we could implement single match replacement
+                                                                                handleReplace([node.absolutePath]);
+                                                                            }}
+                                                                        >
+                                                                            <button
+                                                                                className={css`
+                                                                                    background-color: var(--vscode-button-background);
+                                                                                    color: var(--vscode-button-foreground);
+                                                                                    border: none;
+                                                                                    border-radius: 2px;
+                                                                                    cursor: pointer;
+                                                                                    padding: 2px 6px;
+                                                                                    font-size: 12px;
+                                                                                    &:hover {
+                                                                                        background-color: var(--vscode-button-hoverBackground);
+                                                                                    }
+                                                                                `}
+                                                                                title="Replace this match"
+                                                                            >
+                                                                                <span className="codicon codicon-replace-all" />
+                                                                            </button>
+                                                                        </div>
+                                                                    )}
                                                                 </div>
                                                             ))
                                                         )}
@@ -2218,6 +2447,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                             toggleFileExpansion={toggleFileExpansion}
                                             handleFileClick={handleFileClick}
                                             handleResultItemClick={handleResultItemClick}
+                                            handleReplace={handleReplaceSelectedFiles}
                                             currentSearchValues={values}
                                         />
                                     ))
@@ -2303,8 +2533,56 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                                                     `}
                                                                     onClick={() => handleResultItemClick(filePath, match)}
                                                                     title={getLineFromSource(result.source, match.start, match.end)}
+                                                                    onMouseEnter={(e) => {
+                                                                        // Set hovering state for the match item
+                                                                        (e.currentTarget as HTMLElement).dataset.hovered = 'true';
+                                                                    }}
+                                                                    onMouseLeave={(e) => {
+                                                                        // Clear hovering state
+                                                                        delete (e.currentTarget as HTMLElement).dataset.hovered;
+                                                                    }}
                                                                 >
                                                                     {getHighlightedMatchContext(result.source, match.start, match.end)}
+
+                                                                    {/* Replace button for individual match */}
+                                                                    {currentSearchValues.replace && (
+                                                                        <div
+                                                                            className={css`
+                                                                                position: absolute;
+                                                                                right: 5px;
+                                                                                top: 50%;
+                                                                                transform: translateY(-50%);
+                                                                                opacity: 0;
+                                                                                transition: opacity 0.2s;
+                                                                                [data-hovered="true"] & {
+                                                                                    opacity: 1;
+                                                                                }
+                                                                            `}
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                // For now, just replace all matches in this file
+                                                                                handleReplaceSelectedFiles([filePath]);
+                                                                            }}
+                                                                        >
+                                                                            <button
+                                                                                className={css`
+                                                                                    background-color: var(--vscode-button-background);
+                                                                                    color: var(--vscode-button-foreground);
+                                                                                    border: none;
+                                                                                    border-radius: 2px;
+                                                                                    cursor: pointer;
+                                                                                    padding: 2px 6px;
+                                                                                    font-size: 12px;
+                                                                                    &:hover {
+                                                                                        background-color: var(--vscode-button-hoverBackground);
+                                                                                    }
+                                                                                `}
+                                                                                title="Replace this match"
+                                                                            >
+                                                                                <span className="codicon codicon-replace-all" />
+                                                                            </button>
+                                                                        </div>
+                                                                    )}
                                                                 </div>
                                                             ))
                                                         )}
@@ -2352,6 +2630,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                             toggleFileExpansion={toggleFileExpansion}
                                             handleFileClick={handleFileClick}
                                             handleResultItemClick={handleResultItemClick}
+                                            handleReplace={handleReplaceSelectedFiles}
                                             currentSearchValues={values}
                                         />
                                     ))
@@ -2437,8 +2716,56 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                                                     `}
                                                                     onClick={() => handleResultItemClick(filePath, match)}
                                                                     title={getLineFromSource(result.source, match.start, match.end)}
+                                                                    onMouseEnter={(e) => {
+                                                                        // Set hovering state for the match item
+                                                                        (e.currentTarget as HTMLElement).dataset.hovered = 'true';
+                                                                    }}
+                                                                    onMouseLeave={(e) => {
+                                                                        // Clear hovering state
+                                                                        delete (e.currentTarget as HTMLElement).dataset.hovered;
+                                                                    }}
                                                                 >
                                                                     {getHighlightedMatchContext(result.source, match.start, match.end)}
+
+                                                                    {/* Replace button for individual match */}
+                                                                    {currentSearchValues.replace && (
+                                                                        <div
+                                                                            className={css`
+                                                                                position: absolute;
+                                                                                right: 5px;
+                                                                                top: 50%;
+                                                                                transform: translateY(-50%);
+                                                                                opacity: 0;
+                                                                                transition: opacity 0.2s;
+                                                                                [data-hovered="true"] & {
+                                                                                    opacity: 1;
+                                                                                }
+                                                                            `}
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                // For now, just replace all matches in this file
+                                                                                handleReplaceSelectedFiles([filePath]);
+                                                                            }}
+                                                                        >
+                                                                            <button
+                                                                                className={css`
+                                                                                    background-color: var(--vscode-button-background);
+                                                                                    color: var(--vscode-button-foreground);
+                                                                                    border: none;
+                                                                                    border-radius: 2px;
+                                                                                    cursor: pointer;
+                                                                                    padding: 2px 6px;
+                                                                                    font-size: 12px;
+                                                                                    &:hover {
+                                                                                        background-color: var(--vscode-button-hoverBackground);
+                                                                                    }
+                                                                                `}
+                                                                                title="Replace this match"
+                                                                            >
+                                                                                <span className="codicon codicon-replace-all" />
+                                                                            </button>
+                                                                        </div>
+                                                                    )}
                                                                 </div>
                                                             ))
                                                         )}
