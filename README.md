@@ -56,4 +56,4 @@ If you find this extension useful, please consider donating to support its devel
 
 <a href="https://www.buymeacoffee.com/miki_du" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
 
-<a href="https://etherscan.io/address/0x1A3471C0Fa1b8512b5423d3Bd715560639AF04Ea" target="_blank"><img src="img/eth.png" alt="Donate with Ethereum" style="height: 75px !important;width: 217px !important;" ></a>
+<a href="https://etherscan.io/address/0x1A3471C0Fa1b8512b5423d3Bd715560639AF04Ea" target="_blank"><img src="media/eth.png" alt="Donate with Ethereum" style="height: 75px !important;width: 217px !important;" ></a>

@@ -4,7 +4,7 @@
   "displayName": "MD Search",
   "description": "structural search and replace for JavaScript and TypeScript",
   "publisher": "drboria",
-  "icon": "img/logo.jpeg",
+  "icon": "media/logo.jpeg",
   "engines": {
     "vscode": "^1.84.0"
   },
