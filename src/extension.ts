@@ -74,7 +74,7 @@ export class AstxExtension {
       context.extensionMode === vscode.ExtensionMode.Production
     this.runner = new AstxRunner(this)
     this.transformResultProvider = new TransformResultProvider(this)
-    
+
     // Инициализируем SearchReplaceViewProvider сразу после создания расширения,
     // чтобы он начал отслеживать события и сохранять состояние даже если пользователь
     // не открывал его UI.
@@ -200,8 +200,8 @@ export class AstxExtension {
         this.channel.show()
       })
     )
-    
-    // Команда поиска теперь не только фокусирует вид, но и гарантирует, 
+
+    // Команда поиска теперь не только фокусирует вид, но и гарантирует,
     // что SearchReplaceViewProvider уже инициализирован
     context.subscriptions.push(
       vscode.commands.registerCommand('mdSearch.search', () => {
@@ -426,10 +426,10 @@ export class AstxExtension {
     try {
       // Get current parameters
       const params = this.getParams()
-      
+
       // Проверяем, не вызван ли replace в режиме замены (из cut или paste)
       const isReplacementOperation = params.isReplacement === true
-      
+
       // Проверяем replace строку только если это не операция замены
       if (!isReplacementOperation && !params.replace) {
         // Don't do anything if replace string is empty
@@ -654,12 +654,12 @@ export class AstxExtension {
     if (count > 0) {
       // Сохраняем текущие параметры
       const originalReplace = this.params.replace
-      
+
       // Устанавливаем пустую строку для замены
       this.setParams({
         ...this.params,
         replace: '',
-        isReplacement: true
+        isReplacement: true,
       })
 
       // Выполняем замену
@@ -669,7 +669,7 @@ export class AstxExtension {
       this.setParams({
         ...this.params,
         replace: originalReplace,
-        isReplacement: false
+        isReplacement: false,
       })
     }
 
@@ -681,17 +681,19 @@ export class AstxExtension {
   async pasteToMatches(): Promise<number> {
     // Получаем текст из системного буфера обмена
     const clipboardText = await vscode.env.clipboard.readText()
-    
+
     // Обрабатываем случай, когда у нас несколько значений в буфере
     // или несколько строк в системном буфере обмена
     let valuesToInsert: string[] = []
-    
+
     if (this.matchesBuffer.length > 0) {
       // Используем внутренний буфер, если он не пустой
       valuesToInsert = [...this.matchesBuffer]
     } else if (clipboardText) {
       // Иначе разбиваем значение из системного буфера по строкам
-      valuesToInsert = clipboardText.split('\n\n').filter(text => text.trim().length > 0)
+      valuesToInsert = clipboardText
+        .split('\n\n')
+        .filter((text) => text.trim().length > 0)
     }
 
     if (valuesToInsert.length === 0) {
@@ -699,7 +701,9 @@ export class AstxExtension {
       return 0
     }
 
-    this.channel.appendLine(`Pasting ${valuesToInsert.length} values from buffer to matches...`)
+    this.channel.appendLine(
+      `Pasting ${valuesToInsert.length} values from buffer to matches...`
+    )
 
     // Используем текущие matches и прямую замену вместо регулярных выражений
     const resultsMap = this.transformResultProvider.results
@@ -717,28 +721,30 @@ export class AstxExtension {
               // Читаем содержимое файла напрямую
               const contentBytes = await vscode.workspace.fs.readFile(uri)
               const originalContent = Buffer.from(contentBytes).toString('utf8')
-              
+
               // Обрабатываем совпадения в обратном порядке, чтобы индексы не сбивались
-              const sortedMatches = [...result.matches].sort((a, b) => b.start - a.start)
-              
+              const sortedMatches = [...result.matches].sort(
+                (a, b) => b.start - a.start
+              )
+
               let newContent = originalContent
               let replacementsInFile = 0
-              
+
               // Применяем замены к каждому совпадению
               for (let i = 0; i < sortedMatches.length; i++) {
                 const match = sortedMatches[i]
                 // Берем значение из буфера циклично
                 const replaceValue = valuesToInsert[i % valuesToInsert.length]
-                
+
                 // Делаем прямую замену без каких-либо модификаций
-                newContent = 
-                  newContent.substring(0, match.start) + 
-                  replaceValue + 
+                newContent =
+                  newContent.substring(0, match.start) +
+                  replaceValue +
                   newContent.substring(match.end)
-                
+
                 replacementsInFile++
               }
-              
+
               // Записываем изменения только если они действительно есть
               if (newContent !== originalContent) {
                 this.channel.appendLine(
@@ -746,7 +752,7 @@ export class AstxExtension {
                 )
                 totalReplacements += replacementsInFile
                 totalFilesChanged++
-                
+
                 // Записываем напрямую в файл
                 const newContentBytes = Buffer.from(newContent, 'utf8')
                 await vscode.workspace.fs.writeFile(uri, newContentBytes)
@@ -768,7 +774,7 @@ export class AstxExtension {
 
     // Отправляем сообщение в webview с результатами замены
     this.searchReplaceViewProvider.notifyReplacementComplete(
-      totalReplacements, 
+      totalReplacements,
       totalFilesChanged
     )
 
@@ -788,7 +794,7 @@ export class AstxExtension {
 export function activate(context: vscode.ExtensionContext): void {
   extension = new AstxExtension(context)
   extension.activate(context)
-  
+
   // Ensure the search view is activated as soon as possible
   // This ensures the event listeners and state persistence are active
   // even if the user hasn't opened the UI yet
@@ -798,24 +804,30 @@ export function activate(context: vscode.ExtensionContext): void {
 // Helper function to activate the search view programmatically
 function activateSearchView(context: vscode.ExtensionContext): void {
   // Try to activate the search view programmatically
-  vscode.commands.executeCommand(`${SearchReplaceViewProvider.viewType}.focus`)
-    .then(() => {
-      // After focusing, hide it unless the user explicitly wanted it
-      // This is just to initialize the view's state
-      // Hide it only in setInterval to avoid flickering the UI
-      setTimeout(() => {
-        if (extension.searchReplaceViewProvider.visible) {
-          // If the view was already visible before we focused it, keep it open
-          // The user probably opened it manually before this was called
-        } else {
-          // Otherwise, we can safely hide it since we only needed to initialize it
-          vscode.commands.executeCommand(`workbench.action.closePanel`)
-        }
-      }, 100)
-    }, (error: Error) => {
-      // If the command fails (e.g., in tests), log the error but don't fail the activation
-      extension.channel.appendLine(`Failed to programmatically activate search view: ${error.message}`)
-    })
+  vscode.commands
+    .executeCommand(`${SearchReplaceViewProvider.viewType}.focus`)
+    .then(
+      () => {
+        // After focusing, hide it unless the user explicitly wanted it
+        // This is just to initialize the view's state
+        // Hide it only in setInterval to avoid flickering the UI
+        setTimeout(() => {
+          if (extension.searchReplaceViewProvider.visible) {
+            // If the view was already visible before we focused it, keep it open
+            // The user probably opened it manually before this was called
+          } else {
+            // Otherwise, we can safely hide it since we only needed to initialize it
+            vscode.commands.executeCommand(`workbench.action.closePanel`)
+          }
+        }, 100)
+      },
+      (error: Error) => {
+        // If the command fails (e.g., in tests), log the error but don't fail the activation
+        extension.channel.appendLine(
+          `Failed to programmatically activate search view: ${error.message}`
+        )
+      }
+    )
 }
 
 export async function deactivate(): Promise<void> {
