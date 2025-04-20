@@ -671,6 +671,12 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     const [matchCase, setMatchCase] = useState(values.matchCase);
     const [wholeWord, setWholeWord] = useState(values.wholeWord);
 
+    // --- Throttling для обновления результатов ---
+    const throttleTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const pendingResultsRef = useRef<Record<string, SerializedTransformResultEvent[]>>({});
+    const throttleDelayRef = useRef<number>(100); // Начальная задержка 100мс
+    const lastUpdateTimeRef = useRef<number>(Date.now());
+
     // --- Multi-level Nested Search (Find in Found) States ---
     // Initializing searchLevels as an array of search levels, with the base search as the first level
     const [searchLevels, setSearchLevels] = useState<SearchLevel[]>(() => {
@@ -717,6 +723,42 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     // Добавляем ref для контейнера хлебных крошек
     const breadcrumbsContainerRef = useRef<HTMLDivElement>(null);
 
+    // Debounce ref for postValuesChange
+    const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+    // Функция для применения накопленных результатов с адаптивным троттлингом
+    const flushPendingResults = useCallback(() => {
+        if (Object.keys(pendingResultsRef.current).length === 0) return;
+
+        const now = Date.now();
+        const timeSinceLastUpdate = now - lastUpdateTimeRef.current;
+        
+        // Адаптивный throttling: увеличиваем задержку, если накопилось много результатов
+        const resultCount = Object.keys(pendingResultsRef.current).length;
+        if (resultCount > 50) {
+            throttleDelayRef.current = 300; // Большая задержка для большого количества результатов
+        } else if (resultCount > 20) {
+            throttleDelayRef.current = 200; // Средняя задержка
+        } else {
+            throttleDelayRef.current = 100; // Маленькая задержка для небольшого количества результатов
+        }
+        
+        setResultsByFile(prev => {
+            const newResults = { ...prev };
+            
+            // Применяем все накопленные результаты
+            Object.entries(pendingResultsRef.current).forEach(([filePath, results]) => {
+                newResults[filePath] = [...(newResults[filePath] || []), ...results];
+            });
+            
+            // Очищаем накопленные результаты
+            pendingResultsRef.current = {};
+            lastUpdateTimeRef.current = now;
+            
+            return newResults;
+        });
+    }, []);
+
     // --- Save State Effect ---
     useEffect(() => {
         vscode.setState({
@@ -740,6 +782,15 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
         vscode, searchLevels, isNestedReplaceVisible
     ]);
 
+    // Очистка таймера throttling при размонтировании
+    useEffect(() => {
+        return () => {
+            if (throttleTimeoutRef.current) {
+                clearTimeout(throttleTimeoutRef.current);
+            }
+        };
+    }, []);
+
     // --- Message Listener ---
     useEffect(() => {
         const handleMessage = (event: MessageEvent<MessageToWebview>) => {
@@ -755,6 +806,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                     setResultsByFile({}); // Clear previous results on init
                     setExpandedFiles(new Set());
                     setExpandedFolders(new Set());
+                    pendingResultsRef.current = {}; // Очищаем накопленные результаты
                     break;
                 case 'status':
                     setStatus(prev => ({ ...prev, ...message.status }));
@@ -780,14 +832,39 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                     setExpandedFiles(new Set()); // Clear expanded state
                     setExpandedFolders(new Set());
                     setReplacementResult({ totalReplacements: 0, totalFilesChanged: 0, show: false });
+                    pendingResultsRef.current = {}; // Очищаем накопленные результаты
+                    if (throttleTimeoutRef.current) {
+                        clearTimeout(throttleTimeoutRef.current);
+                        throttleTimeoutRef.current = null;
+                    }
                     break;
                 case 'addResult': {
                     const newResult = message.data;
-                    setResultsByFile(prev => ({
-                        ...prev,
-                        // Use original absolute path/URI as key
-                        [newResult.file]: [...(prev[newResult.file] || []), newResult]
-                    }));
+                    
+                    // Проверяем, есть ли совпадения
+                    const hasMatches = newResult.matches && newResult.matches.length > 0;
+                    
+                    // Если результат без совпадений и не ошибка, можем пропустить
+                    if (!hasMatches && !newResult.error) {
+                        return;
+                    }
+                    
+                    // Добавляем результат в накопитель
+                    if (!pendingResultsRef.current[newResult.file]) {
+                        pendingResultsRef.current[newResult.file] = [];
+                    }
+                    pendingResultsRef.current[newResult.file].push(newResult);
+                    
+                    // Если это первый результат, применяем его немедленно
+                    if (Object.keys(resultsByFile).length === 0 && Object.keys(pendingResultsRef.current).length === 1) {
+                        flushPendingResults();
+                    } else {
+                        // Иначе используем throttling
+                        if (throttleTimeoutRef.current) {
+                            clearTimeout(throttleTimeoutRef.current);
+                        }
+                        throttleTimeoutRef.current = setTimeout(flushPendingResults, throttleDelayRef.current);
+                    }
                     break;
                 }
                 case 'fileUpdated': {
@@ -855,6 +932,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                     }));
                     setExpandedFiles(new Set());
                     setExpandedFolders(new Set());
+                    pendingResultsRef.current = {}; // Очищаем накопленные результаты
 
                     // Устанавливаем результаты замены для отображения
                     setReplacementResult({
@@ -875,28 +953,84 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
         return () => {
             window.removeEventListener('message', handleMessage);
         };
-    }, [vscode]); // Only depends on vscode api
+    }, [vscode, flushPendingResults]); // Добавили flushPendingResults в зависимости
 
     // --- Callbacks ---
     const postValuesChange = useCallback((changed: Partial<SearchReplaceViewValues>) => {
-        // Immediately update local state for responsiveness
-        setValues(prev => {
-            const next = { ...prev, ...changed, isReplacement: false };
-            // Update dependent local state right away
-            if (changed.searchMode !== undefined) setCurrentSearchMode(changed.searchMode);
-            if (changed.matchCase !== undefined) setMatchCase(changed.matchCase);
-            if (changed.wholeWord !== undefined) setWholeWord(changed.wholeWord);
-            // Post the complete updated values
-            vscode.postMessage({ type: 'values', values: next });
-            return next;
-        });
-    }, [vscode]);
+        // Clear existing timeout
+        if (debounceTimerRef.current) {
+            clearTimeout(debounceTimerRef.current);
+        }
+
+        // Если это изменение строки поиска и поиск в данный момент идет - 
+        // немедленно отправляем новые значения для остановки текущего поиска
+        if (changed.find !== undefined && status.running) {
+            setValues(prev => {
+                const next = { ...prev, ...changed, isReplacement: false };
+                // Немедленно отправляем новые значения
+                vscode.postMessage({ type: 'values', values: next });
+                return next;
+            });
+        } else {
+            // В противном случае используем debounce как обычно
+            debounceTimerRef.current = setTimeout(() => {
+                // Immediately update local state for responsiveness
+                setValues(prev => {
+                    const next = { ...prev, ...changed, isReplacement: false };
+                    // Update dependent local state right away
+                    if (changed.searchMode !== undefined) setCurrentSearchMode(changed.searchMode);
+                    if (changed.matchCase !== undefined) setMatchCase(changed.matchCase);
+                    if (changed.wholeWord !== undefined) setWholeWord(changed.wholeWord);
+                    // Post the complete updated values
+                    vscode.postMessage({ type: 'values', values: next });
+                    return next;
+                });
+            }, 150);
+        }
+    }, [vscode, status.running]);
+
+    // Cleanup debounce timer on unmount
+    useEffect(() => {
+        return () => {
+            if (debounceTimerRef.current) {
+                clearTimeout(debounceTimerRef.current);
+            }
+        };
+    }, []);
 
     const toggleReplace = useCallback(() => setIsReplaceVisible((v: boolean) => !v), []);
     const toggleSettings = useCallback(() => setShowSettings((v: boolean) => !v), []);
 
     const handleFindChange = useCallback((e: any) => {
         const newValue = e.target.value;
+        
+        // Если поиск выполняется, отменяем его перед запуском нового
+        if (status.running) {
+            // Отправляем сообщение отмены текущего поиска
+            vscode.postMessage({ type: 'stop' });
+            
+            // Сбрасываем результаты, оставляя интерфейс чистым для нового поиска
+            setResultsByFile({});
+            pendingResultsRef.current = {};
+            
+            if (throttleTimeoutRef.current) {
+                clearTimeout(throttleTimeoutRef.current);
+                throttleTimeoutRef.current = null;
+            }
+            
+            // Обновляем статус чтобы показать, что поиск остановлен
+            setStatus(prev => ({
+                ...prev,
+                running: false,
+                numMatches: 0,
+                numFilesWithMatches: 0,
+                numFilesWithErrors: 0,
+                numFilesThatWillChange: 0,
+                completed: 0,
+                total: 0,
+            }));
+        }
+        
         postValuesChange({ find: newValue });
 
         // If search field is cleared (empty), clear the search results
@@ -915,7 +1049,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
             setExpandedFiles(new Set()); // Clear expanded state
             setExpandedFolders(new Set());
         }
-    }, [postValuesChange]);
+    }, [postValuesChange, status.running, vscode]);
 
     const handleReplaceChange = useCallback((e: any) => {
         postValuesChange({ replace: e.target.value });
@@ -1141,6 +1275,27 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     }, [postValuesChange, vscode]);
 
     const handleNestedFindChange = useCallback((e: any) => {
+        // Если поиск выполняется, отменяем его перед запуском нового
+        if (status.running) {
+            vscode.postMessage({ type: 'stop' });
+            
+            // Очищаем накопленные результаты
+            pendingResultsRef.current = {};
+            
+            if (throttleTimeoutRef.current) {
+                clearTimeout(throttleTimeoutRef.current);
+                throttleTimeoutRef.current = null;
+            }
+            
+            // Обновляем статус
+            setStatus(prev => ({
+                ...prev,
+                running: false,
+                completed: 0,
+                total: 0,
+            }));
+        }
+
         setSearchLevels((prev: SearchLevel[]) => [
             ...prev.slice(0, -1),
             {
@@ -1151,7 +1306,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                 }
             }
         ]);
-    }, []);
+    }, [status.running, vscode]);
 
     const handleNestedReplaceChange = useCallback((e: any) => {
         setSearchLevels((prev: SearchLevel[]) => [

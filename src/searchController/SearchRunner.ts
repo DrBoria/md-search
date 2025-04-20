@@ -174,7 +174,7 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
         )
       }
     },
-    250,
+    50,
     { leading: false, trailing: true }
   )
 
@@ -199,7 +199,7 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
       this.extension.channel.appendLine('Executing debounced run...')
       this.run()
     },
-    250,
+    50,
     { leading: false, trailing: true }
   )
 

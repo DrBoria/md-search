@@ -141,6 +141,7 @@ export type MessageFromWebview =
       message: string
       data?: any // Optional structured data
     }
+  | { type: 'stop' }
 
 // === Combined Message Type (for use in component) ===
 export type Message = MessageFromWebview | MessageToWebview
