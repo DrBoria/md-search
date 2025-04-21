@@ -1,6 +1,6 @@
 import * as vscode from 'vscode'
 import {
-  AstxRunner,
+  SearchRunner,
   ProgressEvent,
   TransformResultEvent,
 } from '../searchController/SearchRunner'
@@ -41,7 +41,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
   constructor(
     private extension: AstxExtension,
     private readonly _extensionUri: vscode.Uri = extension.context.extensionUri,
-    private readonly runner: AstxRunner = extension.runner
+    private readonly runner: SearchRunner = extension.runner
   ) {
     // Восстановление состояния из хранилища при инициализации
     this._restoreStateFromStorage()

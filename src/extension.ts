@@ -2,7 +2,7 @@
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode'
 import os from 'os'
-import { AstxRunner } from './searchController/SearchRunner'
+import { SearchRunner } from './searchController/SearchRunner'
 import { ASTX_REPORTS_SCHEME, ASTX_RESULT_SCHEME } from './constants'
 import { SearchReplaceViewProvider } from './SearchReplaceView/SearchReplaceViewProvider'
 import TransformResultProvider from './TransformResultProvider'
@@ -50,7 +50,7 @@ export class AstxExtension {
   replacing = false
 
   channel: vscode.OutputChannel = vscode.window.createOutputChannel('astx')
-  runner: AstxRunner
+  runner: SearchRunner
   transformResultProvider: TransformResultProvider
   searchReplaceViewProvider: SearchReplaceViewProvider
   fsWatcher: vscode.FileSystemWatcher | undefined
@@ -58,26 +58,23 @@ export class AstxExtension {
   private params: Params
   private externalWatchPattern: vscode.GlobPattern | undefined
   private externalFsWatcher: vscode.FileSystemWatcher | undefined
-  // Буфер для хранения скопированных/вырезанных совпадений
+  // Store cut/copied matches
   private matchesBuffer: string[] = []
 
   constructor(public context: vscode.ExtensionContext) {
-    const config = vscode.workspace.getConfiguration('astx')
+    // const config = vscode.workspace.getConfiguration('astx')
     this.params = {
-      searchMode: 'text',
+      find: '',
+      isReplacement: false,
       matchCase: false,
-      wholeWord: false,
       searchInResults: false,
-      ...Object.fromEntries(paramsInConfig.map((p) => [p, config[p]])),
+      searchMode: 'text',
+      // ...Object.fromEntries(paramsInConfig.map((p) => [p, config[p]])),
     } as Params
     this.isProduction =
       context.extensionMode === vscode.ExtensionMode.Production
-    this.runner = new AstxRunner(this)
+    this.runner = new SearchRunner(this)
     this.transformResultProvider = new TransformResultProvider(this)
-
-    // Инициализируем SearchReplaceViewProvider сразу после создания расширения,
-    // чтобы он начал отслеживать события и сохранять состояние даже если пользователь
-    // не открывал его UI.
     this.searchReplaceViewProvider = new SearchReplaceViewProvider(this)
   }
 
@@ -184,14 +181,13 @@ export class AstxExtension {
   }
 
   activate(context: vscode.ExtensionContext): void {
-    this.runner.startup().catch(this.logError)
+    // this.runner.startup().catch(this.logError)
 
     context.subscriptions.push(this.channel)
 
     context.subscriptions.push(
       vscode.commands.registerCommand('mdSearch.restartWorkerPool', () =>
-        // @ts-ignore TS2339: Property 'restart' might not exist or have a different name
-        this.runner.restart()
+        this.runner.restartSoon()
       )
     )
 
@@ -226,39 +222,39 @@ export class AstxExtension {
       )
     )
 
-    this.fsWatcher = vscode.workspace.createFileSystemWatcher(
-      '**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}'
-    )
-    this.fsWatcher.onDidChange(this.handleFsChange)
-    this.fsWatcher.onDidCreate(this.handleFsChange)
-    this.fsWatcher.onDidDelete(this.handleFsChange)
-    context.subscriptions.push(this.fsWatcher)
+    // this.fsWatcher = vscode.workspace.createFileSystemWatcher(
+    //   '**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}'
+    // )
+    // this.fsWatcher.onDidChange(this.handleFsChange)
+    // this.fsWatcher.onDidCreate(this.handleFsChange)
+    // this.fsWatcher.onDidDelete(this.handleFsChange)
+    // context.subscriptions.push(this.fsWatcher)
 
     vscode.workspace.onDidChangeTextDocument(
       this.handleTextDocumentChange,
       context.subscriptions
     )
 
-    context.subscriptions.push(
-      vscode.commands.registerCommand(
-        'mdSearch.setAsTransformFile',
-        (
-          transformFile: vscode.Uri | undefined = vscode.window.activeTextEditor
-            ?.document.uri
-        ) => {
-          if (!transformFile) return
-          const newParams = {
-            ...this.getParams(),
-            useTransformFile: true,
-            transformFile: normalizeFsPath(transformFile),
-          }
-          this.setParams(newParams)
-          vscode.commands.executeCommand(
-            `${SearchReplaceViewProvider.viewType}.focus`
-          )
-        }
-      )
-    )
+    // context.subscriptions.push(
+    //   vscode.commands.registerCommand(
+    //     'mdSearch.setAsTransformFile',
+    //     (
+    //       transformFile: vscode.Uri | undefined = vscode.window.activeTextEditor
+    //         ?.document.uri
+    //     ) => {
+    //       if (!transformFile) return
+    //       const newParams = {
+    //         ...this.getParams(),
+    //         useTransformFile: true,
+    //         transformFile: normalizeFsPath(transformFile),
+    //       }
+    //       this.setParams(newParams)
+    //       vscode.commands.executeCommand(
+    //         `${SearchReplaceViewProvider.viewType}.focus`
+    //       )
+    //     }
+    //   )
+    // )
 
     const setIncludePaths =
       ({ useTransformFile }: { useTransformFile: boolean }) =>
@@ -282,72 +278,41 @@ export class AstxExtension {
         )
       }
     const findInPath = setIncludePaths({ useTransformFile: false })
-    const transformInPath = setIncludePaths({ useTransformFile: true })
+    // const transformInPath = setIncludePaths({ useTransformFile: true })
 
     context.subscriptions.push(
       vscode.commands.registerCommand('mdSearch.findInFile', findInPath)
     )
-    context.subscriptions.push(
-      vscode.commands.registerCommand(
-        'mdSearch.transformInFile',
-        transformInPath
-      )
-    )
+    // context.subscriptions.push(
+    //   vscode.commands.registerCommand(
+    //     'mdSearch.transformInFile',
+    //     transformInPath
+    //   )
+    // )
     context.subscriptions.push(
       vscode.commands.registerCommand('mdSearch.findInFolder', findInPath)
     )
-    context.subscriptions.push(
-      vscode.commands.registerCommand(
-        'mdSearch.transformInFolder',
-        transformInPath
-      )
-    )
+    // context.subscriptions.push(
+    //   vscode.commands.registerCommand(
+    //     'mdSearch.transformInFolder',
+    //     transformInPath
+    //   )
+    // )
 
-    // MD search commands
-    const findInFolderMD = (dir: vscode.Uri, arg2: vscode.Uri[]) => {
-      const dirs =
-        Array.isArray(arg2) && arg2.every((item) => item instanceof vscode.Uri)
-          ? arg2
-          : [dir || vscode.window.activeTextEditor?.document.uri].filter(
-              (x): x is vscode.Uri => x instanceof vscode.Uri
-            )
-      if (!dirs.length) return
+    // context.subscriptions.push(
+    //   vscode.workspace.registerTextDocumentContentProvider(
+    //     ASTX_RESULT_SCHEME,
+    //     this.transformResultProvider
+    //   ),
+    //   vscode.workspace.registerTextDocumentContentProvider(
+    //     ASTX_REPORTS_SCHEME,
+    //     this.transformResultProvider
+    //   )
+    // )
 
-      // Set include to the selected folder paths plus MD file pattern
-      const newParams: Params = {
-        ...this.getParams(),
-        searchMode: 'text', // Default to text search for MD files
-        include: dirs
-          .map(normalizeFsPath)
-          .map((path) => `./${path}`)
-          .join(', '),
-      }
-
-      this.setParams(newParams)
-      vscode.commands.executeCommand(
-        `${SearchReplaceViewProvider.viewType}.focus`
-      )
-    }
-
-    // Register the new commands
-    context.subscriptions.push(
-      vscode.commands.registerCommand('mdSearch.findInFolderMD', findInFolderMD)
-    )
-
-    context.subscriptions.push(
-      vscode.workspace.registerTextDocumentContentProvider(
-        ASTX_RESULT_SCHEME,
-        this.transformResultProvider
-      ),
-      vscode.workspace.registerTextDocumentContentProvider(
-        ASTX_REPORTS_SCHEME,
-        this.transformResultProvider
-      )
-    )
-
-    context.subscriptions.push(
-      vscode.window.registerFileDecorationProvider(this.transformResultProvider)
-    )
+    // context.subscriptions.push(
+    //   vscode.window.registerFileDecorationProvider(this.transformResultProvider)
+    // )
 
     // Регистрируем WebView провайдер. Даже если пользователь не открывает UI,
     // SearchReplaceViewProvider уже инициализирован и слушает события
@@ -358,7 +323,7 @@ export class AstxExtension {
       )
     )
 
-    // Регистрируем новые команды
+    // Global cut/copy/paste
     context.subscriptions.push(
       vscode.commands.registerCommand('mdSearch.copyMatches', async () => {
         const count = await this.copyMatches()

@@ -81,7 +81,7 @@ interface FsEntry {
   isDirectory(): boolean
 }
 
-export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
+export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
   private params: Params
   private pausedRestart = false
   private abortController: AbortController | undefined
@@ -118,7 +118,7 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
     // Finally initialize the startup promise
     this.startupPromise = this.startup().catch((err) => {
       this.extension.logError(
-        new Error(`AstxRunner initial startup failed: ${err}`)
+        new Error(`SearchRunner initial startup failed: ${err}`)
       )
       throw err
     })
@@ -135,16 +135,16 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
   }
 
   async startup(): Promise<void> {
-    this.extension.channel.appendLine('Starting AstxRunner startup sequence...')
+    this.extension.channel.appendLine('Starting SearchRunner startup sequence...')
 
     try {
       await this.astxSearchRunner.setupWorkerPool()
       this.extension.channel.appendLine(
-        'AstxRunner startup sequence completed successfully.'
+        'SearchRunner startup sequence completed successfully.'
       )
     } catch (error) {
       this.extension.channel.appendLine(
-        `AstxRunner startup sequence failed: ${error}`
+        `SearchRunner startup sequence failed: ${error}`
       )
       throw error
     }
@@ -234,10 +234,10 @@ export class AstxRunner extends TypedEmitter<AstxRunnerEvents> {
   )
 
   async shutdown(): Promise<void> {
-    this.extension.channel.appendLine('Shutting down AstxRunner...')
+    this.extension.channel.appendLine('Shutting down SearchRunner...')
     this.stop()
     await this.astxSearchRunner.shutdown()
-    this.extension.channel.appendLine('AstxRunner shut down complete.')
+    this.extension.channel.appendLine('SearchRunner shut down complete.')
   }
 
   runSoon: () => void = () => {
