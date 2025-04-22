@@ -19,7 +19,10 @@
     "onView:mdSearch.SearchReplaceView",
     "onCommand:mdSearch.replace",
     "onCommand:mdSearch.findInFolder",
-    "onCommand:mdSearch.findInFile"
+    "onCommand:mdSearch.findInFile",
+    "onCommand:mdSearch.search",
+    "onCommand:mdSearch.clearAllState",
+    "onStartupFinished"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -45,6 +48,26 @@
           ],
           "default": "babel",
           "description": "JS/TS parser to use"
+        },
+        "mdSearch.cacheEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable search results caching for improved performance"
+        },
+        "mdSearch.cacheExpiration": {
+          "type": "integer",
+          "default": 900,
+          "description": "Number of seconds to keep search results in cache (default: 15 minutes)"
+        },
+        "mdSearch.maxCacheEntries": {
+          "type": "integer",
+          "default": 20,
+          "description": "Maximum number of search queries to keep in cache"
+        },
+        "mdSearch.concurrentWorkers": {
+          "type": "integer",
+          "default": 4,
+          "description": "Number of concurrent workers for text search (0 = auto)"
         },
         "mdSearch.prettier": {
           "type": "boolean",
@@ -77,8 +100,12 @@
         "title": "MD: Find in Folder..."
       },
       {
+        "command": "mdSearch.search",
+        "title": "MD: Find..."
+      },
+      {
         "command": "mdSearch.replace",
-        "title": "MD: Find in Folder..."
+        "title": "MD: Replace in Files..."
       },
       {
         "command": "mdSearch.findInFile",
@@ -95,6 +122,10 @@
       {
         "command": "mdSearch.pasteToMatches",
         "title": "MD: Paste to All Matches"
+      },
+      {
+        "command": "mdSearch.clearAllState",
+        "title": "MD: Clear All Extension State"
       }
     ],
     "keybindings": [
@@ -134,6 +165,12 @@
         {
           "when": "explorerResourceIsFolder",
           "command": "mdSearch.findInFolder",
+          "group": "mdSearch"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "mdSearch.clearAllState",
           "group": "mdSearch"
         }
       ]
@@ -302,13 +339,16 @@
     "@types/chai": "^4.2.14",
     "@types/fs-extra": "^9.0.13",
     "@types/glob": "^7.2.0",
-    "@types/lodash": "^4.14.185",
+    "@types/lodash": "^4.17.16",
     "@types/lodash-es": "^4.17.6",
     "@types/minimatch": "^5.1.2",
     "@types/mocha": "^8.2.0",
     "@types/node": "^16.9.6",
     "@types/react": "^18.0.18",
     "@types/react-dom": "^18.0.6",
+    "@types/react-virtualized-auto-sizer": "^1.0.4",
+    "@types/react-window": "^1.8.8",
+    "@types/react-window-infinite-loader": "^1.0.9",
     "@types/vscode": "^1.84.0",
     "@types/vscode-webview": "^1.57.3",
     "@types/webpack-env": "^1.18.0",
@@ -368,6 +408,9 @@
     "path-browserify": "^1.0.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-virtualized-auto-sizer": "^1.0.26",
+    "react-window": "^1.8.11",
+    "react-window-infinite-loader": "^1.0.10",
     "tiny-typed-emitter": "^2.1.0",
     "vscode-icons-js": "^11.6.1",
     "vscode-material-icons": "^0.1.1",

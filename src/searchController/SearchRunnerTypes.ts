@@ -18,3 +18,22 @@ export interface AstxRunnerEvents {
   error: (error: Error) => void
   replaceDone: () => void
 }
+
+export interface SearchCacheEntry {
+  query: string
+  params: {
+    matchCase: boolean
+    wholeWord: boolean
+    searchMode: string
+  }
+  results: Map<string, TransformResultEvent>
+  timestamp: number
+}
+
+export interface SearchCache {
+  get(key: string): SearchCacheEntry | undefined
+  set(key: string, value: SearchCacheEntry): void
+  has(key: string): boolean
+  delete(key: string): boolean
+  clear(): void
+}

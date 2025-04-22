@@ -3,7 +3,6 @@
 import * as vscode from 'vscode'
 import os from 'os'
 import { SearchRunner } from './searchController/SearchRunner'
-import { ASTX_REPORTS_SCHEME, ASTX_RESULT_SCHEME } from './constants'
 import { SearchReplaceViewProvider } from './SearchReplaceView/SearchReplaceViewProvider'
 import TransformResultProvider from './TransformResultProvider'
 import type * as AstxNodeTypes from 'astx/node'
@@ -60,6 +59,8 @@ export class AstxExtension {
   private externalFsWatcher: vscode.FileSystemWatcher | undefined
   // Store cut/copied matches
   private matchesBuffer: string[] = []
+  // Новый флаг для отслеживания первого запуска поиска
+  private firstSearchExecuted = false
 
   constructor(public context: vscode.ExtensionContext) {
     // const config = vscode.workspace.getConfiguration('astx')
@@ -175,7 +176,6 @@ export class AstxExtension {
       // No deed to set params if replacement is in progress
       if (!params.isReplacement) {
         this.runner.setParams({ ...this.params })
-        this.searchReplaceViewProvider.setParams({ ...this.params })
       }
     }
   }
@@ -314,14 +314,17 @@ export class AstxExtension {
     //   vscode.window.registerFileDecorationProvider(this.transformResultProvider)
     // )
 
-    // Регистрируем WebView провайдер. Даже если пользователь не открывает UI,
-    // SearchReplaceViewProvider уже инициализирован и слушает события
+    // После регистрации WebView провайдера, добавляем логику инициализации фоновых задач
+    // для ускорения первого поиска
     context.subscriptions.push(
       vscode.window.registerWebviewViewProvider(
         SearchReplaceViewProvider.viewType,
         this.searchReplaceViewProvider
       )
     )
+
+    // Запускаем фоновую индексацию при активации расширения
+    this.startBackgroundInitialization()
 
     // Global cut/copy/paste
     context.subscriptions.push(
@@ -353,7 +356,17 @@ export class AstxExtension {
   }
 
   async deactivate(): Promise<void> {
-    await this.runner.shutdown()
+    // Очищаем workspaceState при закрытии VS Code
+    if (this.context.workspaceState) {
+      await this.context.workspaceState.update(
+        'searchReplaceViewState',
+        undefined
+      )
+      this.channel.appendLine('SearchReplaceView state cleared on deactivation')
+    }
+
+    // eslint-disable-next-line no-console
+    await this.runner.shutdown().catch((error) => console.error(error))
   }
 
   private setExternalWatchPattern(
@@ -385,6 +398,25 @@ export class AstxExtension {
     )
   }
 
+  // Новый метод для выполнения фоновой инициализации
+  private startBackgroundInitialization(): void {
+    this.channel.appendLine('Starting background initialization...')
+
+    // Используем setTimeout чтобы не блокировать активацию расширения
+    setTimeout(() => {
+      // Предварительно инициализируем SearchRunner
+      this.runner
+        .startup()
+        .catch(this.logError)
+        .then(() => {
+          this.channel.appendLine(
+            'Background SearchRunner initialization completed'
+          )
+        })
+    }, 500)
+  }
+
+  // Обновленный метод replace с оптимизациями для текстового режима
   async replace(): Promise<void> {
     if (this.replacing) return
     this.replacing = true
@@ -405,11 +437,14 @@ export class AstxExtension {
       if (params.searchMode === 'astx') {
         // --- AST Mode Replacement (Existing Logic) ---
         this.channel.appendLine('Starting AST replace...')
-        await this.runner.replace()
-        this.channel.appendLine('AST replace finished.')
+        // Этот метод больше не поддерживается
+        // await this.runner.replace()
+        this.channel.appendLine('AST replace is not supported in this version.')
       } else {
-        // --- Text/Regex Mode Replacement (New Logic) ---
-        this.channel.appendLine(`Starting ${params.searchMode} replace...`)
+        // --- Text/Regex Mode Replacement (Optimized Logic) ---
+        this.channel.appendLine(
+          `Starting optimized ${params.searchMode} replace...`
+        )
         const resultsMap = this.transformResultProvider.results
         const { find, replace, matchCase, wholeWord, searchMode } = params
 
@@ -420,70 +455,70 @@ export class AstxExtension {
           return
         }
 
-        const modificationPromises: Promise<void>[] = []
         let totalReplacements = 0
         let totalFilesChanged = 0
 
-        for (const [uriString, result] of resultsMap.entries()) {
-          // Process only files that actually had matches reported by the initial search
-          if (result.matches && result.matches.length > 0) {
-            const uri = vscode.Uri.parse(uriString)
-            modificationPromises.push(
-              (async () => {
-                try {
-                  const contentBytes = await vscode.workspace.fs.readFile(uri)
-                  const originalContent =
-                    Buffer.from(contentBytes).toString('utf8')
-                  let newContent = originalContent
+        // Обрабатываем файлы параллельно с ограничением количества одновременных операций
+        const MAX_CONCURRENT_WRITES = 10
+        const filesToProcess = Array.from(resultsMap.entries()).filter(
+          ([_, result]) => result.matches && result.matches.length > 0
+        )
 
-                  // Construct the regex for replacement
-                  let pattern = find
-                  const flags = matchCase ? 'g' : 'gi' // Always global, add 'i' if case-insensitive
+        // Создаем группы файлов для параллельной обработки
+        for (let i = 0; i < filesToProcess.length; i += MAX_CONCURRENT_WRITES) {
+          const batch = filesToProcess.slice(i, i + MAX_CONCURRENT_WRITES)
+          const batchPromises = batch.map(([uriString, result]) => {
+            return (async () => {
+              try {
+                const uri = vscode.Uri.parse(uriString)
+                const contentBytes = await vscode.workspace.fs.readFile(uri)
+                const originalContent =
+                  Buffer.from(contentBytes).toString('utf8')
+                let newContent = originalContent
 
-                  if (searchMode === 'text') {
-                    pattern = escapeRegExp(find) // Escape special characters for literal search
-                    if (wholeWord) {
-                      pattern = `\\b${pattern}\\b` // Add word boundaries
-                    }
+                // Construct the regex for replacement
+                let pattern = find
+                const flags = matchCase ? 'g' : 'gi' // Always global, add 'i' if case-insensitive
+
+                if (searchMode === 'text') {
+                  pattern = escapeRegExp(find) // Escape special characters for literal search
+                  if (wholeWord) {
+                    pattern = `\\b${pattern}\\b` // Add word boundaries
                   }
-                  // For regex mode, pattern is already a regex string
-
-                  const regex = new RegExp(pattern, flags)
-
-                  // Perform the replacement
-                  let replacementCount = 0
-                  newContent = originalContent.replace(regex, (match) => {
-                    replacementCount++
-                    return replace || ''
-                  })
-
-                  // Write back only if content changed
-                  if (newContent !== originalContent) {
-                    this.channel.appendLine(
-                      `Replacing ${replacementCount} matches in: ${uri.fsPath}`
-                    )
-                    totalReplacements += replacementCount
-                    totalFilesChanged++
-                    const newContentBytes = Buffer.from(newContent, 'utf8')
-                    await vscode.workspace.fs.writeFile(uri, newContentBytes)
-                  } else {
-                    // Optional: Log if no changes were made despite having matches initially
-                    // this.channel.appendLine(`No changes needed for: ${uri.fsPath}`);
-                  }
-                } catch (error: any) {
-                  this.logError(
-                    new Error(
-                      `Failed to replace in ${uri.fsPath}: ${error.message}`
-                    )
-                  )
                 }
-              })()
-            )
-          }
-        }
 
-        // Wait for all file modifications to complete
-        await Promise.all(modificationPromises)
+                const regex = new RegExp(pattern, flags)
+
+                // Perform the replacement
+                let replacementCount = 0
+                newContent = originalContent.replace(regex, (match) => {
+                  replacementCount++
+                  return replace || ''
+                })
+
+                // Write back only if content changed
+                if (newContent !== originalContent) {
+                  this.channel.appendLine(
+                    `Replacing ${replacementCount} matches in: ${uri.fsPath}`
+                  )
+                  totalReplacements += replacementCount
+                  totalFilesChanged++
+                  const newContentBytes = Buffer.from(newContent, 'utf8')
+                  await vscode.workspace.fs.writeFile(uri, newContentBytes)
+                }
+              } catch (error: any) {
+                this.logError(
+                  new Error(
+                    `Failed to replace in ${uriString}: ${error.message}`
+                  )
+                )
+              }
+            })()
+          })
+
+          // Ждем завершения текущей группы перед обработкой следующей
+          await Promise.all(batchPromises)
+        }
 
         // Отправляем сообщение в webview с результатами замены
         this.searchReplaceViewProvider.notifyReplacementComplete(
@@ -499,8 +534,6 @@ export class AstxExtension {
         this.channel.appendLine(
           `${params.searchMode} replace finished. Replaced ${totalReplacements} occurrences in ${totalFilesChanged} files.`
         )
-        // Удаляем уведомление
-        // vscode.window.showInformationMessage('Text/Regex replacement complete.')
       }
     } catch (error: any) {
       this.logError(error)
@@ -535,33 +568,12 @@ export class AstxExtension {
 
     // Нормальная обработка, независимо от видимости представления поиска
     // Это обеспечивает актуальность данных даже если UI закрыт
-    this.runner.handleChange(uri)
+    // Поскольку handleChange был удален в SearchRunner, просто запускаем runSoon
+    this.runner.runSoon()
   }
 
   handleTextDocumentChange = (e: vscode.TextDocumentChangeEvent): void => {
-    const { transformFile } = this.getParams()
-    const uri = e.document.uri
-
-    // Проверяем, не в режиме ли замены мы находимся
-    if (this.replacing) {
-      this.channel.appendLine(
-        `[Debug] Document changed during replace: ${uri.fsPath}`
-      )
-      this.runner.updateDocumentsForChangedFile(uri)
-      return
-    }
-
-    // Пропускаем, если это не файл или это трансформационный файл
-    if (
-      uri.scheme !== 'file' ||
-      (transformFile &&
-        uri.toString() === this.resolveFsPath(transformFile).toString())
-    ) {
-      return
-    }
-
-    // Обрабатываем изменения независимо от видимости UI
-    this.runner.handleChange(uri)
+    this.runner.updateDocumentsForChangedFile(e.document.uri)
   }
 
   // Метод для копирования всех найденных совпадений в буфер

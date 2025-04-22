@@ -100,6 +100,7 @@ export type MessageToWebview =
   | ClearResultsMessage
   | AddResultMessage
   | InitialDataFromExtension
+  | { type: 'addBatchResults'; data: SerializedTransformResultEvent[] }
   | { type: 'replaceDone' }
   | { type: 'stop' }
   | { type: 'focusSearchInput' }

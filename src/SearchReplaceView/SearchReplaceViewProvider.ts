@@ -10,16 +10,18 @@ import {
   MessageFromWebview,
   SearchReplaceViewStatus,
   MessageToWebview,
-  SearchReplaceViewValues,
 } from './SearchReplaceViewTypes'
 import { AstxRunnerEvents } from '../searchController/SearchRunnerTypes'
 import { randomUUID } from 'crypto'
+
+// Константа для времени буферизации результатов (мс)
+const RESULT_BATCH_DELAY = 200
 
 export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'mdSearch.SearchReplaceView'
 
   private _view?: vscode.WebviewView
-  private _persistedState: {
+  private _state: {
     status: SearchReplaceViewStatus
     params: Params
     results: any[]
@@ -38,19 +40,21 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
   }
   private _listenerRegistered = false
 
+  // Буфер для накопления результатов
+  private _resultBuffer: any[] = []
+  // Таймер для батчинга результатов
+  private _resultBatchTimer: NodeJS.Timeout | null = null
+
   constructor(
     private extension: AstxExtension,
     private readonly _extensionUri: vscode.Uri = extension.context.extensionUri,
     private readonly runner: SearchRunner = extension.runner
   ) {
-    // Восстановление состояния из хранилища при инициализации
-    this._restoreStateFromStorage()
-
     // Регистрируем глобальных слушателей событий при создании провайдера
     this._registerGlobalEventListeners()
 
     // Инициализация с параметрами расширения
-    this._persistedState.params = { ...extension.getParams() }
+    this._state.params = Object.assign({}, extension.getParams())
   }
 
   private _registerGlobalEventListeners(): void {
@@ -64,42 +68,44 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
         this._addResult(e)
       },
       start: () => {
-        this._persistedState.status.running = true
-        this._persistedState.status.numMatches = 0
-        this._persistedState.status.numFilesThatWillChange = 0
-        this._persistedState.status.numFilesWithMatches = 0
-        this._persistedState.status.numFilesWithErrors = 0
-        this._saveStateToStorage()
+        this._state.status.running = true
+        this._state.status.numMatches = 0
+        this._state.status.numFilesThatWillChange = 0
+        this._state.status.numFilesWithMatches = 0
+        this._state.status.numFilesWithErrors = 0
         this._notifyWebviewIfActive('status', {
-          status: this._persistedState.status,
+          status: this._state.status,
         })
       },
       stop: () => {
-        this._persistedState.status.running = false
-        this._persistedState.status.numMatches = 0
-        this._persistedState.status.numFilesThatWillChange = 0
-        this._persistedState.status.numFilesWithMatches = 0
-        this._persistedState.status.numFilesWithErrors = 0
-        this._persistedState.results = []
-        this._saveStateToStorage()
+        // Отправляем оставшиеся буферизованные результаты перед очисткой
+        this._flushBufferedResults()
+
+        this._state.status.running = false
+        this._state.status.numMatches = 0
+        this._state.status.numFilesThatWillChange = 0
+        this._state.status.numFilesWithMatches = 0
+        this._state.status.numFilesWithErrors = 0
+        this._state.results = []
         this._notifyWebviewIfActive('status', {
-          status: this._persistedState.status,
+          status: this._state.status,
         })
         this._notifyWebviewIfActive('clearResults', {})
       },
       done: () => {
-        this._persistedState.status.running = false
-        this._saveStateToStorage()
+        // Отправляем оставшиеся буферизованные результаты
+        this._flushBufferedResults()
+
+        this._state.status.running = false
         this._notifyWebviewIfActive('status', {
-          status: this._persistedState.status,
+          status: this._state.status,
         })
       },
       progress: ({ completed, total }: ProgressEvent) => {
-        this._persistedState.status.completed = completed
-        this._persistedState.status.total = total
-        this._saveStateToStorage()
+        this._state.status.completed = completed
+        this._state.status.total = total
         this._notifyWebviewIfActive('status', {
-          status: this._persistedState.status,
+          status: this._state.status,
         })
       },
     }
@@ -108,18 +114,11 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
       this.runner.on(event as keyof AstxRunnerEvents, listener)
     }
 
-    // Сохраняем состояние при закрытии VS Code
-    this.extension.context.subscriptions.push(
-      vscode.workspace.onDidChangeConfiguration(() => {
-        this._saveStateToStorage()
-      })
-    )
-
     this._listenerRegistered = true
   }
 
   private _updateStatus(e: TransformResultEvent): void {
-    const status = this._persistedState.status
+    const status = this._state.status
 
     if (e.transformed && e.transformed !== e.source) {
       status.numFilesThatWillChange++
@@ -131,8 +130,6 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     if (e.error) {
       status.numFilesWithErrors++
     }
-
-    this._saveStateToStorage()
   }
 
   private _addResult(e: TransformResultEvent): void {
@@ -152,60 +149,50 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
         : undefined,
     }
 
-    // Добавляем результат в сохраненный список
-    this._persistedState.results.push(stringifiedEvent)
-    this._saveStateToStorage()
+    // Добавляем результат в список
+    this._state.results.push(stringifiedEvent)
 
-    // Отправляем в webview, если активен
-    this._notifyWebviewIfActive('addResult', { data: stringifiedEvent })
+    // Добавляем в буфер для батчинга
+    this._resultBuffer.push(stringifiedEvent)
+
+    // Планируем отправку буфера результатов
+    this._scheduleBatchSend()
+  }
+
+  // Метод для планирования отправки буфера результатов
+  private _scheduleBatchSend(): void {
+    // Если таймер уже запущен, не создаем новый
+    if (this._resultBatchTimer !== null) {
+      return
+    }
+
+    // Создаем таймер для отправки результатов через RESULT_BATCH_DELAY мс
+    this._resultBatchTimer = setTimeout(() => {
+      this._sendBufferedResults()
+      this._resultBatchTimer = null
+    }, RESULT_BATCH_DELAY)
+  }
+
+  // Метод для отправки буферизованных результатов
+  private _sendBufferedResults(): void {
+    if (this._resultBuffer.length === 0) {
+      return
+    }
+
+    this.extension.channel.appendLine(
+      `Sending batch of ${this._resultBuffer.length} results to webview`
+    )
+
+    // Отправляем весь буфер результатов в webview
+    this._notifyWebviewIfActive('addBatchResults', { data: this._resultBuffer })
+
+    // Очищаем буфер после отправки
+    this._resultBuffer = []
   }
 
   private _notifyWebviewIfActive(type: string, data: any): void {
     if (this._view?.visible) {
       this._view.webview.postMessage({ type, ...data })
-    }
-  }
-
-  private _saveStateToStorage(): void {
-    try {
-      // Сохраняем только необходимые данные, ограничивая размер
-      const stateToSave = {
-        status: this._persistedState.status,
-        params: this._persistedState.params,
-        // Ограничиваем количество результатов для сохранения
-        resultCount: this._persistedState.results.length,
-      }
-      this.extension.context.workspaceState.update(
-        'searchReplaceViewState',
-        stateToSave
-      )
-    } catch (error) {
-      this.extension.channel.appendLine(`Error saving state: ${error}`)
-    }
-  }
-
-  private _restoreStateFromStorage(): void {
-    try {
-      const savedState = this.extension.context.workspaceState.get(
-        'searchReplaceViewState'
-      ) as
-        | {
-            status?: SearchReplaceViewStatus
-            params?: Params
-          }
-        | undefined
-
-      if (savedState) {
-        if (savedState.status) {
-          this._persistedState.status = savedState.status
-        }
-        if (savedState.params) {
-          this._persistedState.params = savedState.params
-        }
-        // Результаты не восстанавливаем полностью из хранилища из-за потенциального размера
-      }
-    } catch (error) {
-      this.extension.channel.appendLine(`Error restoring state: ${error}`)
     }
   }
 
@@ -254,30 +241,17 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
                 ? workspaceFolders[0].uri.toString()
                 : ''
 
-            // Отправляем initialData с сохраненными значениями
+            // Отправляем initialData с текущими значениями
             webviewView.webview.postMessage({
               type: 'initialData',
-              values: this._persistedState.params,
-              status: this._persistedState.status,
               workspacePath,
             })
-
-            // Отправляем сохраненные результаты, если есть
-            if (this._persistedState.results.length > 0) {
-              for (const result of this._persistedState.results) {
-                webviewView.webview.postMessage({
-                  type: 'addResult',
-                  data: result,
-                })
-              }
-            }
 
             break
           }
           case 'values': {
             const newParams = message.values as Params
-            this._persistedState.params = newParams
-            this._saveStateToStorage()
+            this._state.params = newParams
             this.extension.setParams(newParams)
             break
           }
@@ -315,6 +289,28 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
               // Если список файлов не указан, выполняем обычную замену
               this.extension.replace()
             }
+            break
+          }
+          case 'stop': {
+            // Вызываем метод остановки поиска в runner
+            this.extension.channel.appendLine(
+              'Received stop command from webview, stopping search...'
+            )
+            this.runner.stop()
+
+            // Отправляем оставшиеся буферизованные результаты перед очисткой
+            this._flushBufferedResults()
+
+            this._state.status.running = false
+            this._state.status.numMatches = 0
+            this._state.status.numFilesThatWillChange = 0
+            this._state.status.numFilesWithMatches = 0
+            this._state.status.numFilesWithErrors = 0
+            this._state.results = []
+            this._notifyWebviewIfActive('status', {
+              status: this._state.status,
+            })
+            this._notifyWebviewIfActive('clearResults', {})
             break
           }
           case 'copyMatches': {
@@ -361,13 +357,13 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
           }
           case 'openFile': {
             const uri = vscode.Uri.parse(message.filePath)
-            const range = message.range
-              ? new vscode.Range(
-                  // Placeholder positions - will be recalculated if possible
-                  new vscode.Position(0, 0),
-                  new vscode.Position(0, 0)
-                )
-              : undefined
+            // const range = message.range
+            //   ? new vscode.Range(
+            //       // Placeholder positions - will be recalculated if possible
+            //       new vscode.Position(0, 0),
+            //       new vscode.Position(0, 0)
+            //     )
+            //   : undefined
 
             // Check if there's a transformed version available to show a diff
             const result = this.extension.transformResultProvider.results.get(
@@ -459,20 +455,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
       // При закрытии view не удаляем глобальные слушатели событий
       // чтобы расширение продолжило работу в фоне
       this._view = undefined
-      this._saveStateToStorage()
     })
-  }
-
-  setParams(params: Params): void {
-    this._persistedState.params = params
-    this._saveStateToStorage()
-
-    if (this._view?.webview) {
-      this._view.webview.postMessage({
-        type: 'values',
-        values: params,
-      })
-    }
   }
 
   show(): void {
@@ -619,5 +602,17 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
       type: 'pasteToMatchesComplete',
       count,
     })
+  }
+
+  // Метод для немедленной отправки буферизованных результатов без задержки
+  private _flushBufferedResults(): void {
+    // Отменяем таймер, если он запущен
+    if (this._resultBatchTimer !== null) {
+      clearTimeout(this._resultBatchTimer)
+      this._resultBatchTimer = null
+    }
+
+    // Отправляем буферизованные результаты
+    this._sendBufferedResults()
   }
 }
