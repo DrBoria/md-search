@@ -463,10 +463,13 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
     if (this.abortController?.signal.aborted) return
 
     // Кэш для позиций начала строк
-    const lineStartPositions = new Map<number, { line: number, column: number }>();
-    
+    const lineStartPositions = new Map<
+      number,
+      { line: number; column: number }
+    >()
+
     // Инициализируем только первую позицию, остальные будем вычислять по необходимости
-    lineStartPositions.set(0, { line: 1, column: 0 });
+    lineStartPositions.set(0, { line: 1, column: 0 })
 
     for (
       let startPos = 0;
@@ -507,7 +510,7 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
         const chunkOffset = startPos
         const matchStartOffset = chunkOffset + matchResult.index
         const matchEndOffset = matchStartOffset + matchResult[0].length
-        const matchText = matchResult[0];
+        const matchText = matchResult[0]
 
         // Пропускаем дубликаты, которые могут возникнуть из-за перекрытия
         const isDuplicate = matches.some(
@@ -516,64 +519,64 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
 
         if (!isDuplicate) {
           // Ищем ближайшую известную позицию начала строки перед matchStartOffset
-          let closestPosition = 0;
-          let posInfo = { line: 1, column: 0 };
-          
+          let closestPosition = 0
+          let posInfo = { line: 1, column: 0 }
+
           for (const [pos, info] of lineStartPositions.entries()) {
             if (pos <= matchStartOffset && pos > closestPosition) {
-              closestPosition = pos;
-              posInfo = info;
+              closestPosition = pos
+              posInfo = info
             }
           }
-          
+
           // Вычисляем line и column для текущего совпадения только от ближайшей известной позиции
-          let line = posInfo.line;
-          let column = posInfo.column;
-          
+          let line = posInfo.line
+          let column = posInfo.column
+
           // Вычисляем позицию только для еще не обработанных символов
           for (let i = closestPosition; i < matchStartOffset; i++) {
             if (source[i] === '\n') {
-              line++;
-              column = 0;
-              lineStartPositions.set(i + 1, { line, column });
+              line++
+              column = 0
+              lineStartPositions.set(i + 1, { line, column })
             } else if (source[i] === '\r') {
               if (i + 1 < source.length && source[i + 1] === '\n') {
-                i++;
+                i++
               }
-              line++;
-              column = 0;
-              lineStartPositions.set(i + 1, { line, column });
+              line++
+              column = 0
+              lineStartPositions.set(i + 1, { line, column })
             } else {
-              column++;
+              column++
             }
           }
-          
+
           // Сохраняем позицию сразу после текущего совпадения, чтобы ускорить следующие вычисления
-          lineStartPositions.set(matchEndOffset, { 
-            line, 
-            column: column + matchText.length 
-          });
-          
+          lineStartPositions.set(matchEndOffset, {
+            line,
+            column: column + matchText.length,
+          })
+
           // Вычисляем конечную позицию для совпадения
-          let endLine = line;
-          let endColumn = column;
-          
+          let endLine = line
+          let endColumn = column
+
           // Если совпадение содержит символы новой строки, нужно вычислить конечную позицию
           for (let i = 0; i < matchText.length; i++) {
             if (matchText[i] === '\n') {
-              endLine++;
-              endColumn = 0;
+              endLine++
+              endColumn = 0
             } else if (matchText[i] === '\r') {
               if (i + 1 < matchText.length && matchText[i + 1] === '\n') {
-                i++;
+                i++
               }
-              endLine++;
-              endColumn = 0;
+              endLine++
+              endColumn = 0
             } else {
-              endColumn++;
+              endColumn++
             }
           }
-          
+
           // Добавляем совпадение
           matches.push({
             type: 'match' as any,
@@ -592,7 +595,7 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
             node: undefined,
             paths: undefined,
             nodes: undefined,
-          } as unknown as ExtendedIpcMatch);
+          } as unknown as ExtendedIpcMatch)
         }
       }
     }
@@ -653,7 +656,7 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
     matches: ExtendedIpcMatch[]
   ): Promise<void> {
     // Метод заменен встроенной логикой в findMatchesInChunks
-    return;
+    return
   }
 
   // Добавляет совпадение в список

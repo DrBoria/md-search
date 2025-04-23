@@ -662,17 +662,23 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       }
 
       // Создаем Set путей индексированных файлов для быстрой проверки дубликатов
-      const indexedFilePaths = new Set(indexedFileUris.map(uri => uri.fsPath))
-      this.extension.channel.appendLine(`Found ${indexedFilePaths.size} indexed files`)
+      const indexedFilePaths = new Set(indexedFileUris.map((uri) => uri.fsPath))
+      this.extension.channel.appendLine(
+        `Found ${indexedFilePaths.size} indexed files`
+      )
 
       // Получаем все файлы, соответствующие includePattern и не исключенные excludePattern
       // Используем стандартный метод findFiles от VS Code
       const exclude = excludePattern ? excludePattern : null
-      const allFileUris = await vscode.workspace.findFiles(includePattern, exclude, 10000)
-      
+      const allFileUris = await vscode.workspace.findFiles(
+        includePattern,
+        exclude,
+        10000
+      )
+
       // Формируем окончательный список URI файлов без дубликатов
-      const finalFileUris: vscode.Uri[] =Array.from(indexedFileUris);
-      
+      const finalFileUris: vscode.Uri[] = Array.from(indexedFileUris)
+
       // Добавляем только те файлы, которых нет среди индексированных
       let addedCount = 0
       for (const uri of allFileUris) {
@@ -681,9 +687,13 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
           addedCount++
         }
       }
-      
-      this.extension.channel.appendLine(`Added ${addedCount} additional non-indexed files matching criteria`)
-      this.extension.channel.appendLine(`Total files to search: ${finalFileUris.length}`)
+
+      this.extension.channel.appendLine(
+        `Added ${addedCount} additional non-indexed files matching criteria`
+      )
+      this.extension.channel.appendLine(
+        `Total files to search: ${finalFileUris.length}`
+      )
 
       // Убедимся, что индекс файлов передан в TextSearchRunner
       if (this.fileIndexCache.size > 0) {
