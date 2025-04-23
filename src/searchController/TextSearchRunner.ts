@@ -462,6 +462,12 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
     // Проверка флага abort через abortController
     if (this.abortController?.signal.aborted) return
 
+    // Кэш для позиций начала строк
+    const lineStartPositions = new Map<number, { line: number, column: number }>();
+    
+    // Инициализируем только первую позицию, остальные будем вычислять по необходимости
+    lineStartPositions.set(0, { line: 1, column: 0 });
+
     for (
       let startPos = 0;
       startPos < source.length;
@@ -499,23 +505,94 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
         }
 
         const chunkOffset = startPos
-        const startOffset = chunkOffset + matchResult.index
-        const endOffset = startOffset + matchResult[0].length
+        const matchStartOffset = chunkOffset + matchResult.index
+        const matchEndOffset = matchStartOffset + matchResult[0].length
+        const matchText = matchResult[0];
 
         // Пропускаем дубликаты, которые могут возникнуть из-за перекрытия
         const isDuplicate = matches.some(
-          (m) => m.start === startOffset && m.end === endOffset
+          (m) => m.start === matchStartOffset && m.end === matchEndOffset
         )
 
         if (!isDuplicate) {
-          await this.addMatchForLargeFile(
-            source,
+          // Ищем ближайшую известную позицию начала строки перед matchStartOffset
+          let closestPosition = 0;
+          let posInfo = { line: 1, column: 0 };
+          
+          for (const [pos, info] of lineStartPositions.entries()) {
+            if (pos <= matchStartOffset && pos > closestPosition) {
+              closestPosition = pos;
+              posInfo = info;
+            }
+          }
+          
+          // Вычисляем line и column для текущего совпадения только от ближайшей известной позиции
+          let line = posInfo.line;
+          let column = posInfo.column;
+          
+          // Вычисляем позицию только для еще не обработанных символов
+          for (let i = closestPosition; i < matchStartOffset; i++) {
+            if (source[i] === '\n') {
+              line++;
+              column = 0;
+              lineStartPositions.set(i + 1, { line, column });
+            } else if (source[i] === '\r') {
+              if (i + 1 < source.length && source[i + 1] === '\n') {
+                i++;
+              }
+              line++;
+              column = 0;
+              lineStartPositions.set(i + 1, { line, column });
+            } else {
+              column++;
+            }
+          }
+          
+          // Сохраняем позицию сразу после текущего совпадения, чтобы ускорить следующие вычисления
+          lineStartPositions.set(matchEndOffset, { 
+            line, 
+            column: column + matchText.length 
+          });
+          
+          // Вычисляем конечную позицию для совпадения
+          let endLine = line;
+          let endColumn = column;
+          
+          // Если совпадение содержит символы новой строки, нужно вычислить конечную позицию
+          for (let i = 0; i < matchText.length; i++) {
+            if (matchText[i] === '\n') {
+              endLine++;
+              endColumn = 0;
+            } else if (matchText[i] === '\r') {
+              if (i + 1 < matchText.length && matchText[i + 1] === '\n') {
+                i++;
+              }
+              endLine++;
+              endColumn = 0;
+            } else {
+              endColumn++;
+            }
+          }
+          
+          // Добавляем совпадение
+          matches.push({
+            type: 'match' as any,
+            start: matchStartOffset,
+            end: matchEndOffset,
             file,
-            startOffset,
-            endOffset,
-            matchResult[0],
-            matches
-          )
+            source: matchText,
+            captures: {},
+            report: undefined,
+            transformed: undefined,
+            loc: {
+              start: { line, column },
+              end: { line: endLine, column: endColumn },
+            },
+            path: undefined,
+            node: undefined,
+            paths: undefined,
+            nodes: undefined,
+          } as unknown as ExtendedIpcMatch);
         }
       }
     }
@@ -565,7 +642,8 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
     }
   }
 
-  // Эффективно вычисляет номер строки для совпадения в больших файлах
+  // Метод addMatchForLargeFile теперь не нужен, так как его логика перенесена в findMatchesInChunks
+  // Сохраним метод для обратной совместимости, но сделаем его приватным и пустым
   private async addMatchForLargeFile(
     source: string,
     file: string,
@@ -574,89 +652,8 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
     matchText: string,
     matches: ExtendedIpcMatch[]
   ): Promise<void> {
-    // Убедимся, что совпадение не пустое
-    if (!matchText || matchText.length === 0) {
-      return
-    }
-
-    // Для очень больших файлов и далеких смещений (когда вычисление номера строки затратно)
-    // разбиваем вычисление на асинхронные части
-    const isHeavyComputation = startOffset > 1024 * 1024 // 1MB
-
-    if (isHeavyComputation) {
-      // Освобождаем event loop перед выполнением тяжелого вычисления
-      await new Promise((resolve) => setTimeout(resolve, 0))
-    }
-
-    // Вычисляем номер строки и столбца, считая только необходимые символы новой строки
-    let line = 1,
-      column = 0
-
-    // Эффективное вычисление номера строки - анализируем только текст до начала совпадения
-    // Для больших файлов проходим с шагом в 5000 символов и освобождаем event loop
-    const STEP_SIZE = 5000
-
-    for (let i = 0; i < startOffset; i++) {
-      // Периодически освобождаем event loop для очень больших файлов
-      if (isHeavyComputation && i > 0 && i % STEP_SIZE === 0) {
-        await new Promise((resolve) => setTimeout(resolve, 0))
-      }
-
-      if (source[i] === '\n') {
-        line++
-        column = 0
-      } else if (source[i] === '\r') {
-        // Обработка случая с \r\n (Windows)
-        if (i + 1 < source.length && source[i + 1] === '\n') {
-          i++ // Пропускаем следующий \n
-        }
-        line++
-        column = 0
-      } else {
-        column++
-      }
-    }
-
-    // Используем более эффективный способ определения конца строки
-    let endLine = line
-    let endColumn = column + matchText.length
-
-    // Если совпадение содержит символы новой строки, нужно вычислить конечную позицию
-    for (let i = 0; i < matchText.length; i++) {
-      if (matchText[i] === '\n') {
-        endLine++
-        endColumn = 0
-      } else if (matchText[i] === '\r') {
-        // Обработка случая с \r\n
-        if (i + 1 < matchText.length && matchText[i + 1] === '\n') {
-          i++ // Пропускаем следующий \n
-        }
-        endLine++
-        endColumn = 0
-      } else {
-        endColumn++
-      }
-    }
-
-    // Для совместимости с интерфейсом ExtendedIpcMatch используем двойное приведение типа
-    matches.push({
-      type: 'match' as any,
-      start: startOffset,
-      end: endOffset,
-      file,
-      source: matchText,
-      captures: {},
-      report: undefined,
-      transformed: undefined,
-      loc: {
-        start: { line, column },
-        end: { line: endLine, column: endColumn },
-      },
-      path: undefined,
-      node: undefined,
-      paths: undefined,
-      nodes: undefined,
-    } as unknown as ExtendedIpcMatch)
+    // Метод заменен встроенной логикой в findMatchesInChunks
+    return;
   }
 
   // Добавляет совпадение в список
