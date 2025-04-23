@@ -370,7 +370,7 @@ function filterTreeForMatches(node: FileTreeNode): FileTreeNode | null {
                     stats.numMatches += child.stats.numMatches;
                     stats.numFilesWithMatches += child.stats.numFilesWithMatches;
                 } else if (child.type === 'file') {
-                    const fileMatches = child.results && child.results.length > 0 
+                    const fileMatches = child.results && child.results.length > 0
                         ? child.results.reduce((sum, r) => sum + (r.matches?.length || 0), 0)
                         : 0;
                     stats.numMatches += fileMatches;
@@ -859,15 +859,15 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     // Store results keyed by absolute path initially
     const [resultsByFile, setResultsByFile] = useState<Record<string, SerializedTransformResultEvent[]>>(initialState.resultsByFile || {});
     const [workspacePath, setWorkspacePath] = useState<string>(initialState.workspacePath || '');
-    
+
     // State to track when a search is requested but results haven't arrived yet
     const [isSearchRequested, setIsSearchRequested] = useState(false);
 
     // Состояние для пагинации и постепенной загрузки результатов
-    const [visibleResultsLimit, setVisibleResultsLimit] = useState(50); 
+    const [visibleResultsLimit, setVisibleResultsLimit] = useState(50);
     const [isLoadingMore, setIsLoadingMore] = useState(false);
     const [paginatedFilePaths, setPaginatedFilePaths] = useState<string[]>([]);
-    
+
     // Прокси объект для отображения только части результатов (оптимизация рендеринга)
     const paginatedResults = useMemo(() => {
         if (!resultsByFile || !paginatedFilePaths || paginatedFilePaths.length === 0) {
@@ -890,7 +890,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     // Функция для загрузки большего количества результатов
     const loadMoreResults = useCallback(() => {
         if (isLoadingMore) return;
-        
+
         setIsLoadingMore(true);
         // Отложенная загрузка следующей порции данных
         setTimeout(() => {
@@ -916,7 +916,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     const [viewMode, setViewMode] = useState<'list' | 'tree'>(initialState.viewMode || 'list');
     // Store expanded paths (relative paths) as Sets
     const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set([]));
-    const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set( []));
+    const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set([]));
     const [currentSearchMode, setCurrentSearchMode] = useState<SearchReplaceViewValues['searchMode']>(values.searchMode);
     const [matchCase, setMatchCase] = useState(values.matchCase);
     const [wholeWord, setWholeWord] = useState(values.wholeWord);
@@ -1001,13 +1001,13 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
 
         // Обнаружение файлов с большим количеством совпадений для автоматического сворачивания
         const filesToCollapse = new Set<string>();
-        
+
         for (const [filePath, results] of Object.entries(pendingResultsRef.current)) {
             const matchCount = results.reduce((sum, result) => sum + (result.matches?.length || 0), 0);
             if (matchCount > 20) {
                 // Если в файле больше 20 совпадений, автоматически сворачиваем его
                 // Используем относительный путь, так как expandedFiles хранит относительные пути
-                const relativePath = workspacePath 
+                const relativePath = workspacePath
                     ? path.relative(uriToPath(workspacePath), uriToPath(filePath))
                     : uriToPath(filePath);
                 filesToCollapse.add(relativePath);
@@ -1022,16 +1022,16 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
 
             // Создаем новый объект только если есть накопленные результаты
             const newResults = { ...prev };
-            
+
             // Обрабатываем небольшими порциями для предотвращения блокировки UI
             const entries = Object.entries(pendingResultsRef.current);
             const batchSize = totalMatches > 500 ? 10 : 50; // Меньший размер пакета для больших наборов данных
-            
+
             for (let i = 0; i < Math.min(batchSize, entries.length); i++) {
                 const [filePath, results] = entries[i];
                 // Пропускаем файлы без результатов
                 if (results.length === 0) continue;
-                
+
                 // Оптимизация: если файла еще нет, просто назначаем массив напрямую
                 if (!newResults[filePath]) {
                     newResults[filePath] = results;
@@ -1046,19 +1046,19 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
             if (entries.length > batchSize) {
                 const remainingEntries = entries.slice(batchSize);
                 pendingResultsRef.current = Object.fromEntries(remainingEntries);
-                
+
                 // Запланировать следующую обработку
                 setTimeout(flushPendingResults, 10);
             } else {
                 // Все обработано, очищаем очередь
                 pendingResultsRef.current = {};
             }
-            
+
             lastUpdateTimeRef.current = now;
-            
+
             return newResults;
         });
-        
+
         // Обновляем состояние развернутых файлов, чтобы автоматически свернуть файлы с большим количеством совпадений
         if (filesToCollapse.size > 0) {
             setExpandedFiles(prev => {
@@ -1156,13 +1156,13 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                 case 'addBatchResults': {
                     // Получаем массив результатов
                     const batchResults = message.data;
-                    
+
                     // Reset search requested flag once we get any results
                     setIsSearchRequested(false);
 
                     // Проверяем и добавляем результаты в накопитель
                     let hasRelevantResults = false;
-                    
+
                     for (const newResult of batchResults) {
                         // Проверяем, есть ли совпадения
                         const hasMatches = newResult.matches && newResult.matches.length > 0;
@@ -1171,7 +1171,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                         if (!hasMatches && !newResult.error) {
                             continue;
                         }
-                        
+
                         hasRelevantResults = true;
 
                         // Добавляем результат в накопитель
@@ -1180,17 +1180,17 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                         }
                         pendingResultsRef.current[newResult.file].push(newResult);
                     }
-                    
+
                     // Если был хотя бы один релевантный результат, обрабатываем их
                     if (hasRelevantResults) {
                         flushPendingResults();
                     }
-                    
+
                     break;
                 }
                 case 'addResult': {
                     const newResult = message.data;
-                    
+
                     // Reset search requested flag once we get any result
                     setIsSearchRequested(false);
 
@@ -1359,7 +1359,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     const handleFindChange = useCallback(
         debounce((e: any) => {
             const newValue = e.target.value;
-            
+
             // Если поиск выполняется, отменяем его перед запуском нового
             if (status.running) {
                 // Отправляем сообщение отмены текущего поиска
@@ -1546,11 +1546,11 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     useEffect(() => {
         if (viewMode === 'tree' && filteredFileTree && filteredFileTree.children.length > 0) {
             const allFolderPaths = getAllFolderPaths(filteredFileTree);
-            
+
             // Получим все пути файлов, но исключим файлы с большим количеством совпадений
             const allFilePaths = getAllFilePaths(filteredFileTree);
             const filesToExpand = new Set<string>();
-            
+
             // Проверяем количество совпадений в каждом файле и развернем только если их <= 20
             const processNode = (node: FileTreeNode) => {
                 if (node.type === 'file') {
@@ -1562,9 +1562,9 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                     node.children.forEach(child => processNode(child));
                 }
             };
-            
+
             filteredFileTree.children.forEach(node => processNode(node));
-            
+
             setExpandedFolders(new Set(allFolderPaths));
             setExpandedFiles(filesToExpand); // Теперь развернем только файлы с небольшим числом совпадений
         }
@@ -1612,7 +1612,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
 
         if (status.running) {
             vscode.postMessage({ type: 'stop' });
-        }   
+        }
     }, [values, postValuesChange, status]);
 
     const handleCloseNestedSearch = useCallback(() => {
@@ -1677,7 +1677,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                     total: 0,
                 }));
             }
-            
+
             // Обновляем локальное состояние
             setSearchLevels((prev: SearchLevel[]) => {
                 const newLevels = [
@@ -1690,14 +1690,14 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                         }
                     }
                 ];
-                
+
                 // После обновления состояния отправляем сообщение с новыми значениями
                 const currentLevel = newLevels[newLevels.length - 1];
                 const updatedValues = {
                     ...currentLevel.values,
                     searchInResults: true
                 };
-                
+
                 // Отправляем обновленные значения в расширение
                 setTimeout(() => {
                     vscode.postMessage({
@@ -1705,7 +1705,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                         values: updatedValues
                     });
                 }, 0);
-                
+
                 return newLevels;
             });
         }, 150),
@@ -1961,9 +1961,18 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     // Модифицированное отображение результатов в режиме списка
     const renderListViewResults = () => {
         const resultEntries = Object.entries(paginatedResults);
-        
+
         return (
             <>
+                {status.running && (
+                    <div className={css`
+                        padding: 10px;
+                        color: var(--vscode-descriptionForeground);
+                        text-align: center;
+                    `}>
+                        Searching... {status.completed} / {status.total} files
+                    </div>
+                )}
                 {resultEntries.length > 0 ? (
                     resultEntries.map(([filePath, results]) => {
                         const displayPath = workspacePath
@@ -2102,14 +2111,6 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                             </div>
                         );
                     })
-                ) : status.running ? (
-                    <div className={css`
-                        padding: 10px;
-                        color: var(--vscode-descriptionForeground);
-                        text-align: center;
-                    `}>
-                        Searching... {status.completed} / {status.total} files
-                    </div>
                 ) : isSearchRequested ? (
                     <div className={css`
                         padding: 10px;
@@ -2172,7 +2173,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
         if (!paginatedResults || Object.keys(paginatedResults).length === 0) {
             return (
                 <>
-                    {status.running ? (
+                    {status.running && (
                         <div className={css`
                             padding: 10px;
                             color: var(--vscode-descriptionForeground);
@@ -2180,7 +2181,8 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                         `}>
                             Searching... {status.completed} / {status.total} files
                         </div>
-                    ) : isSearchRequested ? (
+                    )}
+                    {isSearchRequested ? (
                         <div className={css`
                             padding: 10px;
                             color: var(--vscode-descriptionForeground);
@@ -2205,12 +2207,22 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                 </>
             );
         }
-        
+
         // Создаем дерево только из видимых файлов для оптимизации производительности
         const paginatedFileTree = buildFileTree(paginatedResults, workspacePath);
-        
+
         return (
             <>
+                {status.running && (
+                    <div className={css`
+                        padding: 10px;
+                        color: var(--vscode-descriptionForeground);
+                        text-align: center;
+                    `}>
+                        Searching... {status.completed} / {status.total} files
+                    </div>
+                )}
+
                 {paginatedFileTree.children.length > 0 ? (
                     paginatedFileTree.children.map(node => (
                         <TreeViewNode
@@ -2227,14 +2239,6 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                             currentSearchValues={values}
                         />
                     ))
-                ) : status.running ? (
-                    <div className={css`
-                        padding: 10px;
-                        color: var(--vscode-descriptionForeground);
-                        text-align: center;
-                    `}>
-                        Searching... {status.completed} / {status.total} files
-                    </div>
                 ) : isSearchRequested ? (
                     <div className={css`
                         padding: 10px;
@@ -2248,7 +2252,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                         <span className="codicon codicon-loading codicon-modifier-spin"></span>
                         <span>Searching...</span>
                     </div>
-                ) : (
+                ) : !status.running ? (
                     <div className={css`
                         padding: 10px;
                         color: var(--vscode-descriptionForeground);
@@ -2256,8 +2260,8 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                     `}>
                         No matches found. Try adjusting your search terms or filters.
                     </div>
-                )}
-                
+                ) : null}
+
                 {/* Кнопка для загрузки дополнительных результатов */}
                 {Object.keys(resultsByFile).length > visibleResultsLimit && (
                     <div className={css`
@@ -2836,7 +2840,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                                 currentSearchValues={searchLevels[searchLevels.length - 1].values}
                                             />
                                         ))
-                                    ) : (
+                                    ) : !status.running ? (
                                         <div className={css`
                                             padding: 10px;
                                             color: var(--vscode-descriptionForeground);
@@ -2844,7 +2848,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                         `}>
                                             No matches found in tree view.
                                         </div>
-                                    )}
+                                    ) : null}
                                 </div>
                             ) : (
                                 // List view for nested results
@@ -2898,7 +2902,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                                         {totalMatches} matches
                                                     </span>
                                                 </div>
-                                                
+
                                                 {/* Expanded Matches */}
                                                 {isExpanded && (
                                                     <div className={css`
@@ -2991,7 +2995,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                 </div>
                             )}
                         </div>
-                    ) : searchLevels[searchLevels.length - 1].values.find ? (
+                    ) : searchLevels[searchLevels.length - 1].values.find && !status.running ? (
                         <div className={css`
                             display: flex;
                             justify-content: center;

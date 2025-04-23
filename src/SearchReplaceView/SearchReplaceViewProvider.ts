@@ -86,6 +86,8 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
         this._state.status.numFilesThatWillChange = 0
         this._state.status.numFilesWithMatches = 0
         this._state.status.numFilesWithErrors = 0
+        this._state.status.completed = 0
+        this._state.status.total = 0
         this._state.results = []
         this._notifyWebviewIfActive('status', {
           status: this._state.status,
@@ -306,6 +308,8 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
             this._state.status.numFilesThatWillChange = 0
             this._state.status.numFilesWithMatches = 0
             this._state.status.numFilesWithErrors = 0
+            this._state.status.completed = 0
+            this._state.status.total = 0
             // this._state.results = []
             this._notifyWebviewIfActive('status', {
               status: this._state.status,
