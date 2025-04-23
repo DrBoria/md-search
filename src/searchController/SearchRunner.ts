@@ -361,9 +361,9 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       this.abortController.abort()
       this.abortController = undefined
     }
-    this.transformResults.clear()
-    this.processedFiles.clear()
-    this.previousSearchFiles.clear()
+    // this.transformResults.clear()
+    // this.processedFiles.clear()
+    // this.previousSearchFiles.clear()
     this.textSearchRunner.stop()
     this.astxSearchRunner.stop()
     this.emit('stop')

@@ -1125,13 +1125,13 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                         setIsSearchRequested(false);
                     }
                     break;
-                case 'values':
-                    setValues(prev => ({ ...prev, ...message.values }));
-                    // Update local state tied to values if needed
-                    if (message.values.searchMode !== undefined) setCurrentSearchMode(message.values.searchMode);
-                    if (message.values.matchCase !== undefined) setMatchCase(message.values.matchCase);
-                    if (message.values.wholeWord !== undefined) setWholeWord(message.values.wholeWord);
-                    break;
+                // case 'values':
+                //     setValues(prev => ({ ...prev, ...message.values }));
+                //     // Update local state tied to values if needed
+                //     if (message.values.searchMode !== undefined) setCurrentSearchMode(message.values.searchMode);
+                //     if (message.values.matchCase !== undefined) setMatchCase(message.values.matchCase);
+                //     if (message.values.wholeWord !== undefined) setWholeWord(message.values.wholeWord);
+                //     break;
                 case 'clearResults':
                     setResultsByFile({});
                     setStatus(prev => ({
@@ -1610,7 +1610,9 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
         // Clear the replace input field
         setIsNestedReplaceVisible(false);
 
-        postValuesChange({ searchInResults: true });
+        if (status.running) {
+            vscode.postMessage({ type: 'stop' });
+        }   
     }, [values, postValuesChange, status]);
 
     const handleCloseNestedSearch = useCallback(() => {
@@ -1653,39 +1655,62 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
         });
     }, [postValuesChange, vscode]);
 
-    const handleNestedFindChange = useCallback((e: any) => {
-        // Если поиск выполняется, отменяем его перед запуском нового
-        if (status.running) {
-            vscode.postMessage({ type: 'stop' });
+    const handleNestedFindChange = useCallback(
+        debounce((e: any) => {
+            // Если поиск выполняется, отменяем его перед запуском нового
+            if (status.running) {
+                vscode.postMessage({ type: 'stop' });
 
-            // Очищаем накопленные результаты
-            pendingResultsRef.current = {};
+                // Очищаем накопленные результаты
+                pendingResultsRef.current = {};
 
-            if (throttleTimeoutRef.current) {
-                clearTimeout(throttleTimeoutRef.current);
-                throttleTimeoutRef.current = null;
-            }
-
-            // Обновляем статус
-            setStatus(prev => ({
-                ...prev,
-                running: false,
-                completed: 0,
-                total: 0,
-            }));
-        }
-
-        setSearchLevels((prev: SearchLevel[]) => [
-            ...prev.slice(0, -1),
-            {
-                ...prev[prev.length - 1],
-                values: {
-                    ...prev[prev.length - 1].values,
-                    find: e.target.value
+                if (throttleTimeoutRef.current) {
+                    clearTimeout(throttleTimeoutRef.current);
+                    throttleTimeoutRef.current = null;
                 }
+
+                // Обновляем статус
+                setStatus(prev => ({
+                    ...prev,
+                    running: false,
+                    completed: 0,
+                    total: 0,
+                }));
             }
-        ]);
-    }, [status.running, vscode]);
+            
+            // Обновляем локальное состояние
+            setSearchLevels((prev: SearchLevel[]) => {
+                const newLevels = [
+                    ...prev.slice(0, -1),
+                    {
+                        ...prev[prev.length - 1],
+                        values: {
+                            ...prev[prev.length - 1].values,
+                            find: e.target.value
+                        }
+                    }
+                ];
+                
+                // После обновления состояния отправляем сообщение с новыми значениями
+                const currentLevel = newLevels[newLevels.length - 1];
+                const updatedValues = {
+                    ...currentLevel.values,
+                    searchInResults: true
+                };
+                
+                // Отправляем обновленные значения в расширение
+                setTimeout(() => {
+                    vscode.postMessage({
+                        type: 'values',
+                        values: updatedValues
+                    });
+                }, 0);
+                
+                return newLevels;
+            });
+        }, 150),
+        [status.running, vscode]
+    );
 
     const handleNestedReplaceChange = useCallback((e: any) => {
         setSearchLevels((prev: SearchLevel[]) => [
@@ -2424,7 +2449,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                     aria-label="Nested Search Pattern"
                                     name="nestedSearch"
                                     rows={1}
-                                    // value={searchLevels[searchLevels.length - 1].values.find}
+                                    value={searchLevels[searchLevels.length - 1].values.find}
                                     onInput={handleNestedFindChange}
                                     className={css` flex-grow: 1; `} // Make text area grow
                                 />

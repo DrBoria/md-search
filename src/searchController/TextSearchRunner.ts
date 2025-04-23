@@ -402,7 +402,7 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
       this.abortController.abort()
       this.abortController = undefined
     }
-    this.processedFiles.clear()
+    // this.processedFiles.clear()
     this.isSearchRunning = false
     this.isIndexSetInCurrentSearch = false
     this.emit('stop')
