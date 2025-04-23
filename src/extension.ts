@@ -258,25 +258,25 @@ export class AstxExtension {
 
     const setIncludePaths =
       ({ useTransformFile }: { useTransformFile: boolean }) =>
-      (dir: vscode.Uri, arg2: vscode.Uri[]) => {
-        const dirs =
-          Array.isArray(arg2) &&
-          arg2.every((item) => item instanceof vscode.Uri)
-            ? arg2
-            : [dir || vscode.window.activeTextEditor?.document.uri].filter(
+        (dir: vscode.Uri, arg2: vscode.Uri[]) => {
+          const dirs =
+            Array.isArray(arg2) &&
+              arg2.every((item) => item instanceof vscode.Uri)
+              ? arg2
+              : [dir || vscode.window.activeTextEditor?.document.uri].filter(
                 (x): x is vscode.Uri => x instanceof vscode.Uri
               )
-        if (!dirs.length) return
-        const newParams: Params = {
-          ...this.getParams(),
-          useTransformFile,
-          include: dirs.map(normalizeFsPath).join(', '),
+          if (!dirs.length) return
+          const newParams: Params = {
+            ...this.getParams(),
+            useTransformFile,
+            include: dirs.map(normalizeFsPath).join(', '),
+          }
+          this.setParams(newParams)
+          vscode.commands.executeCommand(
+            `${SearchReplaceViewProvider.viewType}.focus`
+          )
         }
-        this.setParams(newParams)
-        vscode.commands.executeCommand(
-          `${SearchReplaceViewProvider.viewType}.focus`
-        )
-      }
     const findInPath = setIncludePaths({ useTransformFile: false })
     // const transformInPath = setIncludePaths({ useTransformFile: true })
 
@@ -659,27 +659,13 @@ export class AstxExtension {
     // Получаем текст из системного буфера обмена
     const clipboardText = await vscode.env.clipboard.readText()
 
-    // Обрабатываем случай, когда у нас несколько значений в буфере
-    // или несколько строк в системном буфере обмена
-    let valuesToInsert: string[] = []
-
-    if (this.matchesBuffer.length > 0) {
-      // Используем внутренний буфер, если он не пустой
-      valuesToInsert = [...this.matchesBuffer]
-    } else if (clipboardText) {
-      // Иначе разбиваем значение из системного буфера по строкам
-      valuesToInsert = clipboardText
-        .split('\n\n')
-        .filter((text) => text.trim().length > 0)
-    }
-
-    if (valuesToInsert.length === 0) {
+    if (clipboardText.length === 0) {
       this.channel.appendLine('Paste cancelled: Buffer is empty.')
       return 0
     }
 
     this.channel.appendLine(
-      `Pasting ${valuesToInsert.length} values from buffer to matches...`
+      `Pasting ${clipboardText.length} values from buffer to matches...`
     )
 
     // Используем текущие matches и прямую замену вместо регулярных выражений
@@ -711,7 +697,7 @@ export class AstxExtension {
               for (let i = 0; i < sortedMatches.length; i++) {
                 const match = sortedMatches[i]
                 // Берем значение из буфера циклично
-                const replaceValue = valuesToInsert[i % valuesToInsert.length]
+                const replaceValue = clipboardText[i % clipboardText.length]
 
                 // Делаем прямую замену без каких-либо модификаций
                 newContent =
@@ -815,11 +801,10 @@ export async function deactivate(): Promise<void> {
 function normalizeFsPath(uri: vscode.Uri): string {
   const folder = vscode.workspace.getWorkspaceFolder(uri)
   return folder
-    ? `${
-        (vscode.workspace.workspaceFolders?.length ?? 0) > 1
-          ? path.basename(folder.uri.path) + '/'
-          : ''
-      }${path.relative(folder.uri.path, uri.path)}`
+    ? `${(vscode.workspace.workspaceFolders?.length ?? 0) > 1
+      ? path.basename(folder.uri.path) + '/'
+      : ''
+    }${path.relative(folder.uri.path, uri.path)}`
     : uri.fsPath
 }
 
