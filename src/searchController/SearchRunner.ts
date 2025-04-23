@@ -651,8 +651,8 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
         this.abortController || new AbortController()
       )
 
-      // Получаем список файлов для поиска оптимизированным способом
-      const fileUris = await this.getFastFileList(includePattern)
+      // Получаем индексированные файлы
+      const indexedFileUris = await this.getFastFileList(includePattern)
 
       if (this.abortController?.signal.aborted) {
         this.extension.channel.appendLine(
@@ -660,6 +660,30 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
         )
         return
       }
+
+      // Создаем Set путей индексированных файлов для быстрой проверки дубликатов
+      const indexedFilePaths = new Set(indexedFileUris.map(uri => uri.fsPath))
+      this.extension.channel.appendLine(`Found ${indexedFilePaths.size} indexed files`)
+
+      // Получаем все файлы, соответствующие includePattern и не исключенные excludePattern
+      // Используем стандартный метод findFiles от VS Code
+      const exclude = excludePattern ? excludePattern : null
+      const allFileUris = await vscode.workspace.findFiles(includePattern, exclude, 10000)
+      
+      // Формируем окончательный список URI файлов без дубликатов
+      const finalFileUris: vscode.Uri[] =Array.from(indexedFileUris);
+      
+      // Добавляем только те файлы, которых нет среди индексированных
+      let addedCount = 0
+      for (const uri of allFileUris) {
+        if (!indexedFilePaths.has(uri.fsPath)) {
+          finalFileUris.push(uri)
+          addedCount++
+        }
+      }
+      
+      this.extension.channel.appendLine(`Added ${addedCount} additional non-indexed files matching criteria`)
+      this.extension.channel.appendLine(`Total files to search: ${finalFileUris.length}`)
 
       // Убедимся, что индекс файлов передан в TextSearchRunner
       if (this.fileIndexCache.size > 0) {
@@ -669,10 +693,10 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
         )
       }
 
-      // Выполняем текстовый поиск
+      // Выполняем текстовый поиск по объединенному списку файлов
       const filesWithMatches = await this.textSearchRunner.performTextSearch(
         this.params,
-        fileUris,
+        finalFileUris,
         FsImpl,
         (message) => this.extension.channel.appendLine(message)
       )
@@ -706,8 +730,6 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       this.extension.channel.appendLine('Search paused. Not running.')
       return
     }
-
-    const config = vscode.workspace.getConfiguration('mdSearch')
 
     // Останавливаем предыдущий поиск
     this.stop()
