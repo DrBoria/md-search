@@ -1964,15 +1964,6 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
 
         return (
             <>
-                {status.running && (
-                    <div className={css`
-                        padding: 10px;
-                        color: var(--vscode-descriptionForeground);
-                        text-align: center;
-                    `}>
-                        Searching... {status.completed} / {status.total} files
-                    </div>
-                )}
                 {resultEntries.length > 0 ? (
                     resultEntries.map(([filePath, results]) => {
                         const displayPath = workspacePath
@@ -2135,7 +2126,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                 )}
 
                 {/* Кнопка для загрузки дополнительных результатов */}
-                {Object.keys(resultsByFile).length > visibleResultsLimit && (
+                {Object.keys(resultsByFile).length > visibleResultsLimit ? (
                     <div className={css`
                         padding: 10px;
                         text-align: center;
@@ -2162,7 +2153,15 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                             {isLoadingMore ? 'Loading...' : `Load more results (${Object.keys(resultsByFile).length - visibleResultsLimit} remaining)`}
                         </button>
                     </div>
-                )}
+                ) : status.running ? (
+                    <div className={css`
+                        padding: 10px;
+                        color: var(--vscode-descriptionForeground);
+                        text-align: center;
+                    `}>
+                        Searching... {status.completed} / {status.total} files
+                    </div>
+                ) : null}
             </>
         );
     };
@@ -2173,15 +2172,6 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
         if (!paginatedResults || Object.keys(paginatedResults).length === 0) {
             return (
                 <>
-                    {status.running && (
-                        <div className={css`
-                            padding: 10px;
-                            color: var(--vscode-descriptionForeground);
-                            text-align: center;
-                        `}>
-                            Searching... {status.completed} / {status.total} files
-                        </div>
-                    )}
                     {isSearchRequested ? (
                         <div className={css`
                             padding: 10px;
@@ -2194,6 +2184,14 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                         `}>
                             <span className="codicon codicon-loading codicon-modifier-spin"></span>
                             <span>Searching...</span>
+                        </div>
+                    ) : status.running ? (
+                        <div className={css`
+                            padding: 10px;
+                            color: var(--vscode-descriptionForeground);
+                            text-align: center;
+                        `}>
+                            Searching... {status.completed} / {status.total} files
                         </div>
                     ) : (
                         <div className={css`
@@ -2213,16 +2211,6 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
 
         return (
             <>
-                {status.running && (
-                    <div className={css`
-                        padding: 10px;
-                        color: var(--vscode-descriptionForeground);
-                        text-align: center;
-                    `}>
-                        Searching... {status.completed} / {status.total} files
-                    </div>
-                )}
-
                 {paginatedFileTree.children.length > 0 ? (
                     paginatedFileTree.children.map(node => (
                         <TreeViewNode
@@ -2239,8 +2227,17 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                             currentSearchValues={values}
                         />
                     ))
-                ) : isSearchRequested ? (
+                ) : status.running ? (
                     <div className={css`
+                        padding: 10px;
+                        color: var(--vscode-descriptionForeground);
+                        text-align: center;
+                    `}>
+                        Searching... {status.completed} / {status.total} files
+                    </div>
+                )
+                    : isSearchRequested ? (
+                        <div className={css`
                         padding: 10px;
                         color: var(--vscode-descriptionForeground);
                         text-align: center;
@@ -2249,18 +2246,18 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                         align-items: center;
                         gap: 8px;
                     `}>
-                        <span className="codicon codicon-loading codicon-modifier-spin"></span>
-                        <span>Searching...</span>
-                    </div>
-                ) : !status.running ? (
-                    <div className={css`
+                            <span className="codicon codicon-loading codicon-modifier-spin"></span>
+                            <span>Searching...</span>
+                        </div>
+                    ) : !status.running ? (
+                        <div className={css`
                         padding: 10px;
                         color: var(--vscode-descriptionForeground);
                         text-align: center;
                     `}>
-                        No matches found. Try adjusting your search terms or filters.
-                    </div>
-                ) : null}
+                            No matches found. Try adjusting your search terms or filters.
+                        </div>
+                    ) : null}
 
                 {/* Кнопка для загрузки дополнительных результатов */}
                 {Object.keys(resultsByFile).length > visibleResultsLimit && (
