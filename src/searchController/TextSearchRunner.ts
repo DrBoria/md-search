@@ -287,13 +287,21 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
     let source = ''
     let fileError: Error | undefined = undefined
     const matches: ExtendedIpcMatch[] = []
-
+    
+    // Определяем тип файла для отладки
+    const fileExtension = file.split('.').pop()?.toLowerCase() || '';
+    
     try {
       // Индексируем файл перед обработкой - это позволит индексировать все просканированные файлы
       this.indexSingleFile(file, logMessage)
 
       source = await FsImpl.readFile(file, 'utf8')
       if (signal.aborted) return
+      
+      // Дополнительное логирование для TS и JS файлов
+      if (fileExtension === 'ts' || fileExtension === 'js') {
+        logMessage(`[DEBUG] Обрабатывается ${fileExtension} файл: ${file}`)
+      }
 
       // Оптимизированный поиск совпадений
       await this.findMatches(
@@ -305,6 +313,11 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
         matches,
         logMessage
       )
+      
+      // Если файл TS и в нем есть совпадения - особый лог
+      if (fileExtension === 'ts' && matches.length > 0) {
+        logMessage(`[DEBUG] Найдены совпадения в TS файле: ${file} (${matches.length} совпадений)`)
+      }
     } catch (err: any) {
       if (signal.aborted) return
       logMessage(`Error processing file ${file}: ${err.message}`)
