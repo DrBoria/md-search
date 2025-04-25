@@ -171,6 +171,15 @@ export class AstxExtension {
       this.channel.appendLine(
         `[Debug] Setting params: find="${params.find}", replace="${params.replace}", searchInResults=${params.searchInResults}`
       )
+
+      // Очищаем кеш поиска при изменении параметров (matchCase, wholeWord)
+      if (params.matchCase !== this.params.matchCase || 
+          params.wholeWord !== this.params.wholeWord ||
+          params.exclude !== this.params.exclude) {
+        this.channel.appendLine(`[Cache] Очистка кеша из-за изменения параметров поиска`);
+        this.runner.clearCache();
+      }
+
       this.params = { ...params }
 
       // No deed to set params if replacement is in progress
@@ -566,6 +575,10 @@ export class AstxExtension {
       return
     }
 
+    // Очищаем кеш для измененного файла
+    this.runner.clearCacheForFile(uri)
+    this.channel.appendLine(`[Cache] Очищен кеш для измененного файла: ${uri.fsPath}`)
+
     // Нормальная обработка, независимо от видимости представления поиска
     // Это обеспечивает актуальность данных даже если UI закрыт
     // Поскольку handleChange был удален в SearchRunner, просто запускаем runSoon
@@ -573,6 +586,10 @@ export class AstxExtension {
   }
 
   handleTextDocumentChange = (e: vscode.TextDocumentChangeEvent): void => {
+    // Очищаем кеш для измененного документа
+    this.runner.clearCacheForFile(e.document.uri)
+    
+    // Обновляем все зависимые документы
     this.runner.updateDocumentsForChangedFile(e.document.uri)
   }
 

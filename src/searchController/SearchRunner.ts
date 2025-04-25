@@ -1087,4 +1087,24 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       throw error
     }
   }
+
+  // Методы для работы с кешем поиска
+  
+  /**
+   * Очищает кеш для указанного файла
+   */
+  clearCacheForFile(fileUri: vscode.Uri): void {
+    // Очищаем кеш в TextSearchRunner
+    this.textSearchRunner.clearCacheForFile(fileUri);
+    this.extension.channel.appendLine(`Кеш поиска очищен для файла: ${fileUri.fsPath}`);
+  }
+  
+  /**
+   * Полностью очищает кеш поиска
+   */
+  clearCache(): void {
+    // Очищаем кеш в TextSearchRunner
+    this.textSearchRunner.clearCache();
+    this.extension.channel.appendLine('Кеш поиска полностью очищен');
+  }
 }
