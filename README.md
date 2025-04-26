@@ -4,6 +4,8 @@ VSCode extension for nested code search and replace functionality
 
 ![Screenshot](screenshot.png)
 
+[Download MD Search](https://marketplace.visualstudio.com/items?itemName=drboria.md-search)
+
 ## Features
 
 - Powerful search and replace in found matches

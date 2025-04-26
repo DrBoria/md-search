@@ -151,15 +151,27 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
       // Если кеш найден, загружаем результаты из него
       logMessage(`[CacheSearch] Найден кеш для запроса "${find}", используем кешированные результаты`)
       
+      // Для уточняющего запроса создаем новый узел кеша, если он еще не существует
+      if (cacheNode.query !== find) {
+        logMessage(`[CacheSearch] Создание дочернего кеша для уточняющего запроса "${find}" от "${cacheNode.query}"`)
+        cacheNode = this.searchCache.createCacheNode(find, matchCase, wholeWord, exclude)
+      }
+      
       // Добавляем файлы из кеша в результаты
       const cachedResults = this.searchCache.getCurrentResults();
       if (cachedResults) {
+        // Подсчитываем добавленные результаты для логирования
+        let addedResults = 0;
+        
         for (const [uri, result] of cachedResults.entries()) {
           if (result.file) {
             filesWithMatches.add(result.file.toString())
             this.handleResult(result)
+            addedResults++;
           }
         }
+        
+        logMessage(`[CacheSearch] Добавлено ${addedResults} результатов из кеша для запроса "${find}"`)
       }
     }
 
@@ -476,6 +488,49 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
         `handleResult skipped for ${file.fsPath}: Aborted.`
       )
       return
+    }
+
+    // Получаем текущий узел кеша и его запрос
+    const currentNode = this.searchCache.getCurrentNode()
+    
+    if (currentNode && result.matches && result.matches.length > 0 && result.source) {
+      const { query, params } = currentNode
+      
+      // Фильтруем совпадения, чтобы показывать только те, которые соответствуют текущему запросу
+      const filteredMatches = result.matches.filter(match => {
+        const matchText = result.source!.substring(match.start, match.end)
+        
+        // Применяем ту же логику фильтрации, что и в SearchCache.resultMatchesQuery
+        if (!params.matchCase) {
+          const lowerText = matchText.toLowerCase()
+          const lowerQuery = query.toLowerCase()
+          
+          if (params.wholeWord) {
+            const regex = new RegExp(`\\b${escapeRegExp(lowerQuery)}\\b`, "i")
+            return regex.test(lowerText)
+          } else {
+            return lowerText.includes(lowerQuery)
+          }
+        } else {
+          if (params.wholeWord) {
+            const regex = new RegExp(`\\b${escapeRegExp(query)}\\b`)
+            return regex.test(matchText)
+          } else {
+            return matchText.includes(query)
+          }
+        }
+      })
+      
+      // Если после фильтрации в файле не осталось совпадений, не добавляем его в результаты
+      if (filteredMatches.length === 0) {
+        this.extension.channel.appendLine(
+          `[handleResult] Пропуск файла ${file.fsPath}: все совпадения не соответствуют текущему запросу "${query}"`
+        )
+        return
+      }
+      
+      // Обновляем результат с отфильтрованными совпадениями
+      result.matches = filteredMatches
     }
 
     this.processedFiles.add(file.fsPath)
@@ -818,4 +873,9 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
   clearCache(): void {
     this.searchCache.clearCache();
   }
+}
+
+// Функция для экранирования спецсимволов в регулярных выражениях
+function escapeRegExp(string: string): string {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }

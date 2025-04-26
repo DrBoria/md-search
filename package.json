@@ -2,7 +2,7 @@
   "name": "md-search",
   "version": "0.0.1",
   "displayName": "MD Search",
-  "description": "structural search and replace for JavaScript and TypeScript",
+  "description": "VSCode extension for nested code search and replace functionality",
   "publisher": "drboria",
   "icon": "media/logo.jpeg",
   "engines": {
