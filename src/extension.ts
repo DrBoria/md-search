@@ -210,9 +210,15 @@ export class AstxExtension {
     // что SearchReplaceViewProvider уже инициализирован
     context.subscriptions.push(
       vscode.commands.registerCommand('mdSearch.search', () => {
-        vscode.commands.executeCommand(
-          `${SearchReplaceViewProvider.viewType}.focus`
-        )
+        this.searchReplaceViewProvider.showWithSearchFocus()
+      })
+    )
+
+    // Команда replace, открывающая панель с фокусом на поле замены
+    context.subscriptions.push(
+      vscode.commands.registerCommand('mdSearch.replace', () => {
+        // Сначала показываем панель с фокусом на поле замены
+        this.searchReplaceViewProvider.showWithReplaceFocus()
       })
     )
 
@@ -281,10 +287,12 @@ export class AstxExtension {
           useTransformFile,
           include: dirs.map(normalizeFsPath).join(', '),
         }
+        
+        // Сначала устанавливаем параметры
         this.setParams(newParams)
-        vscode.commands.executeCommand(
-          `${SearchReplaceViewProvider.viewType}.focus`
-        )
+        
+        // Затем уже показываем представление с фокусом
+        this.searchReplaceViewProvider.showWithSearchFocus()
       }
     const findInPath = setIncludePaths({ useTransformFile: false })
     // const transformInPath = setIncludePaths({ useTransformFile: true })

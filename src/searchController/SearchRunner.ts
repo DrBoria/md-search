@@ -91,13 +91,16 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
   private fs: Fs | undefined
   private config: AstxConfig | undefined
   private startupPromise: Promise<void> = Promise.reject(
-    new Error('not started')
+    new Error('Not initialized')
   )
   private textSearchRunner: TextSearchRunner
   private astxSearchRunner: AstxSearchRunner
   private fileIndexCache: Map<string, Set<string>> = new Map()
   private fileIndexPromise: Promise<void> | null = null
   private isIndexing = false
+  private includeGlob: string | null = null
+  private previousInclude: string | undefined
+  private previousExclude: string | undefined
 
   constructor(private extension: AstxExtension) {
     super()
@@ -188,25 +191,36 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
 
   // Получает паттерны исключения из настроек VS Code Search: Exclude
   private getSearchExcludePatterns(): string[] {
-    const patterns: string[] = DEFAULT_IGNORED_PATTERNS
-
-    // Получаем паттерны ТОЛЬКО из настроек Search: Exclude
-    const searchExclude =vscode.workspace
+    // Получаем настройки исключений для поиска
+    const exclude = vscode.workspace
       .getConfiguration('search')
-      .get<Record<string, boolean>>('exclude')
-    if (searchExclude) {
-      Object.keys(searchExclude).forEach((pattern) => {
-        if (searchExclude[pattern]) {
-          patterns.push(pattern)
-        }
-      })
+      .get<{ [key: string]: boolean }>('exclude')
+
+    if (!exclude) {
+      return []
     }
 
-    // Логируем паттерны для отладки
-    this.extension.channel.appendLine(
-      `[DEBUG] Using Search: Exclude patterns: ${patterns.join(', ')}`
-    )
-    return patterns
+    // Преобразуем объект настроек в массив шаблонов
+    const excludePatterns = Object.entries(exclude)
+      .filter(([, value]) => value === true)
+      .map(([key]) => key)
+
+    return excludePatterns
+  }
+
+  // Добавляем метод для получения include patterns из настроек
+  private getSearchIncludePatterns(): string[] {
+    // Получаем настройки включений для поиска
+    const include = vscode.workspace
+      .getConfiguration('search')
+      .get<string>('include')
+
+    if (!include) {
+      return []
+    }
+
+    // Разделяем строку с шаблонами по запятой и удаляем пробелы
+    return include.split(',').map(pattern => pattern.trim()).filter(pattern => pattern !== '')
   }
 
   // Индексирует файлы в рабочем пространстве по типам
@@ -262,21 +276,55 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
     // Получаем паттерны исключения ТОЛЬКО из настроек Search: Exclude
     const excludePatterns = this.getSearchExcludePatterns()
 
-    // Дополнительно обрабатываем простые имена папок
-    const processedExcludePatterns = excludePatterns.map(pattern => {
-      // Проверяем, является ли шаблон простым именем папки
-      if (!pattern.includes('*') && !pattern.includes('?') && !pattern.includes('[')) {
-        // Удаляем слеш в конце, если есть
-        const cleanPattern = pattern.endsWith('/') ? pattern.slice(0, -1) : pattern;
-        // Преобразуем в формат исключения папки с разными вариантами шаблонов
-        return `${cleanPattern}/**,**/${cleanPattern}/**,**/${cleanPattern}`;
-      }
-      return pattern;
+    // Дополнительно обрабатываем простые имена папок и разделяем шаблоны, указанные через запятую
+    const processedExcludePatterns = excludePatterns.flatMap(pattern => {
+      // Разделяем шаблон, если он содержит запятые
+      const splitPatterns = pattern.split(',').map(p => p.trim()).filter(p => p !== '');
+      
+      return splitPatterns.map(subPattern => {
+        // Проверяем, является ли шаблон простым именем папки
+        if (!subPattern.includes('*') && !subPattern.includes('?') && !subPattern.includes('[')) {
+          // Удаляем слеш в конце, если есть
+          const cleanPattern = subPattern.endsWith('/') ? subPattern.slice(0, -1) : subPattern;
+          // Преобразуем в формат исключения папки с разными вариантами шаблонов
+          return `${cleanPattern}/**,**/${cleanPattern}/**,**/${cleanPattern}`;
+        }
+        return subPattern;
+      });
     });
 
     let excludeGlob = null
     if (processedExcludePatterns.length > 0) {
       excludeGlob = `{${processedExcludePatterns.join(',')}}`
+    }
+
+    // Получаем шаблоны включения из настроек Search: Include
+    const includePatterns = this.getSearchIncludePatterns()
+    
+    // Обрабатываем шаблоны включения так же, как и исключения
+    const processedIncludePatterns = includePatterns.flatMap(pattern => {
+      // Разделяем шаблон, если он содержит запятые
+      const splitPatterns = pattern.split(',').map(p => p.trim()).filter(p => p !== '');
+      
+      return splitPatterns.map(subPattern => {
+        // Проверяем, является ли шаблон простым именем папки
+        if (!subPattern.includes('*') && !subPattern.includes('?') && !subPattern.includes('[')) {
+          // Удаляем слеш в конце, если есть
+          const cleanPattern = subPattern.endsWith('/') ? subPattern.slice(0, -1) : subPattern;
+          // Преобразуем в формат включения папки с разными вариантами шаблонов
+          return `${cleanPattern}/**,**/${cleanPattern}/**,**/${cleanPattern}`;
+        }
+        return subPattern;
+      });
+    });
+
+    // Используем includePatterns для ограничения поиска
+    this.includeGlob = null
+    if (processedIncludePatterns.length > 0) {
+      this.includeGlob = `{${processedIncludePatterns.join(',')}}`
+      this.extension.channel.appendLine(
+        `[DEBUG] Using include glob: ${this.includeGlob}`
+      )
     }
 
     // Также создаем индекс для общих групп файлов для более быстрого поиска
@@ -347,6 +395,14 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
 
     if (!areEqual) {
       this.extension.channel.appendLine(`[Debug] Params changed (not equal).`)
+      
+      // Проверяем изменения include/exclude для сброса кеша
+      if (this.params.include !== params.include || this.params.exclude !== params.exclude) {
+        this.extension.channel.appendLine(`[ВАЖНО] Изменились параметры include/exclude, очищаем кеш.`);
+        // Сбрасываем кеш перед сменой параметров
+        this.clearCache();
+      }
+      
       this.params = params
       if (!this.params.paused && this.pausedRestart) {
         this.extension.channel.appendLine('[Debug] Resuming paused restart.')
@@ -560,6 +616,13 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
     this.extension.channel.appendLine(
       `[DEBUG] Getting file list for pattern: ${includePattern.toString()}`
     )
+    
+    // Добавляем информацию о типе includePattern
+    if (typeof includePattern === 'object' && 'pattern' in includePattern) {
+      this.extension.channel.appendLine(
+        `[DEBUG] Pattern is a RelativePattern with base: ${(includePattern as vscode.RelativePattern).base}`
+      )
+    }
 
     try {
       // Если у нас есть общий индекс всех файлов, используем его
@@ -571,6 +634,15 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
         fileUris = Array.from(allFilesCache).map((path) =>
           vscode.Uri.file(path)
         )
+        
+        // Если пользователь указал include, применяем дополнительную фильтрацию
+        if (this.params.include && this.params.include.trim()) {
+          const originalCount = fileUris.length;
+          fileUris = this.applyManualIncludeFilter(fileUris, this.params.include.trim());
+          this.extension.channel.appendLine(
+            `Manual include: ${originalCount} → ${fileUris.length} files after filtering with "${this.params.include}"`
+          )
+        }
         
         // Если пользователь указал exclude, выполняем дополнительную фильтрацию
         if (this.params.exclude && this.params.exclude.trim()) {
@@ -599,10 +671,36 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       )
 
       // Используем поиск с исключением паттернов
-      fileUris = await vscode.workspace.findFiles(
-        actualPattern,
-        excludeGlob
-      )
+      try {
+        fileUris = await vscode.workspace.findFiles(
+          includePattern,
+          excludeGlob
+        )
+        this.extension.channel.appendLine(
+          `[DEBUG] Found ${fileUris.length} files with VS Code findFiles and includePattern directly`
+        )
+      } catch (err) {
+        this.extension.channel.appendLine(
+          `[ERROR] Error using includePattern directly: ${err}`
+        )
+        
+        // Запасной вариант: используем строку из this.params.include
+        if (this.params.include) {
+          fileUris = await vscode.workspace.findFiles(
+            this.params.include,
+            excludeGlob
+          )
+          this.extension.channel.appendLine(
+            `[DEBUG] Found ${fileUris.length} files with this.params.include string pattern`
+          )
+        } else {
+          // Если нет include, ищем все файлы
+          fileUris = await vscode.workspace.findFiles('**/*', excludeGlob)
+          this.extension.channel.appendLine(
+            `[DEBUG] Found ${fileUris.length} files with fallback pattern **/*`
+          )
+        }
+      }
 
       // Если пользователь указал exclude, выполняем дополнительную фильтрацию
       if (this.params.exclude && this.params.exclude.trim()) {
@@ -729,6 +827,48 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
     });
   }
 
+  // Новый метод для ручной фильтрации файлов по паттерну включения
+  private applyManualIncludeFilter(files: vscode.Uri[], includePattern: string): vscode.Uri[] {
+    // Разбиваем паттерн на части
+    const includeParts = includePattern.split(',').map(part => part.trim());
+    
+    // Преобразуем в регулярные выражения для включения
+    const includeRegexes = includeParts.map(part => {
+      if (!part.includes('*') && !part.includes('?') && !part.includes('[')) {
+        // Для простых имен папок создаем регекс, включающий эту папку и все в ней
+        const escapedPart = part.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+        return new RegExp(`(^|[/\\\\])${escapedPart}([/\\\\]|$)`, 'i');
+      } else {
+        // Для глоб-паттернов создаем соответствующий регекс
+        const regexPattern = part
+          .replace(/\./g, '\\.')
+          .replace(/\//g, '[/\\\\]')
+          .replace(/\\\\/g, '[/\\\\]')
+          .replace(/\*\*/g, '.*')
+          .replace(/\*/g, '[^/\\\\]*')
+          .replace(/\?/g, '[^/\\\\]');
+        return new RegExp(regexPattern, 'i');
+      }
+    });
+    
+    this.extension.channel.appendLine(`Created ${includeRegexes.length} include regexes`);
+    
+    // Фильтруем файлы, включая только те, что соответствуют хотя бы одному регексу
+    return files.filter(uri => {
+      const filePath = uri.fsPath;
+      
+      // Если файл соответствует хотя бы одному шаблону включения, оставляем его
+      for (const regex of includeRegexes) {
+        if (regex.test(filePath)) {
+          return true;
+        }
+      }
+      
+      // Файл не соответствует ни одному шаблону включения, фильтруем его
+      return false;
+    });
+  }
+
   // Запускает текстовый поиск с оптимизациями
   private async runTextSearch(
     FsImpl: any,
@@ -738,6 +878,8 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
   ): Promise<void> {
     const startTime = Date.now()
     this.extension.channel.appendLine('Starting optimized text search...')
+    this.extension.channel.appendLine(`Include pattern type: ${typeof includePattern}, value: ${JSON.stringify(includePattern)}`)
+    this.extension.channel.appendLine(`Exclude pattern type: ${typeof excludePattern}, value: ${excludePattern || 'null'}`)
 
     try {
       // Установить контроллер прерывания для текстового поиска
@@ -764,10 +906,17 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       // Получаем все файлы, соответствующие includePattern и не исключенные excludePattern
       // Используем стандартный метод findFiles от VS Code
       const exclude = excludePattern ? excludePattern : null
-      const allFileUris = await vscode.workspace.findFiles(
-        includePattern,
-        exclude
-      )
+      let allFileUris: vscode.Uri[] = []
+      
+      try {
+        allFileUris = await vscode.workspace.findFiles(
+          includePattern,
+          exclude
+        )
+        this.extension.channel.appendLine(`Files found with VS Code's findFiles: ${allFileUris.length}`)
+      } catch (err) {
+        this.extension.channel.appendLine(`Error during findFiles: ${err}. Using indexedFiles only.`)
+      }
 
       // Формируем окончательный список URI файлов без дубликатов
       const finalFileUris: vscode.Uri[] = Array.from(indexedFileUris)
@@ -841,6 +990,19 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
     this.abortController = abortController
 
     this.emit('start')
+
+    // Выводим отладочную информацию о параметрах поиска
+    this.extension.channel.appendLine(`[DEBUG] Search params:`)
+    this.extension.channel.appendLine(`[DEBUG]   find: ${this.params.find || 'not set'}`)
+    this.extension.channel.appendLine(`[DEBUG]   include: ${this.params.include || 'not set'}`)
+    this.extension.channel.appendLine(`[DEBUG]   exclude: ${this.params.exclude || 'not set'}`)
+    this.extension.channel.appendLine(`[DEBUG]   matchCase: ${this.params.matchCase}`)
+    this.extension.channel.appendLine(`[DEBUG]   wholeWord: ${this.params.wholeWord}`)
+    this.extension.channel.appendLine(`[DEBUG]   searchMode: ${this.params.searchMode}`)
+    this.extension.channel.appendLine(`[DEBUG]   useTransformFile: ${this.params.useTransformFile ? 'true' : 'false'}`)
+
+    // Проверяем изменения include и exclude для сброса кеша
+    this.checkSearchParamsChanged()
 
     if (!this.params.find && !this.params.useTransformFile) {
       this.extension.channel.appendLine(
@@ -928,8 +1090,19 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
     let excludePattern: vscode.GlobPattern | null = null
 
     try {
-      const include = this.params.include || '**/*.{js,jsx,ts,tsx}'
-      includePattern = convertGlobPattern(include, workspaceFolderPaths)
+      // Используем значение из настроек include, если оно задано через includeGlob
+      const include = this.includeGlob || this.params.include || '**/*.{js,jsx,ts,tsx}'
+      
+      // Проверяем, не является ли include уже объектом RelativePattern
+      if (typeof include === 'object' && 'pattern' in include) {
+        this.extension.channel.appendLine(`Using include as RelativePattern directly`);
+        includePattern = include;
+      } else {
+        // Преобразуем строковый паттерн
+        includePattern = convertGlobPattern(include, workspaceFolderPaths)
+      }
+      
+      this.extension.channel.appendLine(`[DEBUG] Include pattern: ${JSON.stringify(includePattern)}`);
 
       // Получаем паттерны ТОЛЬКО из настроек Search: Exclude
       const excludePatterns = this.getSearchExcludePatterns()
@@ -970,8 +1143,10 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
         // Если пользовательских исключений нет, используем только системные
         excludeGlob = excludePatterns.join(',');
       }
-      
+
+      // Преобразуем строковый паттерн исключения, если он есть
       excludePattern = excludeGlob ? convertGlobPattern(excludeGlob, workspaceFolderPaths) : null;
+      this.extension.channel.appendLine(`[DEBUG] Exclude pattern: ${excludePattern}`);
 
       // Если mode = searchInResults, выполняем поиск только в предыдущих результатах
       if (this.params.searchInResults && this.previousSearchFiles.size > 0) {
@@ -1106,5 +1281,41 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
     // Очищаем кеш в TextSearchRunner
     this.textSearchRunner.clearCache();
     this.extension.channel.appendLine('Кеш поиска полностью очищен');
+  }
+
+  // Проверяем изменения include и exclude для сброса кеша
+  private checkSearchParamsChanged(): void {
+    // Сохраняем текущие значения для сравнения
+    const currentInclude = this.params.include;
+    const currentExclude = this.params.exclude;
+    
+    // Подробное логирование для отладки
+    this.extension.channel.appendLine(`[Include/Exclude Change Check]
+    - Текущий include: "${currentInclude || 'не задан'}"  
+    - Предыдущий include: "${this.previousInclude || 'не задан'}"
+    - Текущий exclude: "${currentExclude || 'не задан'}"
+    - Предыдущий exclude: "${this.previousExclude || 'не задан'}"`);
+    
+    // Проверяем изменения include и exclude для сброса кеша
+    if (currentInclude !== this.previousInclude || currentExclude !== this.previousExclude) {
+      this.extension.channel.appendLine(`[ВАЖНО] Параметры поиска изменились, очищаем кеш.`);
+      
+      // Если include изменился, выводим подробную информацию
+      if (currentInclude !== this.previousInclude) {
+        this.extension.channel.appendLine(`Include изменился: "${this.previousInclude || 'не задан'}" -> "${currentInclude || 'не задан'}"`);
+      }
+      
+      // Если exclude изменился, выводим подробную информацию
+      if (currentExclude !== this.previousExclude) {
+        this.extension.channel.appendLine(`Exclude изменился: "${this.previousExclude || 'не задан'}" -> "${currentExclude || 'не задан'}"`);
+      }
+      
+      // Очищаем кеш и в TextSearchRunner
+      this.clearCache();
+      
+      // Обновляем сохраненные значения
+      this.previousInclude = currentInclude;
+      this.previousExclude = currentExclude;
+    }
   }
 }

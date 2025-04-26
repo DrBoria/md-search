@@ -242,11 +242,15 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
               workspaceFolders.length > 0
                 ? workspaceFolders[0].uri.toString()
                 : ''
+                
+            // Получаем текущие параметры из расширения
+            const currentParams = this.extension.getParams();
 
             // Отправляем initialData с текущими значениями
             webviewView.webview.postMessage({
               type: 'initialData',
               workspacePath,
+              values: currentParams  // Добавляем параметры в сообщение
             })
 
             break
@@ -469,8 +473,19 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
   // New method to show and focus the search input
   showWithSearchFocus(): void {
     this._view?.show(true) // Use 'true' to preserve focus
+    
+    // Получаем текущие параметры из расширения
+    const currentParams = this.extension.getParams();
+    
     // Give the webview time to activate before sending the focus message
     setTimeout(() => {
+      // Отправляем текущие параметры в webview
+      this.postMessage({
+        type: 'values',
+        values: currentParams
+      });
+      
+      // Фокусируемся на поле поиска
       this.postMessage({
         type: 'focusSearchInput',
       })
@@ -480,8 +495,19 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
   // New method to show and focus the replace input
   showWithReplaceFocus(): void {
     this._view?.show(true) // Use 'true' to preserve focus
+    
+    // Получаем текущие параметры из расширения
+    const currentParams = this.extension.getParams();
+    
     // Give the webview time to activate before sending the focus message
     setTimeout(() => {
+      // Отправляем текущие параметры в webview
+      this.postMessage({
+        type: 'values',
+        values: currentParams
+      });
+      
+      // Фокусируемся на поле замены
       this.postMessage({
         type: 'focusReplaceInput',
       })

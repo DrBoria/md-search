@@ -1117,6 +1117,15 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                     setExpandedFiles(new Set());
                     setExpandedFolders(new Set());
                     pendingResultsRef.current = {}; // Очищаем накопленные результаты
+                    
+                    // Устанавливаем параметры, если они переданы
+                    if (message.values) {
+                        setValues(prev => ({ ...prev, ...message.values }));
+                        // Update local state tied to values if needed
+                        if (message.values.searchMode !== undefined) setCurrentSearchMode(message.values.searchMode);
+                        if (message.values.matchCase !== undefined) setMatchCase(message.values.matchCase);
+                        if (message.values.wholeWord !== undefined) setWholeWord(message.values.wholeWord);
+                    }
                     break;
                 case 'status':
                     setStatus(prev => ({ ...prev, ...message.status }));
@@ -1125,13 +1134,6 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                         setIsSearchRequested(false);
                     }
                     break;
-                // case 'values':
-                //     setValues(prev => ({ ...prev, ...message.values }));
-                //     // Update local state tied to values if needed
-                //     if (message.values.searchMode !== undefined) setCurrentSearchMode(message.values.searchMode);
-                //     if (message.values.matchCase !== undefined) setMatchCase(message.values.matchCase);
-                //     if (message.values.wholeWord !== undefined) setWholeWord(message.values.wholeWord);
-                //     break;
                 case 'clearResults':
                     setResultsByFile({});
                     setStatus(prev => ({
@@ -1271,6 +1273,30 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                         });
                     });
 
+                    break;
+                }
+                case 'focusReplaceInput': {
+                    // Показываем панель замены, если она не видна
+                    setIsReplaceVisible(true);
+                    
+                    // Устанавливаем фокус на поле ввода с небольшой задержкой, чтобы DOM успел обновиться
+                    setTimeout(() => {
+                        try {
+                            const replaceInput = document.querySelector('textarea[name="replace"]') as HTMLTextAreaElement;
+                            if (replaceInput) {
+                                replaceInput.focus();
+                                vscode.postMessage({ type: 'log', level: 'info', message: 'Focused replace input' });
+                            } else {
+                                vscode.postMessage({ type: 'log', level: 'warn', message: 'Replace input not found' });
+                            }
+                        } catch (e) {
+                            vscode.postMessage({ 
+                                type: 'log', 
+                                level: 'error', 
+                                message: `Error focusing replace input: ${e}` 
+                            });
+                        }
+                    }, 100);
                     break;
                 }
                 case 'replacementComplete': {

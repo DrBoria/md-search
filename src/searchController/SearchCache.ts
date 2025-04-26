@@ -18,6 +18,7 @@ export interface SearchCacheNode {
         matchCase: boolean
         wholeWord: boolean
         exclude: string | undefined
+        include: string | undefined
     }
     // Исключенные файлы, которые не нужно перепроверять
     excludedFiles: Set<string>
@@ -47,23 +48,25 @@ export class SearchCache {
      * @param matchCase учитывать регистр
      * @param wholeWord искать целые слова
      * @param exclude шаблон исключения файлов
+     * @param include шаблон включения файлов
      * @returns подходящий узел кеша или null
      */
     findSuitableCache(
         query: string,
         matchCase: boolean,
         wholeWord: boolean,
-        exclude: string | undefined
+        exclude: string | undefined,
+        include: string | undefined = undefined
     ): SearchCacheNode | null {
         if (!this.root) {
             return null
         }
 
         // Проверяем, начинается ли текущий запрос с запроса из активного узла
-        if (this.currentNode && this.isCacheCompatible(this.currentNode, query, matchCase, wholeWord, exclude)) {
+        if (this.currentNode && this.isCacheCompatible(this.currentNode, query, matchCase, wholeWord, exclude, include)) {
             // Проверяем, есть ли у текущего узла ребенок, который соответствует запросу
             for (const [childQuery, childNode] of this.currentNode.children.entries()) {
-                if (this.isCacheCompatible(childNode, query, matchCase, wholeWord, exclude)) {
+                if (this.isCacheCompatible(childNode, query, matchCase, wholeWord, exclude, include)) {
                     this.outputChannel.appendLine(`[SearchCache] Используем дочерний кеш для запроса "${query}" от родителя "${childNode.query}"`);
                     this.currentNode = childNode;
                     return childNode;
@@ -78,7 +81,7 @@ export class SearchCache {
         }
 
         // Если текущий узел не подходит, ищем в корне
-        return this.findNodeFromRoot(query, matchCase, wholeWord, exclude);
+        return this.findNodeFromRoot(query, matchCase, wholeWord, exclude, include);
     }
 
     /**
@@ -88,7 +91,8 @@ export class SearchCache {
         query: string,
         matchCase: boolean,
         wholeWord: boolean,
-        exclude: string | undefined
+        exclude: string | undefined,
+        include: string | undefined = undefined
     ): SearchCacheNode | null {
         if (!this.root) {
             return null;
@@ -101,7 +105,7 @@ export class SearchCache {
         while (queue.length > 0) {
             const node = queue.shift()!;
 
-            if (this.isCacheCompatible(node, query, matchCase, wholeWord, exclude)) {
+            if (this.isCacheCompatible(node, query, matchCase, wholeWord, exclude, include)) {
                 // Если текущий узел является префиксом запроса и длиннее предыдущего лучшего совпадения
                 if (query.startsWith(node.query) && (!bestMatch || node.query.length > bestMatch.query.length)) {
                     bestMatch = node;
@@ -131,7 +135,8 @@ export class SearchCache {
         query: string,
         matchCase: boolean,
         wholeWord: boolean,
-        exclude: string | undefined
+        exclude: string | undefined,
+        include: string | undefined = undefined
     ): boolean {
         // Проверяем, начинается ли запрос с запроса из кеша
         if (!query.startsWith(node.query)) {
@@ -142,8 +147,11 @@ export class SearchCache {
         const sameCase = node.params.matchCase === matchCase;
         const sameWholeWord = node.params.wholeWord === wholeWord;
         const sameExclude = node.params.exclude === exclude;
+        // Проверяем совпадение include-паттернов
+        const sameInclude = node.params.include === include;
 
-        return sameCase && sameWholeWord && sameExclude;
+        // Обязательно проверяем совпадение include, так как это критично для результатов поиска
+        return sameCase && sameWholeWord && sameExclude && sameInclude;
     }
 
     /**
@@ -153,10 +161,11 @@ export class SearchCache {
         query: string,
         matchCase: boolean,
         wholeWord: boolean,
-        exclude: string | undefined
+        exclude: string | undefined,
+        include: string | undefined = undefined
     ): SearchCacheNode {
         // Ищем родительский узел
-        const parentNode = this.findSuitableCache(query, matchCase, wholeWord, exclude);
+        const parentNode = this.findSuitableCache(query, matchCase, wholeWord, exclude, include);
 
         const newNode: SearchCacheNode = {
             query,
@@ -167,7 +176,8 @@ export class SearchCache {
             params: {
                 matchCase,
                 wholeWord,
-                exclude
+                exclude,
+                include
             },
             excludedFiles: new Set<string>(),
             processedFiles: new Set<string>()
@@ -219,7 +229,7 @@ export class SearchCache {
         // Обрезаем кеш, если он слишком большой
         this.pruneCache();
 
-        this.outputChannel.appendLine(`[SearchCache] Создан новый узел кеша для запроса "${query}"`);
+        this.outputChannel.appendLine(`[SearchCache] Создан новый узел кеша для запроса "${query}" с include="${include || 'not set'}"`);
         return newNode;
     }
 

@@ -123,7 +123,10 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
     const startTime = Date.now()
 
     // Извлекаем параметры поиска
-    const { find, matchCase, wholeWord, exclude } = params
+    const { find, matchCase, wholeWord, exclude, include } = params
+
+    // Выводим отладочную информацию о параметрах поиска
+    logMessage(`[TextSearchRunner] Поиск: "${find}", включая: ${include || 'все файлы'}, исключая: ${exclude || 'ничего'}`);
 
     // Проверяем текущий узел кеша, если он существует
     const currentNode = this.searchCache.getCurrentNode();
@@ -140,21 +143,22 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
       find, 
       matchCase, 
       wholeWord, 
-      exclude
+      exclude,
+      include  // Передаем include-паттерн в метод поиска кеша
     )
 
     if (!cacheNode) {
       // Если подходящий кеш не найден, создаем новый
-      logMessage(`[CacheSearch] Создание нового кеша для запроса "${find}"`)
-      cacheNode = this.searchCache.createCacheNode(find, matchCase, wholeWord, exclude)
+      logMessage(`[CacheSearch] Создание нового кеша для запроса "${find}" с include="${include || 'not set'}"`)
+      cacheNode = this.searchCache.createCacheNode(find, matchCase, wholeWord, exclude, include)
     } else {
       // Если кеш найден, загружаем результаты из него
-      logMessage(`[CacheSearch] Найден кеш для запроса "${find}", используем кешированные результаты`)
+      logMessage(`[CacheSearch] Найден кеш для запроса "${find}" с include="${cacheNode.params.include || 'not set'}", используем кешированные результаты`)
       
       // Для уточняющего запроса создаем новый узел кеша, если он еще не существует
       if (cacheNode.query !== find) {
         logMessage(`[CacheSearch] Создание дочернего кеша для уточняющего запроса "${find}" от "${cacheNode.query}"`)
-        cacheNode = this.searchCache.createCacheNode(find, matchCase, wholeWord, exclude)
+        cacheNode = this.searchCache.createCacheNode(find, matchCase, wholeWord, exclude, include)
       }
       
       // Добавляем файлы из кеша в результаты
@@ -180,12 +184,20 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
       const processedFiles = this.searchCache.getProcessedFiles()
       const excludedFiles = this.searchCache.getExcludedFiles()
       
+      // Если поисковый include-паттерн изменился, нужно обязательно актуализировать кеш
+      if (cacheNode && cacheNode.params.include !== include) {
+        logMessage(`[CacheSearch] ВНИМАНИЕ: include-паттерн изменился с "${cacheNode.params.include || 'не задан'}" на "${include || 'не задан'}", кеш может быть не актуален.`);
+      }
+      
       // Фильтруем файлы, которые не нужно обрабатывать повторно
       const filesToProcess = fileUris.filter(uri => {
         const filePath = uri.toString();
         return !processedFiles.has(filePath) && !excludedFiles.has(filePath);
       });
 
+      // Дополнительно выводим информацию о количестве файлов для поиска
+      logMessage(`[TextSearchRunner] Файлы для поиска: всего ${fileUris.length}, для обработки ${filesToProcess.length}, пропускаем ${processedFiles.size + excludedFiles.size}`);
+      
       // Разделяем файлы на проиндексированные и остальные
       const { indexedFiles, otherFiles } = this.filterFilesByIndexAndPattern(
         filesToProcess,

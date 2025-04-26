@@ -12,9 +12,15 @@ export function joinPatterns(patterns: readonly string[]): string {
 }
 
 export function convertGlobPattern(
-  patterns: string,
+  patterns: string | vscode.RelativePattern,
   workspaceFolders: readonly string[]
 ): string | vscode.RelativePattern {
+  // Если patterns уже является RelativePattern, возвращаем его как есть
+  if (typeof patterns === 'object' && 'pattern' in patterns) {
+    globLogger.appendLine(`Received RelativePattern object, returning as is: ${patterns.pattern}`)
+    return patterns
+  }
+
   // Добавляем отладочную информацию
   globLogger.appendLine(`Converting glob pattern: "${patterns}"`)
 
