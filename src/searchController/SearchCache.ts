@@ -1,41 +1,41 @@
 import * as vscode from 'vscode'
 import { TransformResultEvent } from './SearchRunnerTypes'
 
-// Структура кеша поиска
+// Search cache structure
 export interface SearchCacheNode {
-    // Поисковая строка, которой соответствует этот кеш
+    // Search string corresponding to this cache
     query: string
-    // Результаты поиска, хранящиеся в кеше
+    // Search results stored in the cache
     results: Map<string, TransformResultEvent>
-    // Родительский узел кеша (предыдущий поиск)
+    // Parent cache node (previous search)
     parent: SearchCacheNode | null
-    // Дочерние узлы кеша (последующие уточняющие поиски)
+    // Child cache nodes (subsequent refined searches)
     children: Map<string, SearchCacheNode>
-    // Флаг завершенности поиска
+    // Search completion flag
     isComplete: boolean
-    // Дополнительные параметры поиска для проверки совместимости
+    // Additional search parameters for compatibility checking
     params: {
         matchCase: boolean
         wholeWord: boolean
         exclude: string | undefined
         include: string | undefined
     }
-    // Исключенные файлы, которые не нужно перепроверять
+    // Excluded files that don't need to be rechecked
     excludedFiles: Set<string>
-    // Список обработанных файлов
+    // List of processed files
     processedFiles: Set<string>
 }
 
 export class SearchCache {
-    // Корневой узел кеша
+    // Root cache node
     private root: SearchCacheNode | null = null
-    // Текущий активный узел кеша
+    // Current active cache node
     private currentNode: SearchCacheNode | null = null
-    // Максимальный размер кеша (количество запомненных запросов)
+    // Maximum cache size (number of remembered queries)
     private maxSize = 20
-    // Счетчик для отслеживания размера кеша
+    // Counter for tracking cache size
     private size = 0
-    // Ссылка на канал вывода для логирования
+    // Reference to output channel for logging
     private outputChannel: vscode.OutputChannel
 
     constructor(outputChannel: vscode.OutputChannel) {
@@ -43,13 +43,13 @@ export class SearchCache {
     }
 
     /**
-     * Находит подходящий кеш для нового поиска
-     * @param query строка поиска
-     * @param matchCase учитывать регистр
-     * @param wholeWord искать целые слова
-     * @param exclude шаблон исключения файлов
-     * @param include шаблон включения файлов
-     * @returns подходящий узел кеша или null
+     * Finds a suitable cache for a new search
+     * @param query search string
+     * @param matchCase match case
+     * @param wholeWord search whole words
+     * @param exclude file exclusion pattern
+     * @param include file inclusion pattern
+     * @returns suitable cache node or null
      */
     findSuitableCache(
         query: string,
@@ -62,30 +62,30 @@ export class SearchCache {
             return null
         }
 
-        // Проверяем, начинается ли текущий запрос с запроса из активного узла
+        // Check if current query starts with query from active node
         if (this.currentNode && this.isCacheCompatible(this.currentNode, query, matchCase, wholeWord, exclude, include)) {
-            // Проверяем, есть ли у текущего узла ребенок, который соответствует запросу
+            // Check if current node has a child that matches the query
             for (const [childQuery, childNode] of this.currentNode.children.entries()) {
                 if (this.isCacheCompatible(childNode, query, matchCase, wholeWord, exclude, include)) {
-                    this.outputChannel.appendLine(`[SearchCache] Используем дочерний кеш для запроса "${query}" от родителя "${childNode.query}"`);
+                    this.outputChannel.appendLine(`[SearchCache] Using child cache for query "${query}" from parent "${childNode.query}"`);
                     this.currentNode = childNode;
                     return childNode;
                 }
             }
 
-            // Если нет подходящего дочернего, но текущий узел - частичное совпадение
+            // If no suitable child, but current node is a partial match
             if (query.startsWith(this.currentNode.query)) {
-                this.outputChannel.appendLine(`[SearchCache] Используем текущий кеш для запроса "${query}"`);
+                this.outputChannel.appendLine(`[SearchCache] Using current cache for query "${query}"`);
                 return this.currentNode;
             }
         }
 
-        // Если текущий узел не подходит, ищем в корне
+        // If current node is not suitable, search from the root
         return this.findNodeFromRoot(query, matchCase, wholeWord, exclude, include);
     }
 
     /**
-     * Выполняет поиск подходящего узла, начиная с корня
+     * Searches for a suitable node, starting from the root
      */
     private findNodeFromRoot(
         query: string,
@@ -98,7 +98,7 @@ export class SearchCache {
             return null;
         }
 
-        // Начинаем с корня и пытаемся найти самый длинный префикс
+        // Start from the root and try to find the longest prefix
         let bestMatch: SearchCacheNode | null = null;
 
         const queue: SearchCacheNode[] = [this.root];
@@ -106,12 +106,12 @@ export class SearchCache {
             const node = queue.shift()!;
 
             if (this.isCacheCompatible(node, query, matchCase, wholeWord, exclude, include)) {
-                // Если текущий узел является префиксом запроса и длиннее предыдущего лучшего совпадения
+                // If current node is a prefix of the query and longer than the previous best match
                 if (query.startsWith(node.query) && (!bestMatch || node.query.length > bestMatch.query.length)) {
                     bestMatch = node;
                 }
 
-                // Добавляем детей в очередь для проверки
+                // Add children to the queue for checking
                 for (const childNode of node.children.values()) {
                     queue.push(childNode);
                 }
@@ -119,7 +119,7 @@ export class SearchCache {
         }
 
         if (bestMatch) {
-            this.outputChannel.appendLine(`[SearchCache] Найден подходящий кеш для "${query}" в узле "${bestMatch.query}"`);
+            this.outputChannel.appendLine(`[SearchCache] Found suitable cache for "${query}" in node "${bestMatch.query}"`);
             this.currentNode = bestMatch;
             return bestMatch;
         }
@@ -128,7 +128,7 @@ export class SearchCache {
     }
 
     /**
-     * Проверяет, совместим ли кеш с новым запросом
+     * Checks if the cache is compatible with a new query
      */
     private isCacheCompatible(
         node: SearchCacheNode,
@@ -138,24 +138,24 @@ export class SearchCache {
         exclude: string | undefined,
         include: string | undefined = undefined
     ): boolean {
-        // Проверяем, начинается ли запрос с запроса из кеша
+        // Check if query starts with cache query
         if (!query.startsWith(node.query)) {
             return false;
         }
 
-        // Проверяем совместимость параметров поиска
+        // Check search parameter compatibility
         const sameCase = node.params.matchCase === matchCase;
         const sameWholeWord = node.params.wholeWord === wholeWord;
         const sameExclude = node.params.exclude === exclude;
-        // Проверяем совпадение include-паттернов
+        // Check include pattern match
         const sameInclude = node.params.include === include;
 
-        // Обязательно проверяем совпадение include, так как это критично для результатов поиска
+        // Must check include match, as it is critical for search results
         return sameCase && sameWholeWord && sameExclude && sameInclude;
     }
 
     /**
-     * Создает новый узел кеша для указанного запроса
+     * Creates a new cache node for the specified query
      */
     createCacheNode(
         query: string,
@@ -164,7 +164,7 @@ export class SearchCache {
         exclude: string | undefined,
         include: string | undefined = undefined
     ): SearchCacheNode {
-        // Ищем родительский узел
+        // Find the parent node
         const parentNode = this.findSuitableCache(query, matchCase, wholeWord, exclude, include);
 
         const newNode: SearchCacheNode = {
@@ -183,13 +183,13 @@ export class SearchCache {
             processedFiles: new Set<string>()
         };
 
-        // Если уже есть родительский узел, добавляем новый узел как ребенка
+        // If there's already a parent node, add the new node as a child
         if (parentNode) {
             parentNode.children.set(query, newNode);
 
-            // Если родительский узел завершён, копируем его результаты в новый узел
+            // If the parent node is complete, copy its results to the new node
             if (parentNode.isComplete) {
-                // Копируем только файлы, которые соответствуют новому запросу
+                // Copy only files that match the new query
                 let filteredFiles = 0;
                 let excludedFiles = 0;
 
@@ -204,37 +204,37 @@ export class SearchCache {
                 }
 
                 this.outputChannel.appendLine(
-                    `[SearchCache] Из родительского кеша "${parentNode.query}" отфильтровано ` +
-                    `${filteredFiles} файлов, исключено ${excludedFiles} файлов для запроса "${query}"`
+                    `[SearchCache] From parent cache "${parentNode.query}" filtered ` +
+                    `${filteredFiles} files, excluded ${excludedFiles} files for query "${query}"`
                 );
 
-                // Копируем список обработанных файлов
+                // Copy the list of processed files
                 parentNode.processedFiles.forEach(file => {
                     newNode.processedFiles.add(file);
                 });
             } else {
                 this.outputChannel.appendLine(
-                    `[SearchCache] Родительский кеш "${parentNode.query}" не завершен, ` +
-                    `дополнительный поиск будет выполнен для запроса "${query}"`
+                    `[SearchCache] Parent cache "${parentNode.query}" is not complete, ` +
+                    `additional search will be performed for query "${query}"`
                 );
             }
         } else {
-            // Если родительский узел не найден, этот узел становится корнем
+            // If no parent node found, this node becomes the root
             this.root = newNode;
         }
 
         this.currentNode = newNode;
         this.size++;
 
-        // Обрезаем кеш, если он слишком большой
+        // Trim the cache if it's too large
         this.pruneCache();
 
-        this.outputChannel.appendLine(`[SearchCache] Создан новый узел кеша для запроса "${query}" с include="${include || 'not set'}"`);
+        this.outputChannel.appendLine(`[SearchCache] Created new cache node for query "${query}" with include="${include || 'not set'}"`);
         return newNode;
     }
 
     /**
-     * Добавляет результат в текущий кеш
+     * Adds a result to the current cache
      */
     addResult(result: TransformResultEvent): void {
         if (!this.currentNode || !result.file) {
@@ -243,30 +243,30 @@ export class SearchCache {
 
         const uri = result.file.toString();
 
-        // Добавляем только если есть совпадения
+        // Add only if there are matches
         if (result.matches && result.matches.length > 0) {
             this.currentNode.results.set(uri, result);
-            this.outputChannel.appendLine(`[SearchCache] Добавлен результат для файла ${uri}`);
+            this.outputChannel.appendLine(`[SearchCache] Added result for file ${uri}`);
         } else {
             this.currentNode.excludedFiles.add(uri);
         }
 
-        // Добавляем файл в список обработанных
+        // Add file to the list of processed files
         this.currentNode.processedFiles.add(uri);
     }
 
     /**
-     * Помечает текущий узел кеша как завершенный
+     * Marks the current cache node as complete
      */
     markCurrentAsComplete(): void {
         if (this.currentNode) {
             this.currentNode.isComplete = true;
-            this.outputChannel.appendLine(`[SearchCache] Узел "${this.currentNode.query}" помечен как завершенный`);
+            this.outputChannel.appendLine(`[SearchCache] Node "${this.currentNode.query}" marked as complete`);
         }
     }
 
     /**
-     * Проверяет, содержит ли результат искомую строку
+     * Checks if the result contains the search string
      */
     private resultMatchesQuery(
         result: TransformResultEvent,
@@ -278,7 +278,7 @@ export class SearchCache {
             return false;
         }
 
-        // Проверяем каждое совпадение на точное соответствие новому запросу
+        // Check each match for exact match with the new query
         const hasMatch = result.matches.some(match => {
             const queryLength = query.length;
             const matchTextLength = match.end - match.start;
@@ -286,22 +286,22 @@ export class SearchCache {
             const newMatchEnd = Math.max(match.end + (queryLength - matchTextLength));
             const matchText = result.source!.substring(newMatchStart, newMatchEnd);
 
-            // Для строгого сравнения при уточняющем поиске
+            // For strict comparison in refined search
             if (!matchCase) {
-                // При поиске без учета регистра используем toLowerCase для обоих строк
+                // When searching without case consideration, use toLowerCase for both strings
                 const lowerText = matchText.toLowerCase();
                 const lowerQuery = query.toLowerCase();
 
                 if (wholeWord) {
-                    // Для целых слов проверяем соответствие с учетом границ слов
+                    // For whole words, check word boundary match with case consideration
                     const wordBoundaryRegex = new RegExp(`\\b${escapeRegExp(lowerQuery)}\\b`, "i");
                     return wordBoundaryRegex.test(lowerText);
                 } else {
-                    // Для обычного поиска проверяем, содержится ли запрос в совпадении
+                    // For regular search, check if query is included in the match
                     return lowerText.includes(lowerQuery);
                 }
             } else {
-                // Поиск с учетом регистра - прямое сравнение
+                // Case-sensitive search - direct comparison
                 if (wholeWord) {
                     const wordBoundaryRegex = new RegExp(`\\b${escapeRegExp(query)}\\b`);
                     return wordBoundaryRegex.test(matchText);
@@ -311,12 +311,12 @@ export class SearchCache {
             }
         });
 
-        // Логирование результата
+        // Logging result
         if (result.file) {
             const fileName = result.file.toString().split('/').pop() || result.file.toString();
             this.outputChannel.appendLine(
-                `[SearchCache] Запрос "${query}" для файла ${fileName}: ` +
-                `${hasMatch ? 'совпадение найдено' : 'совпадение НЕ найдено'}`
+                `[SearchCache] Query "${query}" for file ${fileName}: ` +
+                `${hasMatch ? 'match found' : 'match NOT found'}`
             );
         }
 
@@ -324,17 +324,17 @@ export class SearchCache {
     }
 
     /**
-     * Очищает весь кеш
+     * Clears the entire cache
      */
     clearCache(): void {
         this.root = null;
         this.currentNode = null;
         this.size = 0;
-        this.outputChannel.appendLine(`[SearchCache] Кеш очищен`);
+        this.outputChannel.appendLine(`[SearchCache] Cache cleared`);
     }
 
     /**
-     * Очищает кеш для конкретного файла
+     * Clears the cache for a specific file
      */
     clearCacheForFile(fileUri: vscode.Uri): void {
         if (!this.root) {
@@ -342,16 +342,16 @@ export class SearchCache {
         }
 
         const filePath = fileUri.toString();
-        this.outputChannel.appendLine(`[SearchCache] Очистка кеша для файла ${filePath}`);
+        this.outputChannel.appendLine(`[SearchCache] Clearing cache for file ${filePath}`);
 
-        // Очищаем кеш рекурсивно для всех узлов
+        // Clear cache recursively for all nodes
         const clearRecursive = (node: SearchCacheNode) => {
-            // Удаляем файл из результатов
+            // Remove file from results
             node.results.delete(filePath);
             node.processedFiles.delete(filePath);
             node.excludedFiles.delete(filePath);
 
-            // Очищаем для всех дочерних узлов
+            // Clear for all child nodes
             for (const childNode of node.children.values()) {
                 clearRecursive(childNode);
             }
@@ -361,19 +361,19 @@ export class SearchCache {
     }
 
     /**
-     * Проверяет, нужно ли обрабатывать файл при поиске
+     * Checks if a file needs to be processed when searching
      */
     shouldProcessFile(filePath: string): boolean {
         if (!this.currentNode) {
             return true;
         }
 
-        // Если файл уже обработан в текущем узле
+        // If file is already processed in the current node
         if (this.currentNode.processedFiles.has(filePath)) {
             return false;
         }
 
-        // Если файл исключен в текущем узле
+        // If file is excluded in the current node
         if (this.currentNode.excludedFiles.has(filePath)) {
             return false;
         }
@@ -382,16 +382,16 @@ export class SearchCache {
     }
 
     /**
-     * Обрезает кеш, если он стал слишком большим
+     * Trims the cache if it's too large
      */
     private pruneCache(): void {
         if (this.size <= this.maxSize) {
             return;
         }
 
-        this.outputChannel.appendLine(`[SearchCache] Обрезка кеша (текущий размер: ${this.size})`);
+        this.outputChannel.appendLine(`[SearchCache] Cache trimming (current size: ${this.size})`);
 
-        // Находим листовые узлы и сортируем их по времени последнего использования
+        // Find leaf nodes and sort them by last usage time
         const leafNodes: SearchCacheNode[] = [];
 
         const findLeafNodes = (node: SearchCacheNode) => {
@@ -408,7 +408,7 @@ export class SearchCache {
             findLeafNodes(this.root);
         }
 
-        // Удаляем самые старые листовые узлы
+        // Remove the oldest leaf nodes
         while (this.size > this.maxSize && leafNodes.length > 0) {
             const nodeToRemove = leafNodes.shift()!;
 
@@ -419,40 +419,40 @@ export class SearchCache {
             }
 
             this.size--;
-            this.outputChannel.appendLine(`[SearchCache] Удален узел для запроса "${nodeToRemove.query}"`);
+            this.outputChannel.appendLine(`[SearchCache] Removed node for query "${nodeToRemove.query}"`);
         }
     }
 
     /**
-     * Получает результаты из текущего кеша
+     * Gets results from the current cache
      */
     getCurrentResults(): Map<string, TransformResultEvent> | null {
         return this.currentNode ? this.currentNode.results : null;
     }
 
     /**
-     * Получает текущий узел кеша
+     * Gets the current cache node
      */
     getCurrentNode(): SearchCacheNode | null {
         return this.currentNode;
     }
 
     /**
-     * Получает список файлов, которые уже обработаны в текущем кеше
+     * Gets the list of files that have already been processed in the current cache
      */
     getProcessedFiles(): Set<string> {
         return this.currentNode ? this.currentNode.processedFiles : new Set<string>();
     }
 
     /**
-     * Получает список исключенных файлов
+     * Gets the list of excluded files
      */
     getExcludedFiles(): Set<string> {
         return this.currentNode ? this.currentNode.excludedFiles : new Set<string>();
     }
 
     /**
-     * Возвращает признак завершённости текущего поиска
+     * Returns the completion flag of the current search
      */
     isCurrentSearchComplete(): boolean {
         return this.currentNode ? this.currentNode.isComplete : false;
@@ -460,7 +460,7 @@ export class SearchCache {
 }
 
 /**
- * Экранирует спецсимволы регулярных выражений
+ * Escapes special characters from regular expressions
  */
 function escapeRegExp(string: string): string {
     return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

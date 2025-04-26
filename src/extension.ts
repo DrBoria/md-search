@@ -59,7 +59,7 @@ export class AstxExtension {
   private externalFsWatcher: vscode.FileSystemWatcher | undefined
   // Store cut/copied matches
   private matchesBuffer: string[] = []
-  // Новый флаг для отслеживания первого запуска поиска
+  // New flag to track the first search run
   private firstSearchExecuted = false
 
   constructor(public context: vscode.ExtensionContext) {
@@ -172,11 +172,11 @@ export class AstxExtension {
         `[Debug] Setting params: find="${params.find}", replace="${params.replace}", searchInResults=${params.searchInResults}`
       )
 
-      // Очищаем кеш поиска при изменении параметров (matchCase, wholeWord)
+      // Clear search cache when search parameters change (matchCase, wholeWord)
       if (params.matchCase !== this.params.matchCase || 
           params.wholeWord !== this.params.wholeWord ||
           params.exclude !== this.params.exclude) {
-        this.channel.appendLine(`[Cache] Очистка кеша из-за изменения параметров поиска`);
+        this.channel.appendLine(`[Cache] Clearing cache due to search parameter changes`);
         this.runner.clearCache();
       }
 
@@ -373,7 +373,7 @@ export class AstxExtension {
   }
 
   async deactivate(): Promise<void> {
-    // Очищаем workspaceState при закрытии VS Code
+    // Clear workspaceState when VS Code is closed
     if (this.context.workspaceState) {
       await this.context.workspaceState.update(
         'searchReplaceViewState',
@@ -433,7 +433,7 @@ export class AstxExtension {
     }, 500)
   }
 
-  // Обновленный метод replace с оптимизациями для текстового режима
+  // Updated replace method with optimizations for text mode
   async replace(): Promise<void> {
     if (this.replacing) return
     this.replacing = true
@@ -441,10 +441,10 @@ export class AstxExtension {
       // Get current parameters
       const params = this.getParams()
 
-      // Проверяем, не вызван ли replace в режиме замены (из cut или paste)
+      // Check if replace was called in replacement mode (from cut or paste)
       const isReplacementOperation = params.isReplacement === true
 
-      // Проверяем replace строку только если это не операция замены
+      // Check replace string only if this is not a replacement operation
       if (!isReplacementOperation && !params.replace) {
         // Don't do anything if replace string is empty
         this.channel.appendLine('Replace cancelled: Replace string is empty.')
@@ -543,7 +543,7 @@ export class AstxExtension {
           totalFilesChanged
         )
 
-        // Очищаем результаты поиска только если это не операция вырезания
+        // Clear search results only if this is not a cut operation
         if (!isReplacementOperation) {
           this.transformResultProvider.clear()
         }
@@ -565,7 +565,7 @@ export class AstxExtension {
   handleFsChange = (uri: vscode.Uri): void => {
     const { transformFile } = this.getParams()
 
-    // Проверяем, не в режиме ли замены мы находимся
+    // Check if we are in replace mode
     if (this.replacing) {
       this.channel.appendLine(
         `[Debug] File changed during replace: ${uri.fsPath}`
@@ -574,7 +574,7 @@ export class AstxExtension {
       return
     }
 
-    // Если это изменение трансформационного файла
+    // If this is a transformation file change
     if (
       transformFile &&
       uri.toString() === this.resolveFsPath(transformFile).toString()
@@ -583,25 +583,25 @@ export class AstxExtension {
       return
     }
 
-    // Очищаем кеш для измененного файла
+    // Clear cache for changed file
     this.runner.clearCacheForFile(uri)
-    this.channel.appendLine(`[Cache] Очищен кеш для измененного файла: ${uri.fsPath}`)
+    this.channel.appendLine(`[Cache] Cache cleared for modified file: ${uri.fsPath}`)
 
-    // Нормальная обработка, независимо от видимости представления поиска
-    // Это обеспечивает актуальность данных даже если UI закрыт
-    // Поскольку handleChange был удален в SearchRunner, просто запускаем runSoon
+    // Normal processing, regardless of search view visibility
+    // This ensures data stays current even if UI is closed
+    // Since handleChange was removed in SearchRunner, just run runSoon
     this.runner.runSoon()
   }
 
   handleTextDocumentChange = (e: vscode.TextDocumentChangeEvent): void => {
-    // Очищаем кеш для измененного документа
+    // Clear cache for modified document
     this.runner.clearCacheForFile(e.document.uri)
     
-    // Обновляем все зависимые документы
+    // Update all dependent documents
     this.runner.updateDocumentsForChangedFile(e.document.uri)
   }
 
-  // Метод для копирования всех найденных совпадений в буфер
+  // Method for copying all found matches to buffer
   async copyMatches(): Promise<number> {
     this.channel.appendLine('Copying all matches to buffer...')
     const resultsMap = this.transformResultProvider.results
@@ -618,7 +618,7 @@ export class AstxExtension {
       }
     }
 
-    // Копируем ВСЕ совпадения в системный буфер обмена, разделенные новой строкой
+    // Copy ALL matches to system clipboard, separated by new line
     if (this.matchesBuffer.length > 0) {
       const clipboardText = this.matchesBuffer.join('\n\n')
       await vscode.env.clipboard.writeText(clipboardText)
@@ -628,14 +628,14 @@ export class AstxExtension {
     return count
   }
 
-  // Метод для вырезания всех найденных совпадений в буфер
+  // Method for cutting all found matches to buffer
   async cutMatches(): Promise<number> {
     this.channel.appendLine('Cutting all matches to buffer...')
     const resultsMap = this.transformResultProvider.results
     this.matchesBuffer = []
     let count = 0
 
-    // Сначала копируем все совпадения в буфер
+    // First copy all matches to buffer
     for (const [uriString, result] of resultsMap.entries()) {
       if (result.matches && result.matches.length > 0 && result.source) {
         for (const match of result.matches) {
@@ -646,28 +646,28 @@ export class AstxExtension {
       }
     }
 
-    // Копируем ВСЕ совпадения в системный буфер обмена, разделенные новой строкой
+    // Copy ALL matches to system clipboard, separated by new line
     if (this.matchesBuffer.length > 0) {
       const clipboardText = this.matchesBuffer.join('\n\n')
       await vscode.env.clipboard.writeText(clipboardText)
     }
 
-    // Теперь выполняем замену на пустую строку
+    // Now replace with empty string
     if (count > 0) {
-      // Сохраняем текущие параметры
+      // Save current parameters
       const originalReplace = this.params.replace
 
-      // Устанавливаем пустую строку для замены
+      // Set empty string for replacement
       this.setParams({
         ...this.params,
         replace: '',
         isReplacement: true,
       })
 
-      // Выполняем замену
+      // Perform replacement
       await this.replace()
 
-      // Восстанавливаем параметры
+      // Restore parameters
       this.setParams({
         ...this.params,
         replace: originalReplace,
@@ -679,9 +679,9 @@ export class AstxExtension {
     return count
   }
 
-  // Метод для вставки значения из буфера во все найденные совпадения
+  // Method for pasting buffer value to all found matches
   async pasteToMatches(): Promise<number> {
-    // Получаем текст из системного буфера обмена
+    // Get text from system clipboard
     const clipboardText = await vscode.env.clipboard.readText()
 
     if (clipboardText.length === 0) {
@@ -693,7 +693,7 @@ export class AstxExtension {
       `Pasting ${clipboardText.length} values from buffer to matches...`
     )
 
-    // Используем текущие matches и прямую замену вместо регулярных выражений
+    // Use current matches and direct replacement instead of regular expressions
     const resultsMap = this.transformResultProvider.results
     let totalReplacements = 0
     let totalFilesChanged = 0
@@ -706,11 +706,11 @@ export class AstxExtension {
         modificationPromises.push(
           (async () => {
             try {
-              // Читаем содержимое файла напрямую
+              // Read file content directly
               const contentBytes = await vscode.workspace.fs.readFile(uri)
               const originalContent = Buffer.from(contentBytes).toString('utf8')
 
-              // Обрабатываем совпадения в обратном порядке, чтобы индексы не сбивались
+              // Process matches in reverse order to avoid shifting indices
               const sortedMatches = [...result.matches].sort(
                 (a, b) => b.start - a.start
               )
@@ -718,13 +718,13 @@ export class AstxExtension {
               let newContent = originalContent
               let replacementsInFile = 0
 
-              // Применяем замены к каждому совпадению
+              // Apply replacements to each match
               for (let i = 0; i < sortedMatches.length; i++) {
                 const match = sortedMatches[i]
-                // Берем значение из буфера циклично
+                // Take value from buffer cyclically
                 const replaceValue = clipboardText[i % clipboardText.length]
 
-                // Делаем прямую замену без каких-либо модификаций
+                // Make direct replacement without any modifications
                 newContent =
                   newContent.substring(0, match.start) +
                   replaceValue +
@@ -733,7 +733,7 @@ export class AstxExtension {
                 replacementsInFile++
               }
 
-              // Записываем изменения только если они действительно есть
+              // Write changes only if they actually exist
               if (newContent !== originalContent) {
                 this.channel.appendLine(
                   `Replacing ${replacementsInFile} matches in: ${uri.fsPath}`
@@ -741,7 +741,7 @@ export class AstxExtension {
                 totalReplacements += replacementsInFile
                 totalFilesChanged++
 
-                // Записываем напрямую в файл
+                // Write directly to file
                 const newContentBytes = Buffer.from(newContent, 'utf8')
                 await vscode.workspace.fs.writeFile(uri, newContentBytes)
               }
@@ -757,10 +757,10 @@ export class AstxExtension {
       }
     }
 
-    // Ждем завершения всех операций с файлами
+    // Wait for all file operations to complete
     await Promise.all(modificationPromises)
 
-    // Отправляем сообщение в webview с результатами замены
+    // Send message to webview with replacement results
     this.searchReplaceViewProvider.notifyReplacementComplete(
       totalReplacements,
       totalFilesChanged
@@ -773,7 +773,7 @@ export class AstxExtension {
     return totalFilesChanged
   }
 
-  // Метод для получения буфера совпадений
+  // Method for getting matches buffer
   getMatchesBuffer(): string[] {
     return [...this.matchesBuffer]
   }

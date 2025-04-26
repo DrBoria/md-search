@@ -2,17 +2,17 @@ import * as React from 'react'
 import ReactDOM from 'react-dom/client'
 import SearchReplaceViewController from './SearchReplaceViewController'
 
-// Импортируем стили для иконок
+// Import icon styles
 import '@vscode/codicons/dist/codicon.css'
-// Импортируем vscode-material-icons вместо file-icons-js
+// Import vscode-material-icons instead of file-icons-js
 import { getIconForFilePath, getIconUrlForFilePath } from 'vscode-material-icons'
 
-// Создаем обертку для совместимости типов
+// Create wrapper for type compatibility
 const getIconUrlWrapper = (filePath: string, iconsBasePath?: string): string => {
   return getIconUrlForFilePath(filePath, iconsBasePath || '/material-icons');
 };
 
-// Экспортируем иконки в глобальное пространство для использования в компонентах
+// Export icons to global space for use in components
 // @ts-ignore
 window.MaterialIcons = {
   getIconForFilePath,

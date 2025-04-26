@@ -921,6 +921,34 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     const [matchCase, setMatchCase] = useState(values.matchCase);
     const [wholeWord, setWholeWord] = useState(values.wholeWord);
 
+    // State for dropdown menu
+    const [optionsMenuOpen, setOptionsMenuOpen] = useState(false);
+    
+    // Ref для меню опций
+    const optionsMenuRef = useRef<HTMLDivElement>(null);
+    
+    // Закрыть меню при клике вне его области или нажатии клавиши Escape
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (optionsMenuRef.current && !optionsMenuRef.current.contains(event.target as Node)) {
+                setOptionsMenuOpen(false);
+            }
+        };
+        
+        const handleEscapeKey = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                setOptionsMenuOpen(false);
+            }
+        };
+        
+        document.addEventListener('mousedown', handleClickOutside);
+        document.addEventListener('keydown', handleEscapeKey);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+            document.removeEventListener('keydown', handleEscapeKey);
+        };
+    }, []);
+
     // --- Throttling для обновления результатов ---
     const throttleTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const pendingResultsRef = useRef<Record<string, SerializedTransformResultEvent[]>>({});
@@ -1545,7 +1573,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
         // Filter the children of the root node
         const rootChildren = unfilteredFileTree.children
             .map(filterTreeForMatches)
-            .filter(Boolean) as FileTreeNode[];
+            .filter(Boolean) as FileTreeNode[]; // Filter out nulls
         // Sort root children again after filtering
         rootChildren.sort((a, b) => {
             if (a.type !== b.type) {
@@ -2604,36 +2632,114 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                 className={css` flex-grow: 1; `} // Make text area grow
                             />
                             {/* Search Options Buttons */}
-                            <VSCodeButton
-                                appearance={matchCase ? "secondary" : "icon"}
-                                onClick={toggleMatchCase}
-                                title="Match Case (Aa)"
-                                disabled={!isTextMode} // Only enable in text mode
-                            >
-                                <span className="codicon codicon-case-sensitive" />
-                            </VSCodeButton>
-                            <VSCodeButton
-                                appearance={wholeWord ? "secondary" : "icon"}
-                                onClick={toggleWholeWord}
-                                title="Match Whole Word (Ab)"
-                                disabled={!isTextMode} // Only enable in text mode
-                            >
-                                <span className="codicon codicon-whole-word" />
-                            </VSCodeButton>
-                            <VSCodeButton
-                                appearance={currentSearchMode === 'regex' ? "secondary" : "icon"}
-                                onClick={() => handleModeChange('regex')}
-                                title="Use Regular Expression (.*)"
-                            >
-                                <span className="codicon codicon-regex" />
-                            </VSCodeButton>
-                            <VSCodeButton
-                                appearance={isAstxMode ? "secondary" : "icon"}
-                                onClick={() => handleModeChange('astx')}
-                                title="Use AST Search (<*>)"
-                            >
-                                <span className="codicon codicon-symbol-struct" />{/* Or another suitable icon */}
-                            </VSCodeButton>
+                            <div className={css` position: relative; `}>
+                                <VSCodeButton
+                                    appearance="icon"
+                                    onClick={() => setOptionsMenuOpen(!optionsMenuOpen)}
+                                    title="Search Options"
+                                    className={css`
+                                        position: relative;
+                                        ${(matchCase || wholeWord || currentSearchMode !== 'text') ? 'color: var(--vscode-button-foreground);' : ''}
+                                        ${(matchCase || wholeWord || currentSearchMode !== 'text') ? 'background-color: var(--vscode-button-secondaryBackground);' : ''}
+                                    `}
+                                >
+                                    <span className="codicon codicon-settings-gear" />
+                                    {(matchCase || wholeWord || currentSearchMode !== 'text') && (
+                                        <span className={css`
+                                            position: absolute;
+                                            bottom: 0;
+                                            right: 0;
+                                            width: 6px;
+                                            height: 6px;
+                                            border-radius: 50%;
+                                            background-color: var(--vscode-activityBarBadge-background);
+                                        `} />
+                                    )}
+                                </VSCodeButton>
+                                
+                                {optionsMenuOpen && (
+                                    <div ref={optionsMenuRef} className={css`
+                                        position: absolute;
+                                        right: 0;
+                                        top: 100%;
+                                        background-color: var(--vscode-dropdown-background);
+                                        border: 1px solid var(--vscode-dropdown-border);
+                                        z-index: 10;
+                                        display: flex;
+                                        flex-direction: column;
+                                        min-width: 200px;
+                                        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+                                    `}>
+                                        <div className={css`
+                                            padding: 6px 8px;
+                                            display: flex;
+                                            align-items: center;
+                                            cursor: pointer;
+                                            &:hover {
+                                                background-color: var(--vscode-list-hoverBackground);
+                                            }
+                                        `} onClick={toggleMatchCase}>
+                                            <span className={css`
+                                                visibility: ${matchCase ? 'visible' : 'hidden'};
+                                                margin-right: 8px;
+                                            `}>✓</span>
+                                            <span className="codicon codicon-case-sensitive" style={{ marginRight: '8px' }}></span>
+                                            <span>Match Case (Aa)</span>
+                                        </div>
+                                        
+                                        <div className={css`
+                                            padding: 6px 8px;
+                                            display: flex;
+                                            align-items: center;
+                                            cursor: pointer;
+                                            &:hover {
+                                                background-color: var(--vscode-list-hoverBackground);
+                                            }
+                                        `} onClick={toggleWholeWord}>
+                                            <span className={css`
+                                                visibility: ${wholeWord ? 'visible' : 'hidden'};
+                                                margin-right: 8px;
+                                            `}>✓</span>
+                                            <span className="codicon codicon-whole-word" style={{ marginRight: '8px' }}></span>
+                                            <span>Match Whole Word (Ab)</span>
+                                        </div>
+                                        
+                                        <div className={css`
+                                            padding: 6px 8px;
+                                            display: flex;
+                                            align-items: center;
+                                            cursor: pointer;
+                                            &:hover {
+                                                background-color: var(--vscode-list-hoverBackground);
+                                            }
+                                        `} onClick={() => { handleModeChange('regex'); setOptionsMenuOpen(false); }}>
+                                            <span className={css`
+                                                visibility: ${currentSearchMode === 'regex' ? 'visible' : 'hidden'};
+                                                margin-right: 8px;
+                                            `}>✓</span>
+                                            <span className="codicon codicon-regex" style={{ marginRight: '8px' }}></span>
+                                            <span>Use Regular Expression (.*)</span>
+                                        </div>
+                                        
+                                        <div className={css`
+                                            padding: 6px 8px;
+                                            display: flex;
+                                            align-items: center;
+                                            cursor: pointer;
+                                            &:hover {
+                                                background-color: var(--vscode-list-hoverBackground);
+                                            }
+                                        `} onClick={() => { handleModeChange('astx'); setOptionsMenuOpen(false); }}>
+                                            <span className={css`
+                                                visibility: ${isAstxMode ? 'visible' : 'hidden'};
+                                                margin-right: 8px;
+                                            `}>✓</span>
+                                            <span className="codicon codicon-symbol-struct" style={{ marginRight: '8px' }}></span>
+                                            <span>Use AST Search ({'<*>'})</span>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                         {/* --- Replace Input Row --- */}
                         {isReplaceVisible && (
