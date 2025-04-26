@@ -848,7 +848,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
         // Default values first
         find: '', replace: '', paused: false, include: '', exclude: '',
         parser: 'babel', prettier: true, babelGeneratorHack: false, preferSimpleReplacement: false,
-        searchMode: 'text', matchCase: false, wholeWord: false, searchInResults: false,
+        searchMode: 'text', matchCase: false, wholeWord: false, searchInResults: 0,
         // Then override with loaded state if available
         // ...(initialState.values || {}),
     });
@@ -1677,7 +1677,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
 
             // Если возвращаемся к корневому поиску
             if (isReturningToRoot) {
-                postValuesChange({ searchInResults: false });
+                postValuesChange({ searchInResults: 0 });
 
                 // Перезапускаем поиск для корневого уровня
                 if (targetLevel.values.find) {
@@ -1685,7 +1685,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                         vscode.postMessage({
                             type: 'search',
                             ...targetLevel.values,
-                            searchInResults: false
+                            searchInResults: 0
                         });
                     }, 100);
                 }
@@ -1700,7 +1700,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                     vscode.postMessage({
                         type: 'search',
                         ...targetLevel.values,
-                        searchInResults: true
+                        searchInResults: prev.length - 2
                     });
                 }, 100);
             }
@@ -1749,7 +1749,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                 const currentLevel = newLevels[newLevels.length - 1];
                 const updatedValues = {
                     ...currentLevel.values,
-                    searchInResults: true
+                    searchInResults: newLevels.length - 1
                 };
 
                 // Отправляем обновленные значения в расширение
@@ -2401,7 +2401,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                 onClick={() => {
                                     // Jump back to root search
                                     setSearchLevels((prev: SearchLevel[]) => [prev[0]]);
-                                    postValuesChange({ searchInResults: false });
+                                    postValuesChange({ searchInResults: 0 });
                                     // Trigger a new search to update results
                                     if (values.find) {
                                         // Небольшая задержка, чтобы интерфейс успел обновиться
@@ -2409,7 +2409,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                             vscode.postMessage({
                                                 type: 'search',
                                                 ...values,
-                                                searchInResults: false
+                                                searchInResults: 0
                                             });
                                         }, 100);
                                     }
@@ -2443,7 +2443,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                             if (index < searchLevels.length - 2) {
                                                 const targetLevel = searchLevels[index + 1];
                                                 setSearchLevels((prev: SearchLevel[]) => prev.slice(0, index + 2));
-                                                postValuesChange({ searchInResults: true });
+                                                postValuesChange({ searchInResults: 1 });
 
                                                 // Trigger a new search to update results for this level
                                                 if (targetLevel.values.find) {
@@ -2451,7 +2451,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                                         vscode.postMessage({
                                                             type: 'search',
                                                             ...targetLevel.values,
-                                                            searchInResults: true
+                                                            searchInResults: 1
                                                         });
                                                     }, 100);
                                                 }

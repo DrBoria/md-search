@@ -33,7 +33,7 @@ export type Params = {
   searchMode: 'text' | 'regex' | 'astx'
   matchCase: boolean
   wholeWord: boolean
-  searchInResults?: boolean
+  searchInResults?: number
   isReplacement?: boolean
 }
 
@@ -68,8 +68,9 @@ export class AstxExtension {
       find: '',
       isReplacement: false,
       matchCase: false,
-      searchInResults: false,
+      searchInResults: 0,
       searchMode: 'text',
+      wholeWord: false,
       // ...Object.fromEntries(paramsInConfig.map((p) => [p, config[p]])),
     } as Params
     this.isProduction =

@@ -79,7 +79,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
   private pausedRestart = false
   private abortController: AbortController | undefined
   private processedFiles: Set<string> = new Set()
-  private previousSearchFiles: Set<string> = new Set()
+  private previousSearchFiles: Array<Set<string>> = [new Set()]
   private transformResults: Map<
     string,
     {
@@ -520,8 +520,17 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
     // Обновляем индекс файлов при изменении файла
     this.updateFileIndexForChanges(fileUri)
 
-    // Если файл был в предыдущих результатах, обновляем его в результатах
-    if (this.previousSearchFiles.has(fileUri.fsPath)) {
+    // Проверяем наличие файла в предыдущих результатах любого уровня
+    let fileInPreviousResults = false;
+    for (const fileSet of this.previousSearchFiles) {
+      if (fileSet.has(fileUri.fsPath)) {
+        fileInPreviousResults = true;
+        break;
+      }
+    }
+
+    // Если файл был в предыдущих результатах, обновляем его
+    if (fileInPreviousResults) {
       this.refreshFileSourceInSearchResults(fileUri).catch((error) => {
         this.extension.channel.appendLine(
           `Failed to update file in search results: ${
@@ -955,7 +964,8 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
 
       // Если не отменен, добавляем файлы с совпадениями в предыдущие результаты
       if (!this.abortController?.signal.aborted) {
-        filesWithMatches.forEach((file) => this.previousSearchFiles.add(file))
+        // Уровень 0 - всегда для исходного поиска
+        this.previousSearchFiles[0] = new Set(filesWithMatches);
       }
 
       // Логируем результаты
@@ -1149,22 +1159,22 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       this.extension.channel.appendLine(`[DEBUG] Exclude pattern: ${excludePattern}`);
 
       // Если mode = searchInResults, выполняем поиск только в предыдущих результатах
-      if (this.params.searchInResults && this.previousSearchFiles.size > 0) {
-        this.extension.channel.appendLine(
-          `Searching in previous results (${this.previousSearchFiles.size} files).`
-        )
-
-        // Запускаем текстовый поиск в предыдущих результатах
-        void this.runTextSearchInPreviousResults(FsImpl, abortController.signal)
-        return
+      if (this.params.searchInResults !== undefined && typeof this.params.searchInResults === 'number') {
+        const searchLevel = this.params.searchInResults;
+        const maxAvailableLevel = this.previousSearchFiles.length - 1;
+        
+        // Проверяем доступность уровня
+        if (searchLevel > 0) {
+          // Запускаем текстовый поиск в предыдущих результатах
+          void this.runTextSearchInPreviousResults(FsImpl, abortController.signal, searchLevel)
+          return
+        } else {
+          this.extension.channel.appendLine(
+            `Invalid search level ${searchLevel}. Available levels: 0 to ${maxAvailableLevel}.`
+          )
+        }
       }
 
-      // Обычный поиск по всем файлам
-      this.extension.channel.appendLine(
-        `Starting search with mode=${this.params.searchMode}.`
-      )
-
-      // Запускаем текстовый поиск (единственный поддерживаемый режим после оптимизации)
       void this.runTextSearch(
         FsImpl,
         includePattern,
@@ -1180,19 +1190,20 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
     }
   }
 
-  // Новый метод: Поиск в предыдущих результатах (текстовый)
+  // Поиск в предыдущих результатах (текстовый)
   private async runTextSearchInPreviousResults(
     FsImpl: any,
-    cancellationToken: AbortSignal
+    cancellationToken: AbortSignal,
+    searchLevel = 0
   ): Promise<void> {
     const startTime = Date.now()
     this.extension.channel.appendLine(
-      'Starting text search in previous results...'
+      `Starting text search in previous results (level ${searchLevel})...`
     )
 
     try {
-      // Создаем список URI файлов из предыдущих результатов
-      const fileUris = Array.from(this.previousSearchFiles).map((path) =>
+      // Создаем список URI файлов из предыдущих результатов выбранного уровня
+      const fileUris = Array.from(this.previousSearchFiles[searchLevel - 1]).map((path) =>
         vscode.Uri.file(path)
       )
 
@@ -1207,18 +1218,23 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       )
 
       // Выполняем текстовый поиск только в файлах с предыдущими совпадениями
-      const filesWithMatches = await this.textSearchRunner.performTextSearch(
+      // Используем специальный метод без кеша для гарантированной обработки всех файлов
+      const filesWithMatches = await this.textSearchRunner.performTextSearchWithoutCache(
         this.params,
         fileUris,
         FsImpl,
         (message) => this.extension.channel.appendLine(message)
       )
 
-      // Обновляем список файлов с совпадениями
+      // Обновляем список файлов с совпадениями для текущего или нового уровня
       if (!cancellationToken.aborted) {
-        // Очищаем предыдущие результаты и сохраняем только новые
-        this.previousSearchFiles.clear()
-        filesWithMatches.forEach((file) => this.previousSearchFiles.add(file))
+        this.previousSearchFiles[searchLevel] = new Set(filesWithMatches);
+        
+        // Если нужно создать новый уровень
+        if (searchLevel < this.previousSearchFiles.length + 1) {
+          // Удаляем все последующие уровни, так как они становятся недействительными
+          this.previousSearchFiles.splice(searchLevel + 1);
+        }
       }
 
       const duration = Date.now() - startTime

@@ -40,7 +40,7 @@ export interface SearchReplaceViewValues {
   searchMode: 'astx' | 'text' | 'regex'
   matchCase: boolean
   wholeWord: boolean
-  searchInResults: boolean
+  searchInResults: number
   isReplacement?: boolean
 }
 

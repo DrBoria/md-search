@@ -172,6 +172,10 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
             filesWithMatches.add(result.file.toString())
             this.handleResult(result)
             addedResults++;
+            
+            // Добавляем явный вызов emit для кешированных результатов, чтобы гарантировать, что UI получит данные
+            this.emit('result', result)
+            logMessage(`[DEBUG] Отправлен результат из кеша для файла: ${result.file.fsPath}`)
           }
         }
         
@@ -389,7 +393,18 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
       // Индексируем файл перед обработкой - это позволит индексировать все просканированные файлы
       this.indexSingleFile(file, logMessage)
 
-      source = await FsImpl.readFile(file, 'utf8')
+      // Обработка пути файла, удаление префикса file:// при необходимости
+      let normalizedPath = file
+      if (normalizedPath.startsWith('file:///')) {
+        // Преобразуем URI в путь файловой системы
+        normalizedPath = normalizedPath.replace(/^file:\/\/\//, '/')
+        // На macOS и других Unix-системах может потребоваться удалить первый слеш
+        if (process.platform === 'darwin' || process.platform === 'linux') {
+          normalizedPath = normalizedPath.replace(/^\//, '')
+        }
+      }
+
+      source = await FsImpl.readFile(normalizedPath, 'utf8')
       if (signal.aborted) return
       
       // Дополнительное логирование для TS и JS файлов
@@ -445,6 +460,10 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
           )
 
           this.handleResult(result)
+          
+          // Добавляем явный вызов emit, чтобы гарантировать отправку результатов на клиент
+          this.emit('result', result)
+          logMessage(`[DEBUG] Отправлен результат для файла: ${file}`)
         }
 
         onProgress(1) // Сообщаем о прогрессе (1 файл)
@@ -508,6 +527,11 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
     if (currentNode && result.matches && result.matches.length > 0 && result.source) {
       const { query, params } = currentNode
       
+      // Добавляем отладочный лог
+      this.extension.channel.appendLine(
+        `[DEBUG] Обработка результата для ${file.fsPath} с ${result.matches.length} совпадениями. Текущий запрос: "${query}"`
+      )
+      
       // Фильтруем совпадения, чтобы показывать только те, которые соответствуют текущему запросу
       const filteredMatches = result.matches.filter(match => {
         const matchText = result.source!.substring(match.start, match.end)
@@ -543,10 +567,20 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
       
       // Обновляем результат с отфильтрованными совпадениями
       result.matches = filteredMatches
+      
+      // Добавляем отладку для количества совпадений после фильтрации
+      this.extension.channel.appendLine(
+        `[DEBUG] После фильтрации в файле ${file.fsPath} осталось ${filteredMatches.length} совпадений`
+      )
     }
 
     this.processedFiles.add(file.fsPath)
+    
+    // Явный emit с отладочным сообщением
     this.emit('result', result)
+    this.extension.channel.appendLine(
+      `[DEBUG] Отправлен результат для ${file.fsPath} с ${result.matches?.length || 0} совпадениями`
+    )
   }
 
   stop(): void {
@@ -884,6 +918,150 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
   // Метод для полной очистки кеша
   clearCache(): void {
     this.searchCache.clearCache();
+  }
+
+  // Новый метод для выполнения текстового поиска без использования кеша
+  async performTextSearchWithoutCache(
+    params: any,
+    fileUris: vscode.Uri[],
+    FsImpl: any,
+    logMessage: (message: string) => void
+  ): Promise<Set<string>> {
+    // Установка флага, что поиск выполняется
+    this.isSearchRunning = true
+    this.isIndexSetInCurrentSearch = true
+
+    // Создаем новый AbortController для этого поиска и сохраняем на него ссылку
+    if (!this.abortController) {
+      this.abortController = new AbortController()
+    }
+    const { signal } = this.abortController
+
+    const filesWithMatches = new Set<string>()
+    const startTime = Date.now()
+
+    // Извлекаем параметры поиска
+    const { find, matchCase, wholeWord, exclude, include } = params
+
+    // Выводим отладочную информацию о параметрах поиска
+    logMessage(`[TextSearchRunner] Вложенный поиск без кеша: "${find}", включая: ${include || 'все файлы'}, исключая: ${exclude || 'ничего'}`);
+
+    try {
+      // Разделяем файлы на проиндексированные и остальные (без кеша)
+      const { indexedFiles, otherFiles } = this.filterFilesByIndexAndPattern(
+        fileUris,
+        ''
+      )
+
+      // Общее количество файлов для поиска
+      const total = indexedFiles.length + otherFiles.length
+      let completed = 0
+
+      this.emit('progress', { completed, total })
+      logMessage(
+        `Всего ${total} файлов для вложенного поиска: ${indexedFiles.length} проиндексированных файлов и ${otherFiles.length} непроиндексированных.`
+      )
+
+      // Обрабатываем индексированные файлы первыми (они приоритетны)
+      if (indexedFiles.length > 0) {
+        logMessage(`Обработка ${indexedFiles.length} проиндексированных файлов без кеша...`)
+
+        // Преобразуем в пути к файлам
+        const indexedPaths = indexedFiles.map((uri) => uri.fsPath)
+
+        this.concurrentWorkers = Math.ceil(indexedPaths.length / BATCH_SIZE)
+
+        // Создаем группы индексированных файлов для параллельной обработки
+        const indexedGroups: string[][] = Array.from(
+          { length: this.concurrentWorkers },
+          () => []
+        )
+
+        indexedPaths.forEach((file, index) => {
+          indexedGroups[index % this.concurrentWorkers].push(file)
+        })
+
+        // Обрабатываем индексированные файлы параллельно
+        await this.processFilesInBatches(
+          indexedGroups,
+          params,
+          FsImpl,
+          signal,
+          (file, result) => {
+            filesWithMatches.add(file)
+            // НЕ добавляем результат в кеш для вложенного поиска
+          },
+          (progress) => {
+            completed += progress
+            this.emit('progress', { completed, total })
+          },
+          logMessage
+        )
+
+        logMessage(
+          `Завершен поиск в ${indexedFiles.length} проиндексированных файлах, найдены совпадения в ${filesWithMatches.size} файлах.`
+        )
+      }
+
+      // Затем обрабатываем остальные файлы, если поиск не отменен
+      if (!signal.aborted && otherFiles.length > 0) {
+        logMessage(`Обработка ${otherFiles.length} непроиндексированных файлов без кеша...`)
+
+        // Преобразуем в пути к файлам
+        const otherPaths = otherFiles.map((uri) => uri.fsPath)
+
+        // Создаем группы остальных файлов для параллельной обработки
+        const otherGroups: string[][] = Array.from(
+          { length: this.concurrentWorkers },
+          () => []
+        )
+
+        otherPaths.forEach((file, index) => {
+          otherGroups[index % this.concurrentWorkers].push(file)
+        })
+
+        // Обрабатываем остальные файлы параллельно
+        await this.processFilesInBatches(
+          otherGroups,
+          params,
+          FsImpl,
+          signal,
+          (file, result) => {
+            filesWithMatches.add(file)
+            // НЕ добавляем результат в кеш для вложенного поиска
+          },
+          (progress) => {
+            completed += progress
+            this.emit('progress', { completed, total })
+          },
+          logMessage
+        )
+      }
+
+      return filesWithMatches
+    } catch (error) {
+      logMessage(`Error during text search without cache: ${error}`)
+      // В случае ошибки также отправляем сообщение об ошибке
+      this.emit(
+        'error',
+        error instanceof Error ? error : new Error(String(error))
+      )
+      return filesWithMatches
+    } finally {
+      // Сбрасываем флаги при завершении поиска в любом случае
+      this.isSearchRunning = false
+      this.isIndexSetInCurrentSearch = false
+
+      const duration = Date.now() - startTime
+      logMessage(
+        `Text search without cache completed in ${duration}ms with ${filesWithMatches.size} matches`
+      )
+
+      // Явно посылаем событие о завершении поиска для обновления UI
+      if (!signal.aborted) {
+        this.emit('done')
+      }
+    }
   }
 }
 
