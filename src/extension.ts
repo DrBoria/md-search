@@ -174,11 +174,15 @@ export class AstxExtension {
       )
 
       // Clear search cache when search parameters change (matchCase, wholeWord)
-      if (params.matchCase !== this.params.matchCase || 
-          params.wholeWord !== this.params.wholeWord ||
-          params.exclude !== this.params.exclude) {
-        this.channel.appendLine(`[Cache] Clearing cache due to search parameter changes`);
-        this.runner.clearCache();
+      if (
+        params.matchCase !== this.params.matchCase ||
+        params.wholeWord !== this.params.wholeWord ||
+        params.exclude !== this.params.exclude
+      ) {
+        this.channel.appendLine(
+          `[Cache] Clearing cache due to search parameter changes`
+        )
+        this.runner.clearCache()
       }
 
       this.params = { ...params }
@@ -288,10 +292,10 @@ export class AstxExtension {
           useTransformFile,
           include: dirs.map(normalizeFsPath).join(', '),
         }
-        
+
         // Сначала устанавливаем параметры
         this.setParams(newParams)
-        
+
         // Затем уже показываем представление с фокусом
         this.searchReplaceViewProvider.showWithSearchFocus()
       }
@@ -586,7 +590,9 @@ export class AstxExtension {
 
     // Clear cache for changed file
     this.runner.clearCacheForFile(uri)
-    this.channel.appendLine(`[Cache] Cache cleared for modified file: ${uri.fsPath}`)
+    this.channel.appendLine(
+      `[Cache] Cache cleared for modified file: ${uri.fsPath}`
+    )
 
     // Normal processing, regardless of search view visibility
     // This ensures data stays current even if UI is closed
@@ -597,7 +603,7 @@ export class AstxExtension {
   handleTextDocumentChange = (e: vscode.TextDocumentChangeEvent): void => {
     // Clear cache for modified document
     this.runner.clearCacheForFile(e.document.uri)
-    
+
     // Update all dependent documents
     this.runner.updateDocumentsForChangedFile(e.document.uri)
   }

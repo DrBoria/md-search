@@ -17,7 +17,9 @@ export function convertGlobPattern(
 ): string | vscode.RelativePattern {
   // Если patterns уже является RelativePattern, возвращаем его как есть
   if (typeof patterns === 'object' && 'pattern' in patterns) {
-    globLogger.appendLine(`Received RelativePattern object, returning as is: ${patterns.pattern}`)
+    globLogger.appendLine(
+      `Received RelativePattern object, returning as is: ${patterns.pattern}`
+    )
     return patterns
   }
 

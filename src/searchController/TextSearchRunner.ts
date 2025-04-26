@@ -126,60 +126,92 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
     const { find, matchCase, wholeWord, exclude, include } = params
 
     // Выводим отладочную информацию о параметрах поиска
-    logMessage(`[TextSearchRunner] Поиск: "${find}", включая: ${include || 'все файлы'}, исключая: ${exclude || 'ничего'}`);
+    logMessage(
+      `[TextSearchRunner] Поиск: "${find}", включая: ${
+        include || 'все файлы'
+      }, исключая: ${exclude || 'ничего'}`
+    )
 
     // Проверяем текущий узел кеша, если он существует
-    const currentNode = this.searchCache.getCurrentNode();
-    
-    // Если текущий узел существует, но запрос не является его расширением или 
+    const currentNode = this.searchCache.getCurrentNode()
+
+    // Если текущий узел существует, но запрос не является его расширением или
     // дочерним узлом, очищаем кеш полностью
     if (currentNode && find && !find.startsWith(currentNode.query)) {
-      logMessage(`[CacheSearch] Новый запрос не является расширением предыдущего, очищаем кеш`);
-      this.searchCache.clearCache();
+      logMessage(
+        `[CacheSearch] Новый запрос не является расширением предыдущего, очищаем кеш`
+      )
+      this.searchCache.clearCache()
     }
 
     // Проверяем наличие подходящего кеша
     let cacheNode = this.searchCache.findSuitableCache(
-      find, 
-      matchCase, 
-      wholeWord, 
+      find,
+      matchCase,
+      wholeWord,
       exclude,
-      include  // Передаем include-паттерн в метод поиска кеша
+      include // Передаем include-паттерн в метод поиска кеша
     )
 
     if (!cacheNode) {
       // Если подходящий кеш не найден, создаем новый
-      logMessage(`[CacheSearch] Создание нового кеша для запроса "${find}" с include="${include || 'not set'}"`)
-      cacheNode = this.searchCache.createCacheNode(find, matchCase, wholeWord, exclude, include)
+      logMessage(
+        `[CacheSearch] Создание нового кеша для запроса "${find}" с include="${
+          include || 'not set'
+        }"`
+      )
+      cacheNode = this.searchCache.createCacheNode(
+        find,
+        matchCase,
+        wholeWord,
+        exclude,
+        include
+      )
     } else {
       // Если кеш найден, загружаем результаты из него
-      logMessage(`[CacheSearch] Найден кеш для запроса "${find}" с include="${cacheNode.params.include || 'not set'}", используем кешированные результаты`)
-      
+      logMessage(
+        `[CacheSearch] Найден кеш для запроса "${find}" с include="${
+          cacheNode.params.include || 'not set'
+        }", используем кешированные результаты`
+      )
+
       // Для уточняющего запроса создаем новый узел кеша, если он еще не существует
       if (cacheNode.query !== find) {
-        logMessage(`[CacheSearch] Создание дочернего кеша для уточняющего запроса "${find}" от "${cacheNode.query}"`)
-        cacheNode = this.searchCache.createCacheNode(find, matchCase, wholeWord, exclude, include)
+        logMessage(
+          `[CacheSearch] Создание дочернего кеша для уточняющего запроса "${find}" от "${cacheNode.query}"`
+        )
+        cacheNode = this.searchCache.createCacheNode(
+          find,
+          matchCase,
+          wholeWord,
+          exclude,
+          include
+        )
       }
-      
+
       // Добавляем файлы из кеша в результаты
-      const cachedResults = this.searchCache.getCurrentResults();
+      const cachedResults = this.searchCache.getCurrentResults()
       if (cachedResults) {
         // Подсчитываем добавленные результаты для логирования
-        let addedResults = 0;
-        
+        let addedResults = 0
+
         for (const [uri, result] of cachedResults.entries()) {
           if (result.file) {
             filesWithMatches.add(result.file.toString())
             this.handleResult(result)
-            addedResults++;
-            
+            addedResults++
+
             // Добавляем явный вызов emit для кешированных результатов, чтобы гарантировать, что UI получит данные
             this.emit('result', result)
-            logMessage(`[DEBUG] Отправлен результат из кеша для файла: ${result.file.fsPath}`)
+            logMessage(
+              `[DEBUG] Отправлен результат из кеша для файла: ${result.file.fsPath}`
+            )
           }
         }
-        
-        logMessage(`[CacheSearch] Добавлено ${addedResults} результатов из кеша для запроса "${find}"`)
+
+        logMessage(
+          `[CacheSearch] Добавлено ${addedResults} результатов из кеша для запроса "${find}"`
+        )
       }
     }
 
@@ -187,21 +219,31 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
       // Получаем списки файлов, которые уже обработаны и которые нужно пропустить
       const processedFiles = this.searchCache.getProcessedFiles()
       const excludedFiles = this.searchCache.getExcludedFiles()
-      
+
       // Если поисковый include-паттерн изменился, нужно обязательно актуализировать кеш
       if (cacheNode && cacheNode.params.include !== include) {
-        logMessage(`[CacheSearch] ВНИМАНИЕ: include-паттерн изменился с "${cacheNode.params.include || 'не задан'}" на "${include || 'не задан'}", кеш может быть не актуален.`);
+        logMessage(
+          `[CacheSearch] ВНИМАНИЕ: include-паттерн изменился с "${
+            cacheNode.params.include || 'не задан'
+          }" на "${include || 'не задан'}", кеш может быть не актуален.`
+        )
       }
-      
+
       // Фильтруем файлы, которые не нужно обрабатывать повторно
-      const filesToProcess = fileUris.filter(uri => {
-        const filePath = uri.toString();
-        return !processedFiles.has(filePath) && !excludedFiles.has(filePath);
-      });
+      const filesToProcess = fileUris.filter((uri) => {
+        const filePath = uri.toString()
+        return !processedFiles.has(filePath) && !excludedFiles.has(filePath)
+      })
 
       // Дополнительно выводим информацию о количестве файлов для поиска
-      logMessage(`[TextSearchRunner] Файлы для поиска: всего ${fileUris.length}, для обработки ${filesToProcess.length}, пропускаем ${processedFiles.size + excludedFiles.size}`);
-      
+      logMessage(
+        `[TextSearchRunner] Файлы для поиска: всего ${
+          fileUris.length
+        }, для обработки ${filesToProcess.length}, пропускаем ${
+          processedFiles.size + excludedFiles.size
+        }`
+      )
+
       // Разделяем файлы на проиндексированные и остальные
       const { indexedFiles, otherFiles } = this.filterFilesByIndexAndPattern(
         filesToProcess,
@@ -209,7 +251,8 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
       )
 
       // Общее количество файлов для поиска
-      const total = indexedFiles.length + otherFiles.length + processedFiles.size
+      const total =
+        indexedFiles.length + otherFiles.length + processedFiles.size
       let completed = processedFiles.size
 
       this.emit('progress', { completed, total })
@@ -218,15 +261,20 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
       )
 
       // Если кеш полный и завершен, нет нужды продолжать поиск
-      if (this.searchCache.isCurrentSearchComplete() && filesToProcess.length === 0) {
+      if (
+        this.searchCache.isCurrentSearchComplete() &&
+        filesToProcess.length === 0
+      ) {
         logMessage('Все результаты получены из кеша, поиск завершен.')
         this.emit('done')
-        return filesWithMatches;
+        return filesWithMatches
       }
 
       // Обрабатываем индексированные файлы первыми (они приоритетны)
       if (indexedFiles.length > 0) {
-        logMessage(`Обработка ${indexedFiles.length} проиндексированных файлов...`)
+        logMessage(
+          `Обработка ${indexedFiles.length} проиндексированных файлов...`
+        )
 
         // Преобразуем в пути к файлам
         const indexedPaths = indexedFiles.map((uri) => uri.fsPath)
@@ -268,7 +316,9 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
 
       // Затем обрабатываем остальные файлы, если поиск не отменен
       if (!signal.aborted && otherFiles.length > 0) {
-        logMessage(`Обработка ${otherFiles.length} непроиндексированных файлов...`)
+        logMessage(
+          `Обработка ${otherFiles.length} непроиндексированных файлов...`
+        )
 
         // Преобразуем в пути к файлам
         const otherPaths = otherFiles.map((uri) => uri.fsPath)
@@ -304,8 +354,8 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
 
       // Если поиск не был прерван, помечаем кеш как завершенный
       if (!signal.aborted) {
-        this.searchCache.markCurrentAsComplete();
-        logMessage(`Поиск завершен, кеш "${find}" помечен как завершенный.`);
+        this.searchCache.markCurrentAsComplete()
+        logMessage(`Поиск завершен, кеш "${find}" помечен как завершенный.`)
       }
 
       return filesWithMatches
@@ -385,10 +435,10 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
     let source = ''
     let fileError: Error | undefined = undefined
     const matches: ExtendedIpcMatch[] = []
-    
+
     // Определяем тип файла для отладки
-    const fileExtension = file.split('.').pop()?.toLowerCase() || '';
-    
+    const fileExtension = file.split('.').pop()?.toLowerCase() || ''
+
     try {
       // Индексируем файл перед обработкой - это позволит индексировать все просканированные файлы
       this.indexSingleFile(file, logMessage)
@@ -406,7 +456,7 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
 
       source = await FsImpl.readFile(normalizedPath, 'utf8')
       if (signal.aborted) return
-      
+
       // Дополнительное логирование для TS и JS файлов
       if (fileExtension === 'ts' || fileExtension === 'js') {
         logMessage(`[DEBUG] Обрабатывается ${fileExtension} файл: ${file}`)
@@ -422,10 +472,12 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
         matches,
         logMessage
       )
-      
+
       // Если файл TS и в нем есть совпадения - особый лог
       if (fileExtension === 'ts' && matches.length > 0) {
-        logMessage(`[DEBUG] Найдены совпадения в TS файле: ${file} (${matches.length} совпадений)`)
+        logMessage(
+          `[DEBUG] Найдены совпадения в TS файле: ${file} (${matches.length} совпадений)`
+        )
       }
     } catch (err: any) {
       if (signal.aborted) return
@@ -460,7 +512,7 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
           )
 
           this.handleResult(result)
-          
+
           // Добавляем явный вызов emit, чтобы гарантировать отправку результатов на клиент
           this.emit('result', result)
           logMessage(`[DEBUG] Отправлен результат для файла: ${file}`)
@@ -523,26 +575,31 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
 
     // Получаем текущий узел кеша и его запрос
     const currentNode = this.searchCache.getCurrentNode()
-    
-    if (currentNode && result.matches && result.matches.length > 0 && result.source) {
+
+    if (
+      currentNode &&
+      result.matches &&
+      result.matches.length > 0 &&
+      result.source
+    ) {
       const { query, params } = currentNode
-      
+
       // Добавляем отладочный лог
       this.extension.channel.appendLine(
         `[DEBUG] Обработка результата для ${file.fsPath} с ${result.matches.length} совпадениями. Текущий запрос: "${query}"`
       )
-      
+
       // Фильтруем совпадения, чтобы показывать только те, которые соответствуют текущему запросу
-      const filteredMatches = result.matches.filter(match => {
+      const filteredMatches = result.matches.filter((match) => {
         const matchText = result.source!.substring(match.start, match.end)
-        
+
         // Применяем ту же логику фильтрации, что и в SearchCache.resultMatchesQuery
         if (!params.matchCase) {
           const lowerText = matchText.toLowerCase()
           const lowerQuery = query.toLowerCase()
-          
+
           if (params.wholeWord) {
-            const regex = new RegExp(`\\b${escapeRegExp(lowerQuery)}\\b`, "i")
+            const regex = new RegExp(`\\b${escapeRegExp(lowerQuery)}\\b`, 'i')
             return regex.test(lowerText)
           } else {
             return lowerText.includes(lowerQuery)
@@ -556,7 +613,7 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
           }
         }
       })
-      
+
       // Если после фильтрации в файле не осталось совпадений, не добавляем его в результаты
       if (filteredMatches.length === 0) {
         this.extension.channel.appendLine(
@@ -564,10 +621,10 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
         )
         return
       }
-      
+
       // Обновляем результат с отфильтрованными совпадениями
       result.matches = filteredMatches
-      
+
       // Добавляем отладку для количества совпадений после фильтрации
       this.extension.channel.appendLine(
         `[DEBUG] После фильтрации в файле ${file.fsPath} осталось ${filteredMatches.length} совпадений`
@@ -575,11 +632,13 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
     }
 
     this.processedFiles.add(file.fsPath)
-    
+
     // Явный emit с отладочным сообщением
     this.emit('result', result)
     this.extension.channel.appendLine(
-      `[DEBUG] Отправлен результат для ${file.fsPath} с ${result.matches?.length || 0} совпадениями`
+      `[DEBUG] Отправлен результат для ${file.fsPath} с ${
+        result.matches?.length || 0
+      } совпадениями`
     )
   }
 
@@ -912,12 +971,12 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
 
   // Добавляем метод очистки кеша для файла
   clearCacheForFile(fileUri: vscode.Uri): void {
-    this.searchCache.clearCacheForFile(fileUri);
+    this.searchCache.clearCacheForFile(fileUri)
   }
 
   // Метод для полной очистки кеша
   clearCache(): void {
-    this.searchCache.clearCache();
+    this.searchCache.clearCache()
   }
 
   // Новый метод для выполнения текстового поиска без использования кеша
@@ -944,7 +1003,11 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
     const { find, matchCase, wholeWord, exclude, include } = params
 
     // Выводим отладочную информацию о параметрах поиска
-    logMessage(`[TextSearchRunner] Вложенный поиск без кеша: "${find}", включая: ${include || 'все файлы'}, исключая: ${exclude || 'ничего'}`);
+    logMessage(
+      `[TextSearchRunner] Вложенный поиск без кеша: "${find}", включая: ${
+        include || 'все файлы'
+      }, исключая: ${exclude || 'ничего'}`
+    )
 
     try {
       // Разделяем файлы на проиндексированные и остальные (без кеша)
@@ -964,7 +1027,9 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
 
       // Обрабатываем индексированные файлы первыми (они приоритетны)
       if (indexedFiles.length > 0) {
-        logMessage(`Обработка ${indexedFiles.length} проиндексированных файлов без кеша...`)
+        logMessage(
+          `Обработка ${indexedFiles.length} проиндексированных файлов без кеша...`
+        )
 
         // Преобразуем в пути к файлам
         const indexedPaths = indexedFiles.map((uri) => uri.fsPath)
@@ -1005,7 +1070,9 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
 
       // Затем обрабатываем остальные файлы, если поиск не отменен
       if (!signal.aborted && otherFiles.length > 0) {
-        logMessage(`Обработка ${otherFiles.length} непроиндексированных файлов без кеша...`)
+        logMessage(
+          `Обработка ${otherFiles.length} непроиндексированных файлов без кеша...`
+        )
 
         // Преобразуем в пути к файлам
         const otherPaths = otherFiles.map((uri) => uri.fsPath)
