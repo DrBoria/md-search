@@ -107,35 +107,15 @@ export default function SearchReplaceViewController({
     if (!message.data) return
     const data: MessageToWebview = message.data
     switch (data.type) {
-      case 'status':
-        setStatus((s) => ({ ...s, ...data.status }))
-        break
-      case 'values':
-        setValues((v) => ({ ...v, ...data.values }))
-        break
-      case 'addResult':
-        // Send received data to extension host for logging in Output Channel
-        try {
-          vscode.postMessage({ 
-              type: 'log', 
-              level: 'info', 
-              message: 'Received addResult data:', 
-              // Only send key info to avoid large objects/circular refs
-              data: { 
-                  file: data.data.file, 
-                  matchesCount: data.data.matches?.length ?? 0, 
-                  hasError: data.data.error != null 
-              } 
-          });
-        } catch (e) {
-            // Handle potential errors during message creation/posting
-            vscode.postMessage({ type: 'log', level: 'error', message: 'Error trying to log received data' });
-        }
-        setResults((prevResults) => [...prevResults, data.data])
-        break
-      case 'clearResults':
-        setResults([])
-        break
+      // case 'status':
+      //   setStatus((s) => ({ ...s, ...data.status }))
+      //   break
+      // case 'values':
+      //   setValues((v) => ({ ...v, ...data.values }))
+      //   break
+      // case 'clearResults':
+      //   setResults([])
+      //   break
       case 'focusSearchInput':
         // Add a setTimeout to ensure the DOM is ready
         setTimeout(() => {
@@ -143,10 +123,7 @@ export default function SearchReplaceViewController({
             const searchInput = document.querySelector('input[placeholder*="Find"]') as HTMLInputElement
             if (searchInput) {
               searchInput.focus()
-              vscode.postMessage({ type: 'log', level: 'info', message: 'Focused search input' })
-            } else {
-              vscode.postMessage({ type: 'log', level: 'warn', message: 'Search input not found' })
-            }
+            } 
           } catch (e) {
             vscode.postMessage({ type: 'log', level: 'error', message: `Error focusing search input: ${e}` })
           }

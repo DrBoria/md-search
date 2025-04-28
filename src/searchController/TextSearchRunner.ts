@@ -8,7 +8,7 @@ import { SearchCache } from './SearchCache'
 // Количество worker threads для параллельной обработки файлов
 const DEFAULT_CONCURRENT_WORKERS = Math.max(1, Math.min(cpus().length - 1, 4))
 // Размер пакета файлов для обработки за один раз
-const BATCH_SIZE = 10
+const BATCH_SIZE = 50
 
 // Определение типа IpcMatch с необходимыми свойствами для сравнения
 interface ExtendedIpcMatch extends IpcMatch {
@@ -138,9 +138,6 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
     // Если текущий узел существует, но запрос не является его расширением или
     // дочерним узлом, очищаем кеш полностью
     if (currentNode && find && !find.startsWith(currentNode.query)) {
-      logMessage(
-        `[CacheSearch] Новый запрос не является расширением предыдущего, очищаем кеш`
-      )
       this.searchCache.clearCache()
     }
 
@@ -155,11 +152,6 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
 
     if (!cacheNode) {
       // Если подходящий кеш не найден, создаем новый
-      logMessage(
-        `[CacheSearch] Создание нового кеша для запроса "${find}" с include="${
-          include || 'not set'
-        }"`
-      )
       cacheNode = this.searchCache.createCacheNode(
         find,
         matchCase,
@@ -168,18 +160,8 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
         include
       )
     } else {
-      // Если кеш найден, загружаем результаты из него
-      logMessage(
-        `[CacheSearch] Найден кеш для запроса "${find}" с include="${
-          cacheNode.params.include || 'not set'
-        }", используем кешированные результаты`
-      )
-
       // Для уточняющего запроса создаем новый узел кеша, если он еще не существует
       if (cacheNode.query !== find) {
-        logMessage(
-          `[CacheSearch] Создание дочернего кеша для уточняющего запроса "${find}" от "${cacheNode.query}"`
-        )
         cacheNode = this.searchCache.createCacheNode(
           find,
           matchCase,
@@ -193,25 +175,12 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
       const cachedResults = this.searchCache.getCurrentResults()
       if (cachedResults) {
         // Подсчитываем добавленные результаты для логирования
-        let addedResults = 0
-
         for (const [uri, result] of cachedResults.entries()) {
           if (result.file) {
             filesWithMatches.add(result.file.toString())
             this.handleResult(result)
-            addedResults++
-
-            // Добавляем явный вызов emit для кешированных результатов, чтобы гарантировать, что UI получит данные
-            this.emit('result', result)
-            logMessage(
-              `[DEBUG] Отправлен результат из кеша для файла: ${result.file.fsPath}`
-            )
           }
         }
-
-        logMessage(
-          `[CacheSearch] Добавлено ${addedResults} результатов из кеша для запроса "${find}"`
-        )
       }
     }
 
@@ -220,29 +189,11 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
       const processedFiles = this.searchCache.getProcessedFiles()
       const excludedFiles = this.searchCache.getExcludedFiles()
 
-      // Если поисковый include-паттерн изменился, нужно обязательно актуализировать кеш
-      if (cacheNode && cacheNode.params.include !== include) {
-        logMessage(
-          `[CacheSearch] ВНИМАНИЕ: include-паттерн изменился с "${
-            cacheNode.params.include || 'не задан'
-          }" на "${include || 'не задан'}", кеш может быть не актуален.`
-        )
-      }
-
       // Фильтруем файлы, которые не нужно обрабатывать повторно
       const filesToProcess = fileUris.filter((uri) => {
         const filePath = uri.toString()
         return !processedFiles.has(filePath) && !excludedFiles.has(filePath)
       })
-
-      // Дополнительно выводим информацию о количестве файлов для поиска
-      logMessage(
-        `[TextSearchRunner] Файлы для поиска: всего ${
-          fileUris.length
-        }, для обработки ${filesToProcess.length}, пропускаем ${
-          processedFiles.size + excludedFiles.size
-        }`
-      )
 
       // Разделяем файлы на проиндексированные и остальные
       const { indexedFiles, otherFiles } = this.filterFilesByIndexAndPattern(
@@ -256,16 +207,12 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
       let completed = processedFiles.size
 
       this.emit('progress', { completed, total })
-      logMessage(
-        `Всего ${total} файлов: ${processedFiles.size} из кеша, ${indexedFiles.length} проиндексированных файлов и ${otherFiles.length} непроиндексированных.`
-      )
-
+    
       // Если кеш полный и завершен, нет нужды продолжать поиск
       if (
         this.searchCache.isCurrentSearchComplete() &&
         filesToProcess.length === 0
       ) {
-        logMessage('Все результаты получены из кеша, поиск завершен.')
         this.emit('done')
         return filesWithMatches
       }
@@ -307,10 +254,6 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
             this.emit('progress', { completed, total })
           },
           logMessage
-        )
-
-        logMessage(
-          `Завершен поиск в ${indexedFiles.length} проиндексированных файлах, найдены совпадения в ${filesWithMatches.size} файлах.`
         )
       }
 
@@ -435,53 +378,26 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
     let source = ''
     let fileError: Error | undefined = undefined
     const matches: ExtendedIpcMatch[] = []
-
-    // Определяем тип файла для отладки
-    const fileExtension = file.split('.').pop()?.toLowerCase() || ''
+    let normalizedPath = file
+    if (normalizedPath.startsWith('/file:///')) {
+      normalizedPath = normalizedPath.replace('/file://', '')
+    }
 
     try {
-      // Индексируем файл перед обработкой - это позволит индексировать все просканированные файлы
-      this.indexSingleFile(file, logMessage)
-
-      // Обработка пути файла, удаление префикса file:// при необходимости
-      let normalizedPath = file
-      if (normalizedPath.startsWith('file:///')) {
-        // Преобразуем URI в путь файловой системы
-        normalizedPath = normalizedPath.replace(/^file:\/\/\//, '/')
-        // На macOS и других Unix-системах может потребоваться удалить первый слеш
-        if (process.platform === 'darwin' || process.platform === 'linux') {
-          normalizedPath = normalizedPath.replace(/^\//, '')
-        }
-      }
-
       source = await FsImpl.readFile(normalizedPath, 'utf8')
       if (signal.aborted) return
-
-      // Дополнительное логирование для TS и JS файлов
-      if (fileExtension === 'ts' || fileExtension === 'js') {
-        logMessage(`[DEBUG] Обрабатывается ${fileExtension} файл: ${file}`)
-      }
 
       // Оптимизированный поиск совпадений
       await this.findMatches(
         source,
-        file,
+        normalizedPath,
         find,
         matchCase,
         wholeWord,
         matches,
-        logMessage
       )
-
-      // Если файл TS и в нем есть совпадения - особый лог
-      if (fileExtension === 'ts' && matches.length > 0) {
-        logMessage(
-          `[DEBUG] Найдены совпадения в TS файле: ${file} (${matches.length} совпадений)`
-        )
-      }
     } catch (err: any) {
       if (signal.aborted) return
-      logMessage(`Error processing file ${file}: ${err.message}`)
       fileError = err instanceof Error ? err : new Error(String(err))
     } finally {
       if (!signal.aborted) {
@@ -496,7 +412,7 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
 
         // Создаем объект результата
         const result: TransformResultEvent = {
-          file: vscode.Uri.file(file),
+          file: vscode.Uri.file(normalizedPath),
           source,
           transformed: undefined,
           matches,
@@ -506,52 +422,12 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
 
         // Если файл содержит совпадения, добавляем его в коллекцию
         if (matches.length > 0) {
-          onMatchFound(file, result)
-          logMessage(
-            `[Debug] File with matches: ${file} (${matches.length} matches)`
-          )
-
+          onMatchFound(normalizedPath, result)
           this.handleResult(result)
-
-          // Добавляем явный вызов emit, чтобы гарантировать отправку результатов на клиент
-          this.emit('result', result)
-          logMessage(`[DEBUG] Отправлен результат для файла: ${file}`)
         }
 
         onProgress(1) // Сообщаем о прогрессе (1 файл)
-        this.processedFiles.add(file)
-      }
-    }
-  }
-
-  // Метод для индексации одного файла
-  private indexSingleFile(
-    filePath: string,
-    logMessage: (message: string) => void
-  ): void {
-    // Инициализируем fileIndexCache, если он еще не существует
-    if (!this.fileIndexCache) {
-      this.fileIndexCache = new Map<string, Set<string>>()
-      this.fileIndexCache.set('**/*', new Set<string>())
-    }
-
-    // Получаем набор всех файлов
-    const allFilesSet = this.fileIndexCache.get('**/*')!
-
-    // Добавляем файл в общий индекс, если его еще нет
-    if (!allFilesSet.has(filePath)) {
-      allFilesSet.add(filePath)
-
-      // Также добавляем файл в соответствующую категорию по расширению
-      const fileExt = filePath.split('.').pop()?.toLowerCase()
-      if (fileExt) {
-        const pattern = `*.${fileExt}`
-        let filesByExt = this.fileIndexCache.get(pattern)
-        if (!filesByExt) {
-          filesByExt = new Set<string>()
-          this.fileIndexCache.set(pattern, filesByExt)
-        }
-        filesByExt.add(filePath)
+        this.processedFiles.add(normalizedPath)
       }
     }
   }
@@ -567,80 +443,54 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
     }
 
     if (this.abortController?.signal.aborted) {
-      this.extension.channel.appendLine(
-        `handleResult skipped for ${file.fsPath}: Aborted.`
-      )
       return
     }
 
-    // Получаем текущий узел кеша и его запрос
     const currentNode = this.searchCache.getCurrentNode()
 
-    if (
-      currentNode &&
-      result.matches &&
-      result.matches.length > 0 &&
-      result.source
-    ) {
+    if (currentNode && result.source) {
       const { query, params } = currentNode
+      const source = result.source
+      const newMatches = []
 
-      // Добавляем отладочный лог
-      this.extension.channel.appendLine(
-        `[DEBUG] Обработка результата для ${file.fsPath} с ${result.matches.length} совпадениями. Текущий запрос: "${query}"`
-      )
+      // Ищем все совпадения текущего запроса в содержимом файла
+      let index = -1
+      while ((index = source.indexOf(query, index + 1)) !== -1) {
+        const start = index
+        const end = index + query.length
 
-      // Фильтруем совпадения, чтобы показывать только те, которые соответствуют текущему запросу
-      const filteredMatches = result.matches.filter((match) => {
-        const matchText = result.source!.substring(match.start, match.end)
+        // Проверяем параметры поиска (matchCase и wholeWord)
+        const matchText = source.substring(start, end)
+        let isValidMatch = true
 
-        // Применяем ту же логику фильтрации, что и в SearchCache.resultMatchesQuery
-        if (!params.matchCase) {
-          const lowerText = matchText.toLowerCase()
-          const lowerQuery = query.toLowerCase()
-
-          if (params.wholeWord) {
-            const regex = new RegExp(`\\b${escapeRegExp(lowerQuery)}\\b`, 'i')
-            return regex.test(lowerText)
-          } else {
-            return lowerText.includes(lowerQuery)
-          }
-        } else {
-          if (params.wholeWord) {
-            const regex = new RegExp(`\\b${escapeRegExp(query)}\\b`)
-            return regex.test(matchText)
-          } else {
-            return matchText.includes(query)
-          }
+        if (params.wholeWord) {
+          const regex = new RegExp(`\\b${escapeRegExp(query)}\\b`, params.matchCase ? '' : 'i')
+          isValidMatch = regex.test(matchText) && 
+            (start === 0 || /\s|\W/.test(source[start - 1])) && 
+            (end === source.length || /\s|\W/.test(source[end]))
         }
-      })
 
-      // Если после фильтрации в файле не осталось совпадений, не добавляем его в результаты
-      if (filteredMatches.length === 0) {
-        this.extension.channel.appendLine(
-          `[handleResult] Пропуск файла ${file.fsPath}: все совпадения не соответствуют текущему запросу "${query}"`
-        )
+        if (!params.matchCase && matchText.toLowerCase() !== query.toLowerCase()) {
+          isValidMatch = false
+        }
+
+        if (isValidMatch) {
+          newMatches.push({ start, end })
+        }
+      }
+
+      // Если нет совпадений, пропускаем файл
+      if (newMatches.length === 0) {
         return
       }
 
-      // Обновляем результат с отфильтрованными совпадениями
-      result.matches = filteredMatches
-
-      // Добавляем отладку для количества совпадений после фильтрации
-      this.extension.channel.appendLine(
-        `[DEBUG] После фильтрации в файле ${file.fsPath} осталось ${filteredMatches.length} совпадений`
-      )
+      // Обновляем массив matches новым списком
+      result.matches = newMatches
     }
 
     this.processedFiles.add(file.fsPath)
-
-    // Явный emit с отладочным сообщением
     this.emit('result', result)
-    this.extension.channel.appendLine(
-      `[DEBUG] Отправлен результат для ${file.fsPath} с ${
-        result.matches?.length || 0
-      } совпадениями`
-    )
-  }
+}
 
   stop(): void {
     if (this.abortController) {
@@ -648,7 +498,6 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
       this.abortController.abort()
       this.abortController = undefined
     }
-    // this.processedFiles.clear()
     this.isSearchRunning = false
     this.isIndexSetInCurrentSearch = false
     this.emit('stop')
@@ -667,16 +516,11 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
     matchCase: boolean,
     wholeWord: boolean,
     matches: ExtendedIpcMatch[],
-    logMessage: (message: string) => void
   ): Promise<void> {
     // Проверка на прерывание поиска
     if (this.abortController?.signal.aborted) {
-      logMessage(`[DEBUG] Search aborted for file: ${file}`)
       return
     }
-
-    logMessage(`[DEBUG] Searching in file: ${file}`)
-    logMessage(`[DEBUG] Search pattern: "${find}"`)
 
     const regexFlags = matchCase ? 'g' : 'gi'
     const escapedPattern = find.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')
@@ -891,20 +735,6 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
     }
   }
 
-  // Метод addMatchForLargeFile теперь не нужен, так как его логика перенесена в findMatchesInChunks
-  // Сохраним метод для обратной совместимости, но сделаем его приватным и пустым
-  private async addMatchForLargeFile(
-    source: string,
-    file: string,
-    startOffset: number,
-    endOffset: number,
-    matchText: string,
-    matches: ExtendedIpcMatch[]
-  ): Promise<void> {
-    // Метод заменен встроенной логикой в findMatchesInChunks
-    return
-  }
-
   // Добавляет совпадение в список
   private addMatch(
     source: string,
@@ -999,16 +829,6 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
     const filesWithMatches = new Set<string>()
     const startTime = Date.now()
 
-    // Извлекаем параметры поиска
-    const { find, matchCase, wholeWord, exclude, include } = params
-
-    // Выводим отладочную информацию о параметрах поиска
-    logMessage(
-      `[TextSearchRunner] Вложенный поиск без кеша: "${find}", включая: ${
-        include || 'все файлы'
-      }, исключая: ${exclude || 'ничего'}`
-    )
-
     try {
       // Разделяем файлы на проиндексированные и остальные (без кеша)
       const { indexedFiles, otherFiles } = this.filterFilesByIndexAndPattern(
@@ -1021,9 +841,6 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
       let completed = 0
 
       this.emit('progress', { completed, total })
-      logMessage(
-        `Всего ${total} файлов для вложенного поиска: ${indexedFiles.length} проиндексированных файлов и ${otherFiles.length} непроиндексированных.`
-      )
 
       // Обрабатываем индексированные файлы первыми (они приоритетны)
       if (indexedFiles.length > 0) {
@@ -1061,10 +878,6 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
             this.emit('progress', { completed, total })
           },
           logMessage
-        )
-
-        logMessage(
-          `Завершен поиск в ${indexedFiles.length} проиндексированных файлах, найдены совпадения в ${filesWithMatches.size} файлах.`
         )
       }
 

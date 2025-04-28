@@ -196,16 +196,19 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       .getConfiguration('search')
       .get<{ [key: string]: boolean }>('exclude')
 
-    if (!exclude) {
-      return []
+    // Начинаем с DEFAULT_IGNORED_PATTERNS
+    let excludePatterns = [...DEFAULT_IGNORED_PATTERNS];
+
+    if (exclude) {
+      // Добавляем шаблоны из настроек пользователя
+      const userPatterns = Object.entries(exclude)
+        .filter(([, value]) => value === true)
+        .map(([key]) => key);
+      
+      excludePatterns = [...excludePatterns, ...userPatterns];
     }
 
-    // Преобразуем объект настроек в массив шаблонов
-    const excludePatterns = Object.entries(exclude)
-      .filter(([, value]) => value === true)
-      .map(([key]) => key)
-
-    return excludePatterns
+    return excludePatterns;
   }
 
   // Добавляем метод для получения include patterns из настроек
@@ -481,7 +484,12 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
   debouncedRestart: () => void = debounce(
     async () => {
       this.extension.channel.appendLine('Executing debounced restart...')
-      this.stop()
+      
+      // Останавливаем поиск только если он активен и не завершён
+      if (this.abortController && !this.abortController.signal.aborted) {
+        this.stop()
+      }
+      
       try {
         this.extension.channel.appendLine(
           'Restarting worker pool via startup()...'
@@ -1052,39 +1060,16 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       return
     }
 
-    // Останавливаем предыдущий поиск
-    this.stop()
+    // Останавливаем предыдущий поиск только если он активен и не завершён
+    if (this.abortController && !this.abortController.signal.aborted) {
+      this.extension.channel.appendLine('Stopping active search before starting a new one...')
+      this.stop()
+    }
 
     const abortController = new AbortController()
     this.abortController = abortController
 
     this.emit('start')
-
-    // Выводим отладочную информацию о параметрах поиска
-    this.extension.channel.appendLine(`[DEBUG] Search params:`)
-    this.extension.channel.appendLine(
-      `[DEBUG]   find: ${this.params.find || 'not set'}`
-    )
-    this.extension.channel.appendLine(
-      `[DEBUG]   include: ${this.params.include || 'not set'}`
-    )
-    this.extension.channel.appendLine(
-      `[DEBUG]   exclude: ${this.params.exclude || 'not set'}`
-    )
-    this.extension.channel.appendLine(
-      `[DEBUG]   matchCase: ${this.params.matchCase}`
-    )
-    this.extension.channel.appendLine(
-      `[DEBUG]   wholeWord: ${this.params.wholeWord}`
-    )
-    this.extension.channel.appendLine(
-      `[DEBUG]   searchMode: ${this.params.searchMode}`
-    )
-    this.extension.channel.appendLine(
-      `[DEBUG]   useTransformFile: ${
-        this.params.useTransformFile ? 'true' : 'false'
-      }`
-    )
 
     // Проверяем изменения include и exclude для сброса кеша
     this.checkSearchParamsChanged()
@@ -1097,20 +1082,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       return
     }
 
-    // Выводим информацию о текущих рабочих директориях
-    const wsInfo = vscode.workspace.workspaceFolders
-    if (wsInfo && wsInfo.length > 0) {
-      this.extension.channel.appendLine(`[DEBUG] Workspace folders:`)
-      wsInfo.forEach((folder, index) => {
-        this.extension.channel.appendLine(
-          `[DEBUG]   ${index + 1}: ${folder.name} (${folder.uri.fsPath})`
-        )
-      })
-    } else {
-      this.extension.channel.appendLine(
-        `[ERROR] No workspace folders are open!`
-      )
-    }
+
 
     // Если индексация еще не завершена, обновляем индекс файлов в TextSearchRunner только один раз перед поиском
     if (this.fileIndexCache.size > 0) {
@@ -1216,26 +1188,32 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
             !part.includes('[')
           ) {
             // Удаляем слеш в конце, если есть
-            const cleanPart = part.endsWith('/') ? part.slice(0, -1) : part
+            const cleanPart = part.endsWith('/') ? part.slice(0, -1) : part;
+            
+            // Экранируем специальные символы в пути для корректной работы с glob
+            const escapedPart = cleanPart.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+            
             // Преобразуем в формат исключения папки с разными вариантами шаблонов
             // для более надежного исключения
-            return `${cleanPart}/**,**/${cleanPart}/**,**/${cleanPart}`
+            return `${escapedPart}/**,**/${escapedPart}/**,**/${escapedPart}`;
           }
-          return part
-        })
+          
+          // Для шаблонов с * или ? или [] просто возвращаем как есть
+          return part;
+        });
 
         // Собираем все части обратно в строку
-        userExclude = processedParts.join(',')
+        userExclude = processedParts.join(',');
 
-        excludeGlob = userExclude
+        excludeGlob = userExclude;
 
         // Добавляем системные исключения только если они есть
         if (excludePatterns.length > 0) {
-          excludeGlob += `,${excludePatterns.join(',')}`
+          excludeGlob += `,${excludePatterns.join(',')}`;
         }
       } else {
         // Если пользовательских исключений нет, используем только системные
-        excludeGlob = excludePatterns.join(',')
+        excludeGlob = excludePatterns.join(',');
       }
 
       // Преобразуем строковый паттерн исключения, если он есть
@@ -1403,40 +1381,11 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
     const currentInclude = this.params.include
     const currentExclude = this.params.exclude
 
-    // Подробное логирование для отладки
-    this.extension.channel.appendLine(`[Include/Exclude Change Check]
-    - Текущий include: "${currentInclude || 'не задан'}"  
-    - Предыдущий include: "${this.previousInclude || 'не задан'}"
-    - Текущий exclude: "${currentExclude || 'не задан'}"
-    - Предыдущий exclude: "${this.previousExclude || 'не задан'}"`)
-
     // Проверяем изменения include и exclude для сброса кеша
     if (
       currentInclude !== this.previousInclude ||
       currentExclude !== this.previousExclude
     ) {
-      this.extension.channel.appendLine(
-        `[ВАЖНО] Параметры поиска изменились, очищаем кеш.`
-      )
-
-      // Если include изменился, выводим подробную информацию
-      if (currentInclude !== this.previousInclude) {
-        this.extension.channel.appendLine(
-          `Include изменился: "${this.previousInclude || 'не задан'}" -> "${
-            currentInclude || 'не задан'
-          }"`
-        )
-      }
-
-      // Если exclude изменился, выводим подробную информацию
-      if (currentExclude !== this.previousExclude) {
-        this.extension.channel.appendLine(
-          `Exclude изменился: "${this.previousExclude || 'не задан'}" -> "${
-            currentExclude || 'не задан'
-          }"`
-        )
-      }
-
       // Очищаем кеш и в TextSearchRunner
       this.clearCache()
 
@@ -1444,5 +1393,25 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       this.previousInclude = currentInclude
       this.previousExclude = currentExclude
     }
+  }
+
+  // Метод-слушатель события 'done' для корректной очистки abortController
+  private onSearchDone(): void {
+    // Устанавливаем abortController в undefined после завершения поиска
+    if (this.abortController) {
+      this.abortController = undefined;
+    }
+  }
+
+  // Обновляем метод emit для перехвата события 'done'
+  emit<E extends keyof AstxRunnerEvents>(
+    event: E,
+    ...args: Parameters<AstxRunnerEvents[E]>
+  ): boolean {
+    // Перехватываем событие 'done' для очистки abortController
+    if (event === 'done') {
+      this.onSearchDone();
+    }
+    return super.emit(event, ...args);
   }
 }

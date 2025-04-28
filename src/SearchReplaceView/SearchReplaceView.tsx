@@ -256,7 +256,7 @@ function buildFileTree(
         segment: string,
         currentRelativePath: string
     ): FolderNode => {
-        const existing = parent.children.find(
+        const existing = parent.children?.find(
             (child) => child.type === 'folder' && child.name === segment
         ) as FolderNode | undefined
         if (existing) {
@@ -680,11 +680,11 @@ const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                                             res.source,
                                             match.start,
                                             match.end,
-                                            currentSearchValues.find,
+                                            currentSearchValues?.find,
                                             currentSearchValues.replace,
-                                            currentSearchValues.searchMode,
-                                            currentSearchValues.matchCase,
-                                            currentSearchValues.wholeWord
+                                            currentSearchValues?.searchMode,
+                                            currentSearchValues?.matchCase,
+                                            currentSearchValues?.wholeWord
                                         )
                                         : getHighlightedMatchContext(res.source, match.start, match.end)}
 
@@ -917,16 +917,19 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     // Store expanded paths (relative paths) as Sets
     const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set([]));
     const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set([]));
-    const [currentSearchMode, setCurrentSearchMode] = useState<SearchReplaceViewValues['searchMode']>(values.searchMode);
-    const [matchCase, setMatchCase] = useState(values.matchCase);
-    const [wholeWord, setWholeWord] = useState(values.wholeWord);
+    const [currentSearchMode, setCurrentSearchMode] = useState<SearchReplaceViewValues['searchMode']>(values?.searchMode);
+    const [matchCase, setMatchCase] = useState(values?.matchCase);
+    const [wholeWord, setWholeWord] = useState(values?.wholeWord);
 
     // State for dropdown menu
     const [optionsMenuOpen, setOptionsMenuOpen] = useState(false);
-    
+
     // Ref для меню опций
     const optionsMenuRef = useRef<HTMLDivElement>(null);
-    
+
+    // Ref для поля поиска вложенного поиска
+    const nestedSearchInputRef = useRef<any>(null);
+
     // Закрыть меню при клике вне его области или нажатии клавиши Escape
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -934,13 +937,13 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                 setOptionsMenuOpen(false);
             }
         };
-        
+
         const handleEscapeKey = (event: KeyboardEvent) => {
             if (event.key === 'Escape') {
                 setOptionsMenuOpen(false);
             }
         };
-        
+
         document.addEventListener('mousedown', handleClickOutside);
         document.addEventListener('keydown', handleEscapeKey);
         return () => {
@@ -966,13 +969,13 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
             return [{
                 values,
                 resultsByFile,
-                matchCase: values.matchCase,
-                wholeWord: values.wholeWord,
-                searchMode: values.searchMode,
+                matchCase: values?.matchCase,
+                wholeWord: values?.wholeWord,
+                searchMode: values?.searchMode,
                 isReplaceVisible,
                 expandedFiles: new Set(),
                 expandedFolders: new Set(),
-                label: values.find || 'Initial search'
+                label: values?.find || 'Initial search'
             }];
         }
 
@@ -1145,22 +1148,53 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                     setExpandedFiles(new Set());
                     setExpandedFolders(new Set());
                     pendingResultsRef.current = {}; // Очищаем накопленные результаты
-                    
+
                     // Устанавливаем параметры, если они переданы
                     if (message.values) {
-                        setValues(prev => ({ ...prev, ...message.values }));
+                        // Инициализируем значения полей поиска и замены
+                        const initialValues = { ...message.values };
+
+                        // Если не передан searchInResults, устанавливаем значение по умолчанию
+                        if (initialValues.searchInResults === undefined) {
+                            initialValues.searchInResults = 0;
+                        }
+
+                        setValues(prev => ({ ...prev, ...initialValues }));
+
                         // Update local state tied to values if needed
-                        if (message.values.searchMode !== undefined) setCurrentSearchMode(message.values.searchMode);
-                        if (message.values.matchCase !== undefined) setMatchCase(message.values.matchCase);
-                        if (message.values.wholeWord !== undefined) setWholeWord(message.values.wholeWord);
+                        if (initialValues?.searchMode !== undefined) setCurrentSearchMode(initialValues?.searchMode);
+                        if (initialValues?.matchCase !== undefined) setMatchCase(initialValues?.matchCase);
+                        if (initialValues?.wholeWord !== undefined) setWholeWord(initialValues?.wholeWord);
+
+                        // Если есть данные для вложенного поиска, обновляем searchLevels
+                        if (message.searchLevels && Array.isArray(message.searchLevels) && message.searchLevels.length > 0) {
+                            setSearchLevels(message.searchLevels.map((level: any) => ({
+                                ...level,
+                                expandedFiles: level.expandedFiles instanceof Set
+                                    ? level.expandedFiles
+                                    : new Set(Array.isArray(level.expandedFiles) ? level.expandedFiles : []),
+                                expandedFolders: level.expandedFolders instanceof Set
+                                    ? level.expandedFolders
+                                    : new Set(Array.isArray(level.expandedFolders) ? level.expandedFolders : [])
+                            })));
+                        } else {
+                            // Инициализируем только первый уровень поиска
+                            setSearchLevels([{
+                                values: initialValues,
+                                resultsByFile: {},
+                                matchCase: initialValues?.matchCase,
+                                wholeWord: initialValues?.wholeWord,
+                                searchMode: initialValues?.searchMode,
+                                isReplaceVisible,
+                                expandedFiles: new Set(),
+                                expandedFolders: new Set(),
+                                label: initialValues?.find || 'Initial search'
+                            }]);
+                        }
                     }
                     break;
                 case 'status':
                     setStatus(prev => ({ ...prev, ...message.status }));
-                    // Reset search requested flag if the search has completed
-                    if (message.status.running === false && isSearchRequested) {
-                        setIsSearchRequested(false);
-                    }
                     break;
                 case 'clearResults':
                     setResultsByFile({});
@@ -1186,9 +1220,10 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                 case 'addBatchResults': {
                     // Получаем массив результатов
                     const batchResults = message.data;
-
-                    // Reset search requested flag once we get any results
-                    setIsSearchRequested(false);
+                    if (message.isSearchRunning) {
+                        setResultsByFile({});
+                        setIsSearchRequested(false);
+                    }
 
                     // Проверяем и добавляем результаты в накопитель
                     let hasRelevantResults = false;
@@ -1216,38 +1251,6 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                         flushPendingResults();
                     }
 
-                    break;
-                }
-                case 'addResult': {
-                    const newResult = message.data;
-
-                    // Reset search requested flag once we get any result
-                    setIsSearchRequested(false);
-
-                    // Проверяем, есть ли совпадения
-                    const hasMatches = newResult.matches && newResult.matches.length > 0;
-
-                    // Если результат без совпадений и не ошибка, можем пропустить
-                    if (!hasMatches && !newResult.error) {
-                        return;
-                    }
-
-                    // Добавляем результат в накопитель
-                    if (!pendingResultsRef.current[newResult.file]) {
-                        pendingResultsRef.current[newResult.file] = [];
-                    }
-                    pendingResultsRef.current[newResult.file].push(newResult);
-
-                    // Если это первый результат, применяем его немедленно
-                    if (Object.keys(resultsByFile).length === 0 && Object.keys(pendingResultsRef.current).length === 1) {
-                        flushPendingResults();
-                    } else {
-                        // Иначе используем throttling
-                        if (throttleTimeoutRef.current) {
-                            clearTimeout(throttleTimeoutRef.current);
-                        }
-                        throttleTimeoutRef.current = setTimeout(flushPendingResults, throttleDelayRef.current);
-                    }
                     break;
                 }
                 case 'fileUpdated': {
@@ -1306,7 +1309,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                 case 'focusReplaceInput': {
                     // Показываем панель замены, если она не видна
                     setIsReplaceVisible(true);
-                    
+
                     // Устанавливаем фокус на поле ввода с небольшой задержкой, чтобы DOM успел обновиться
                     setTimeout(() => {
                         try {
@@ -1318,10 +1321,10 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                 vscode.postMessage({ type: 'log', level: 'warn', message: 'Replace input not found' });
                             }
                         } catch (e) {
-                            vscode.postMessage({ 
-                                type: 'log', 
-                                level: 'error', 
-                                message: `Error focusing replace input: ${e}` 
+                            vscode.postMessage({
+                                type: 'log',
+                                level: 'error',
+                                message: `Error focusing replace input: ${e}`
                             });
                         }
                     }, 100);
@@ -1371,12 +1374,12 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
 
         // Если это изменение строки поиска и поиск в данный момент идет - 
         // немедленно отправляем новые значения для остановки текущего поиска
-        if (changed.find !== undefined && status.running) {
+        if (changed?.find !== undefined && status.running) {
             setValues(prev => {
                 const next = { ...prev, ...changed, isReplacement: false };
                 // Немедленно отправляем новые значения
                 vscode.postMessage({ type: 'values', values: next });
-                setIsSearchRequested(true);
+                setIsSearchRequested(Boolean(changed?.find));
                 return next;
             });
         } else {
@@ -1386,12 +1389,12 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                 setValues(prev => {
                     const next = { ...prev, ...changed, isReplacement: false };
                     // Update dependent local state right away
-                    if (changed.searchMode !== undefined) setCurrentSearchMode(changed.searchMode);
-                    if (changed.matchCase !== undefined) setMatchCase(changed.matchCase);
-                    if (changed.wholeWord !== undefined) setWholeWord(changed.wholeWord);
+                    if (changed?.searchMode !== undefined) setCurrentSearchMode(changed?.searchMode);
+                    if (changed?.matchCase !== undefined) setMatchCase(changed?.matchCase);
+                    if (changed?.wholeWord !== undefined) setWholeWord(changed?.wholeWord);
                     // Post the complete updated values
                     vscode.postMessage({ type: 'values', values: next });
-                    setIsSearchRequested(true);
+                    setIsSearchRequested(Boolean(changed?.find));
                     return next;
                 });
             }, 150);
@@ -1626,10 +1629,15 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
 
     // --- Find in Found Handlers ---
     const handleFindInFound = useCallback(() => {
+        // Clear the nested search input value if ref exists
+        if (nestedSearchInputRef.current) {
+            nestedSearchInputRef.current.value = '';
+        }
+
         // Create a new nested search level with state from current results
         setSearchLevels(prev => {
             // Get current level's state
-            const currentLevel = prev[prev.length - 1];
+            const currentLevel = prev[values.searchInResults];
 
             // Create stats object for the current level before pushing a new one
             const currentLevelWithStats = {
@@ -1641,24 +1649,39 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
             };
 
             // Replace the current level with the one containing stats
-            const updatedLevels = [...prev.slice(0, -1), currentLevelWithStats];
+            const updatedLevels = [...prev];
+            updatedLevels[values.searchInResults] = currentLevelWithStats;
 
             // Add a new empty level for the next search
-            return [...updatedLevels, {
+            const newLevel: SearchLevel = {
                 values: {
                     ...values,
                     find: '', // Start with empty search
                     replace: '' // Always start with empty replace
                 },
                 resultsByFile: {},
-                matchCase: values.matchCase,
-                wholeWord: values.wholeWord,
-                searchMode: values.searchMode,
-                isReplaceVisible: false,
-                expandedFiles: new Set(),
-                expandedFolders: new Set(),
+                matchCase: values?.matchCase,
+                wholeWord: values?.wholeWord,
+                searchMode: values?.searchMode,
+                isReplaceVisible,
+                expandedFiles: new Set<string>(),
+                expandedFolders: new Set<string>(),
                 label: `Search ${updatedLevels.length + 1}`
-            }];
+            };
+
+            // Add new level if needed
+            if (updatedLevels.length <= values.searchInResults + 1) {
+                updatedLevels.push(newLevel);
+            } else {
+                updatedLevels[values.searchInResults + 1] = newLevel;
+            }
+
+            // Обновляем searchInResults, чтобы указать на новый уровень
+            setTimeout(() => {
+                postValuesChange({ searchInResults: values.searchInResults + 1 });
+            }, 0);
+
+            return updatedLevels;
         });
 
         // Clear the replace input field
@@ -1667,47 +1690,21 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
         if (status.running) {
             vscode.postMessage({ type: 'stop' });
         }
-    }, [values, postValuesChange, status]);
+    }, [values, postValuesChange, status, isReplaceVisible]);
 
     const handleCloseNestedSearch = useCallback(() => {
-        setSearchLevels(prev => {
-            // Сохраняем предыдущий уровень для перезапуска поиска
-            const targetLevel = prev.length > 1 ? prev[prev.length - 2] : prev[0];
-            const isReturningToRoot = prev.length <= 2;
+        // Если текущий уровень - 0, ничего не делаем
+        if (values.searchInResults === 0) {
+            return;
+        }
 
-            // Если возвращаемся к корневому поиску
-            if (isReturningToRoot) {
-                postValuesChange({ searchInResults: 0 });
+        // Определяем новый уровень поиска
+        const newSearchInResults = Math.max(0, values.searchInResults - 1);
 
-                // Перезапускаем поиск для корневого уровня
-                if (targetLevel.values.find) {
-                    setTimeout(() => {
-                        vscode.postMessage({
-                            type: 'search',
-                            ...targetLevel.values,
-                            searchInResults: 0
-                        });
-                    }, 100);
-                }
-
-                return [prev[0]]; // Оставляем только первый уровень
-            }
-
-            // Иначе возвращаемся на уровень назад, сохраняя searchInResults
-            // Перезапускаем поиск для этого уровня
-            if (targetLevel.values.find) {
-                setTimeout(() => {
-                    vscode.postMessage({
-                        type: 'search',
-                        ...targetLevel.values,
-                        searchInResults: prev.length - 2
-                    });
-                }, 100);
-            }
-
-            return prev.slice(0, -1);
-        });
-    }, [postValuesChange, vscode]);
+        // Обновляем searchInResults
+        postValuesChange({ searchInResults: newSearchInResults });
+        setSearchLevels(prev => prev.slice(0, newSearchInResults - 1));
+    }, [postValuesChange, vscode, values.searchInResults, searchLevels]);
 
     const handleNestedFindChange = useCallback(
         debounce((e: any) => {
@@ -1734,89 +1731,119 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
 
             // Обновляем локальное состояние
             setSearchLevels((prev: SearchLevel[]) => {
-                const newLevels = [
-                    ...prev.slice(0, -1),
-                    {
-                        ...prev[prev.length - 1],
+                // Создаем копию массива
+                const newLevels = [...prev];
+
+                // Обновляем активный уровень поиска
+                if (values.searchInResults < newLevels.length) {
+                    newLevels[values.searchInResults] = {
+                        ...newLevels[values.searchInResults],
                         values: {
-                            ...prev[prev.length - 1].values,
+                            ...newLevels[values.searchInResults].values,
                             find: e.target.value
                         }
-                    }
-                ];
+                    };
 
-                // После обновления состояния отправляем сообщение с новыми значениями
-                const currentLevel = newLevels[newLevels.length - 1];
-                const updatedValues = {
-                    ...currentLevel.values,
-                    searchInResults: newLevels.length - 1
-                };
-
-                // Отправляем обновленные значения в расширение
-                setTimeout(() => {
-                    vscode.postMessage({
-                        type: 'values',
-                        values: updatedValues
-                    });
-                }, 0);
+                    // Отправляем обновленные значения в расширение
+                    setTimeout(() => {
+                        vscode.postMessage({
+                            type: 'values',
+                            values: {
+                                ...newLevels[values.searchInResults].values,
+                                searchInResults: values.searchInResults
+                            }
+                        });
+                    }, 0);
+                }
 
                 return newLevels;
             });
         }, 150),
-        [status.running, vscode]
+        [status.running, vscode, values.searchInResults]
     );
 
     const handleNestedReplaceChange = useCallback((e: any) => {
-        setSearchLevels((prev: SearchLevel[]) => [
-            ...prev.slice(0, -1),
-            {
-                ...prev[prev.length - 1],
-                values: {
-                    ...prev[prev.length - 1].values,
-                    replace: e.target.value
-                }
+        setSearchLevels((prev: SearchLevel[]) => {
+            // Создаем копию массива
+            const newLevels = [...prev];
+
+            // Обновляем активный уровень поиска
+            if (values.searchInResults < newLevels.length) {
+                newLevels[values.searchInResults] = {
+                    ...newLevels[values.searchInResults],
+                    values: {
+                        ...newLevels[values.searchInResults].values,
+                        replace: e.target.value
+                    }
+                };
             }
-        ]);
-    }, []);
+
+            return newLevels;
+        });
+    }, [values.searchInResults]);
 
     const toggleNestedMatchCase = useCallback(() => {
-        setSearchLevels((prev: SearchLevel[]) => [
-            ...prev.slice(0, -1),
-            {
-                ...prev[prev.length - 1],
-                values: {
-                    ...prev[prev.length - 1].values,
-                    matchCase: !prev[prev.length - 1].values.matchCase
-                }
+        setSearchLevels((prev: SearchLevel[]) => {
+            // Создаем копию массива
+            const newLevels = [...prev];
+
+            // Обновляем активный уровень поиска
+            if (values.searchInResults < newLevels.length) {
+                newLevels[values.searchInResults] = {
+                    ...newLevels[values.searchInResults],
+                    values: {
+                        ...newLevels[values.searchInResults].values,
+                        matchCase: !newLevels[values.searchInResults].values?.matchCase
+                    }
+                };
             }
-        ]);
-    }, []);
+
+            return newLevels;
+        });
+    }, [values.searchInResults]);
 
     const toggleNestedWholeWord = useCallback(() => {
-        setSearchLevels((prev: SearchLevel[]) => [
-            ...prev.slice(0, -1),
-            {
-                ...prev[prev.length - 1],
-                values: {
-                    ...prev[prev.length - 1].values,
-                    wholeWord: !prev[prev.length - 1].values.wholeWord
-                }
+        setSearchLevels((prev: SearchLevel[]) => {
+            // Создаем копию массива
+            const newLevels = [...prev];
+
+            // Обновляем активный уровень поиска
+            if (values.searchInResults < newLevels.length) {
+                newLevels[values.searchInResults] = {
+                    ...newLevels[values.searchInResults],
+                    values: {
+                        ...newLevels[values.searchInResults].values,
+                        wholeWord: !newLevels[values.searchInResults].values?.wholeWord
+                    }
+                };
             }
-        ]);
-    }, []);
+
+            return newLevels;
+        });
+    }, [values.searchInResults]);
 
     const handleNestedModeChange = useCallback((newMode: SearchReplaceViewValues['searchMode']) => {
-        setSearchLevels((prev: SearchLevel[]) => [
-            ...prev.slice(0, -1),
-            {
-                ...prev[prev.length - 1],
-                values: {
-                    ...prev[prev.length - 1].values,
-                    searchMode: (newMode === prev[prev.length - 1].values.searchMode && newMode !== 'text') ? 'text' : newMode
-                }
+        setSearchLevels((prev: SearchLevel[]) => {
+            // Создаем копию массива
+            const newLevels = [...prev];
+
+            // Обновляем активный уровень поиска
+            if (values.searchInResults < newLevels.length) {
+                const currentMode = newLevels[values.searchInResults].values?.searchMode;
+                const modeToSet = (newMode === currentMode && newMode !== 'text') ? 'text' : newMode;
+
+                newLevels[values.searchInResults] = {
+                    ...newLevels[values.searchInResults],
+                    values: {
+                        ...newLevels[values.searchInResults].values,
+                        searchMode: modeToSet
+                    }
+                };
             }
-        ]);
-    }, []);
+
+            return newLevels;
+        });
+    }, [values.searchInResults]);
 
     const toggleNestedReplace = useCallback(() => {
         setIsNestedReplaceVisible((prev: boolean) => !prev);
@@ -1830,8 +1857,8 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
             searchLevels[searchLevels.length - 1]?.values?.find) {
 
             const currentLevel = searchLevels[searchLevels.length - 1];
-            const searchQuery = currentLevel.values.find;
-            const currentSearchValue = `${searchQuery}_${currentLevel.values.matchCase}_${currentLevel.values.wholeWord}_${currentLevel.values.searchMode}`;
+            const searchQuery = currentLevel.values?.find;
+            const currentSearchValue = `${searchQuery}_${currentLevel.values?.matchCase}_${currentLevel.values?.wholeWord}_${currentLevel.values?.searchMode}`;
 
             // Skip if this exact search was already performed
             if (lastSearchRef.current === currentSearchValue && Object.keys(currentLevel.resultsByFile).length > 0) {
@@ -1842,15 +1869,15 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
             lastSearchRef.current = currentSearchValue;
 
             // Create search regex based on current settings
-            const pattern = currentLevel.values.searchMode === 'regex'
+            const pattern = currentLevel.values?.searchMode === 'regex'
                 ? searchQuery
                 : escapeRegExp(searchQuery);
 
-            const modifiedPattern = currentLevel.values.wholeWord && currentLevel.values.searchMode === 'text'
+            const modifiedPattern = currentLevel.values?.wholeWord && currentLevel.values?.searchMode === 'text'
                 ? `\\b${pattern}\\b`
                 : pattern;
 
-            const flags = currentLevel.values.matchCase ? 'g' : 'gi';
+            const flags = currentLevel.values?.matchCase ? 'g' : 'gi';
             const regex = new RegExp(modifiedPattern, flags);
 
             // Search through results from previous level
@@ -1928,11 +1955,11 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
             values: {
                 ...values,
                 isReplacement: true,
-                find: currentLevel.values.find,
+                find: currentLevel.values?.find,
                 replace: currentLevel.values.replace,
-                matchCase: currentLevel.values.matchCase,
-                wholeWord: currentLevel.values.wholeWord,
-                searchMode: currentLevel.values.searchMode
+                matchCase: currentLevel.values?.matchCase,
+                wholeWord: currentLevel.values?.wholeWord,
+                searchMode: currentLevel.values?.searchMode
             }
         });
 
@@ -1973,11 +2000,11 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                 {
                     ...prev[0],
                     values,
-                    matchCase: values.matchCase,
-                    wholeWord: values.wholeWord,
-                    searchMode: values.searchMode,
+                    matchCase: values?.matchCase,
+                    wholeWord: values?.wholeWord,
+                    searchMode: values?.searchMode,
                     isReplaceVisible,
-                    label: values.find || 'Initial search'
+                    label: values?.find || 'Initial search'
                 },
                 ...prev.slice(1)
             ]);
@@ -2001,7 +2028,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     // Функция-обработчик для замены в выбранных файлах
     const handleReplaceSelectedFiles = (filePaths: string[]) => {
         // Проверяем, что у нас есть что заменять
-        if (!values.find || !values.replace || filePaths.length === 0) {
+        if (!values?.find || !values.replace || filePaths.length === 0) {
             return;
         }
 
@@ -2101,11 +2128,11 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                                             result.source,
                                                             match.start,
                                                             match.end,
-                                                            values.find,
+                                                            values?.find,
                                                             values.replace,
-                                                            values.searchMode,
-                                                            values.matchCase,
-                                                            values.wholeWord
+                                                            values?.searchMode,
+                                                            values?.matchCase,
+                                                            values?.wholeWord
                                                         )
                                                         : getHighlightedMatchContext(result.source, match.start, match.end)}
 
@@ -2403,7 +2430,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                     setSearchLevels((prev: SearchLevel[]) => [prev[0]]);
                                     postValuesChange({ searchInResults: 0 });
                                     // Trigger a new search to update results
-                                    if (values.find) {
+                                    if (values?.find) {
                                         // Небольшая задержка, чтобы интерфейс успел обновиться
                                         setTimeout(() => {
                                             vscode.postMessage({
@@ -2416,11 +2443,11 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                 }}
                             >
                                 {/* Показываем текст первого поискового запроса вместо "Initial" */}
-                                {searchLevels[0].values.find
-                                    ? (searchLevels[0].values.find.length > 10
-                                        ? `${searchLevels[0].values.find.substring(0, 10)}...`
-                                        : searchLevels[0].values.find)
-                                    : values.find || 'Root'}
+                                {searchLevels[0].values?.find
+                                    ? (searchLevels[0].values?.find.length > 10
+                                        ? `${searchLevels[0].values?.find.substring(0, 10)}...`
+                                        : searchLevels[0].values?.find)
+                                    : values?.find || 'Root'}
                             </span>
 
                             {/* Show each search level as a breadcrumb */}
@@ -2441,17 +2468,17 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                         onClick={() => {
                                             // Jump to this specific search level
                                             if (index < searchLevels.length - 2) {
-                                                const targetLevel = searchLevels[index + 1];
-                                                setSearchLevels((prev: SearchLevel[]) => prev.slice(0, index + 2));
-                                                postValuesChange({ searchInResults: 1 });
+                                                const targetLevel = index + 1;
+                                                // Не сокращаем searchLevels, только устанавливаем searchInResults
+                                                postValuesChange({ searchInResults: targetLevel });
 
                                                 // Trigger a new search to update results for this level
-                                                if (targetLevel.values.find) {
+                                                if (searchLevels[targetLevel] && searchLevels[targetLevel].values?.find) {
                                                     setTimeout(() => {
                                                         vscode.postMessage({
                                                             type: 'search',
-                                                            ...targetLevel.values,
-                                                            searchInResults: 1
+                                                            ...searchLevels[targetLevel].values,
+                                                            searchInResults: targetLevel
                                                         });
                                                     }, 100);
                                                 }
@@ -2459,10 +2486,10 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                         }}
                                     >
                                         {/* Truncate search query if longer than 10 chars */}
-                                        {level.values.find
-                                            ? (level.values.find.length > 10
-                                                ? `${level.values.find.substring(0, 10)}...`
-                                                : level.values.find)
+                                        {level.values?.find
+                                            ? (level.values?.find.length > 10
+                                                ? `${level.values?.find.substring(0, 10)}...`
+                                                : level.values?.find)
                                             : `Search ${index + 1}`}
                                         {level.stats && (
                                             <span className={css`
@@ -2500,38 +2527,39 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                             {/* --- Search Input Row with Options --- */}
                             <div className={css` display: flex; align-items: center; gap: 2px; `}>
                                 <VSCodeTextArea
+                                    ref={nestedSearchInputRef}
                                     placeholder="search"
                                     aria-label="Nested Search Pattern"
                                     name="nestedSearch"
                                     rows={1}
-                                    value={searchLevels[searchLevels.length - 1].values.find}
+                                    defaultValue={searchLevels[values.searchInResults].values?.find}
                                     onInput={handleNestedFindChange}
                                     className={css` flex-grow: 1; `} // Make text area grow
                                 />
                                 {/* Search Options Buttons */}
                                 <VSCodeButton
-                                    appearance={searchLevels[searchLevels.length - 1].values.matchCase ? "secondary" : "icon"}
+                                    appearance={searchLevels[values.searchInResults].values?.matchCase ? "secondary" : "icon"}
                                     onClick={toggleNestedMatchCase}
                                     title="Match Case (Aa)"
                                 >
                                     <span className="codicon codicon-case-sensitive" />
                                 </VSCodeButton>
                                 <VSCodeButton
-                                    appearance={searchLevels[searchLevels.length - 1].values.wholeWord ? "secondary" : "icon"}
+                                    appearance={searchLevels[values.searchInResults].values?.wholeWord ? "secondary" : "icon"}
                                     onClick={toggleNestedWholeWord}
                                     title="Match Whole Word (Ab)"
                                 >
                                     <span className="codicon codicon-whole-word" />
                                 </VSCodeButton>
                                 <VSCodeButton
-                                    appearance={searchLevels[searchLevels.length - 1].values.searchMode === 'regex' ? "secondary" : "icon"}
+                                    appearance={searchLevels[values.searchInResults].values?.searchMode === 'regex' ? "secondary" : "icon"}
                                     onClick={() => handleNestedModeChange('regex')}
                                     title="Use Regular Expression (.*)"
                                 >
                                     <span className="codicon codicon-regex" />
                                 </VSCodeButton>
                                 <VSCodeButton
-                                    appearance={searchLevels[searchLevels.length - 1].values.searchMode === 'astx' ? "secondary" : "icon"}
+                                    appearance={searchLevels[values.searchInResults].values?.searchMode === 'astx' ? "secondary" : "icon"}
                                     onClick={() => handleNestedModeChange('astx')}
                                     title="Use AST Search (<*>)"
                                 >
@@ -2547,7 +2575,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                         aria-label="Nested Replace Pattern"
                                         name="nestedReplace"
                                         rows={1}
-                                        value={searchLevels[searchLevels.length - 1].values.replace}
+                                        value={values.searchInResults < searchLevels.length ? searchLevels[values.searchInResults].values.replace : ""}
                                         onInput={handleNestedReplaceChange}
                                         className={css` flex-grow: 1; `} // Make textarea grow
                                     />
@@ -2555,8 +2583,8 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                     <VSCodeButton
                                         appearance="icon"
                                         onClick={handleNestedReplaceAllClick}
-                                        disabled={!Object.keys(searchLevels[searchLevels.length - 1].resultsByFile).length}
-                                        title={!Object.keys(searchLevels[searchLevels.length - 1].resultsByFile).length ? "Replace All" : `Replace ${searchLevels[searchLevels.length - 1].values.replace} in matched files`}
+                                        disabled={!Object.keys(searchLevels[values.searchInResults].resultsByFile).length}
+                                        title={!Object.keys(searchLevels[values.searchInResults].resultsByFile).length ? "Replace All" : `Replace ${searchLevels[values.searchInResults].values.replace} in matched files`}
                                         className={css` flex-shrink: 0; `} // Prevent shrinking
                                     >
                                         <span className="codicon codicon-replace-all" />
@@ -2567,7 +2595,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                     </div>
 
                     {/* Button to add another level of nested search */}
-                    {Object.keys(searchLevels[searchLevels.length - 1].resultsByFile).length > 0 && (
+                    {Object.keys(searchLevels[values.searchInResults].resultsByFile).length > 0 && (
                         <div className={css`
                     display: flex;
                     justify-content: flex-end;
@@ -2627,7 +2655,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                 aria-label="Search Pattern"
                                 name="search"
                                 rows={1}
-                                // value={values.find}
+                                defaultValue={values?.find}
                                 onInput={handleFindChange}
                                 className={css` flex-grow: 1; `} // Make text area grow
                             />
@@ -2656,7 +2684,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                         `} />
                                     )}
                                 </VSCodeButton>
-                                
+
                                 {optionsMenuOpen && (
                                     <div ref={optionsMenuRef} className={css`
                                         position: absolute;
@@ -2686,7 +2714,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                             <span className="codicon codicon-case-sensitive" style={{ marginRight: '8px' }}></span>
                                             <span>Match Case (Aa)</span>
                                         </div>
-                                        
+
                                         <div className={css`
                                             padding: 6px 8px;
                                             display: flex;
@@ -2703,7 +2731,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                             <span className="codicon codicon-whole-word" style={{ marginRight: '8px' }}></span>
                                             <span>Match Whole Word (Ab)</span>
                                         </div>
-                                        
+
                                         <div className={css`
                                             padding: 6px 8px;
                                             display: flex;
@@ -2720,7 +2748,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                             <span className="codicon codicon-regex" style={{ marginRight: '8px' }}></span>
                                             <span>Use Regular Expression (.*)</span>
                                         </div>
-                                        
+
                                         <div className={css`
                                             padding: 6px 8px;
                                             display: flex;
@@ -2749,7 +2777,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                     aria-label="Replace Pattern"
                                     name="replace"
                                     rows={1}
-                                    value={values.replace}
+                                    defaultValue={values.replace}
                                     onInput={handleReplaceChange}
                                     className={css` flex-grow: 1; `} // Make textarea grow
                                 />
@@ -2820,8 +2848,8 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
 
                 {!isInNestedSearch && showSettings && (
                     <div className={css` display: flex; flex-direction: column; gap: 5px; padding: 5px; border-top: 1px solid var(--vscode-divider-background); margin-top: 4px;`}>
-                        <VSCodeTextField name="filesToInclude" value={values.include || ''} onInput={handleIncludeChange}> files to include </VSCodeTextField>
-                        <VSCodeTextField name="filesToExclude" value={values.exclude || ''} onInput={handleExcludeChange}> files to exclude </VSCodeTextField>
+                        <VSCodeTextField name="filesToInclude" defaultValue={values.include || ''} onInput={handleIncludeChange}> files to include </VSCodeTextField>
+                        <VSCodeTextField name="filesToExclude" defaultValue={values.exclude || ''} onInput={handleExcludeChange}> files to exclude </VSCodeTextField>
                         <VSCodeCheckbox
                             checked={!values.paused}
                             onChange={handleRerunAutomaticallyChange}
@@ -2836,7 +2864,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                 <p>Parser:</p>
                                 <VSCodeDropdown
                                     position="below"
-                                    value={values.parser || 'babel'} // Provide default
+                                    defaultValue={values.parser || 'babel'} // Provide default
                                     onChange={handleParserChange}
                                 >
                                     <VSCodeOption value="babel">babel</VSCodeOption>
@@ -2932,7 +2960,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                     show: false
                                 });
                                 // Launch new search
-                                if (values.find) {
+                                if (values?.find) {
                                     vscode.postMessage({
                                         type: 'search',
                                         ...values
@@ -2948,7 +2976,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                 {/* Show either nested results or regular results based on state */}
                 {!replacementResult.show && isInNestedSearch ? (
                     // Nested search results view
-                    Object.keys(searchLevels[searchLevels.length - 1].resultsByFile).length > 0 ? (
+                    Object.keys(searchLevels[values.searchInResults].resultsByFile).length > 0 ? (
                         <div>
                             {viewMode === 'tree' ? (
                                 // Tree view for nested results
@@ -2966,7 +2994,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                                 handleFileClick={handleFileClick}
                                                 handleResultItemClick={handleResultItemClick}
                                                 handleReplace={handleReplaceSelectedFiles}
-                                                currentSearchValues={searchLevels[searchLevels.length - 1].values}
+                                                currentSearchValues={searchLevels[values.searchInResults].values}
                                             />
                                         ))
                                     ) : !status.running ? (
@@ -2983,7 +3011,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                 // List view for nested results
                                 <div>
                                     {/* Group results by file */}
-                                    {Object.entries(searchLevels[searchLevels.length - 1].resultsByFile).map(([filePath, results]) => {
+                                    {Object.entries(searchLevels[values.searchInResults].resultsByFile).map(([filePath, results]) => {
                                         const displayPath = workspacePath
                                             ? path.relative(uriToPath(workspacePath), uriToPath(filePath))
                                             : uriToPath(filePath);
@@ -3060,21 +3088,21 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                                                         delete (e.currentTarget as HTMLElement).dataset.hovered;
                                                                     }}
                                                                 >
-                                                                    {searchLevels[searchLevels.length - 1].values.replace && searchLevels[searchLevels.length - 1].values.replace.length > 0
+                                                                    {searchLevels[values.searchInResults].values.replace && searchLevels[values.searchInResults].values.replace.length > 0
                                                                         ? getHighlightedMatchContextWithReplacement(
                                                                             result.source,
                                                                             match.start,
                                                                             match.end,
-                                                                            searchLevels[searchLevels.length - 1].values.find,
-                                                                            searchLevels[searchLevels.length - 1].values.replace,
-                                                                            searchLevels[searchLevels.length - 1].values.searchMode,
-                                                                            searchLevels[searchLevels.length - 1].values.matchCase,
-                                                                            searchLevels[searchLevels.length - 1].values.wholeWord
+                                                                            searchLevels[values.searchInResults].values?.find,
+                                                                            searchLevels[values.searchInResults].values.replace,
+                                                                            searchLevels[values.searchInResults].values?.searchMode,
+                                                                            searchLevels[values.searchInResults].values?.matchCase,
+                                                                            searchLevels[values.searchInResults].values?.wholeWord
                                                                         )
                                                                         : getHighlightedMatchContext(result.source, match.start, match.end)}
 
                                                                     {/* Replace button for individual match */}
-                                                                    {searchLevels[searchLevels.length - 1].values.replace && (
+                                                                    {searchLevels[values.searchInResults].values.replace && (
                                                                         <div
                                                                             className={css`
                                                                                 position: absolute;
@@ -3124,7 +3152,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                 </div>
                             )}
                         </div>
-                    ) : searchLevels[searchLevels.length - 1].values.find && !status.running ? (
+                    ) : searchLevels[values.searchInResults].values?.find && !status.running ? (
                         <div className={css`
                             display: flex;
                             justify-content: center;
@@ -3132,7 +3160,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                             height: 100px;
                             color: var(--vscode-descriptionForeground);
                         `}>
-                            No matches found for "{searchLevels[searchLevels.length - 1].values.find}"
+                            No matches found for "{searchLevels[values.searchInResults].values?.find}"
                         </div>
                     ) : (
                         <div className={css`

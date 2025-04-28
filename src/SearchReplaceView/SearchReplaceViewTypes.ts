@@ -72,6 +72,7 @@ export type InitialDataFromExtension = {
   values: SearchReplaceViewValues
   status: SearchReplaceViewStatus
   workspacePath: string
+  searchLevels?: SearchLevel[]
 }
 
 export type StatusUpdateFromExtension = {
@@ -100,7 +101,7 @@ export type MessageToWebview =
   | ClearResultsMessage
   | AddResultMessage
   | InitialDataFromExtension
-  | { type: 'addBatchResults'; data: SerializedTransformResultEvent[] }
+  | { type: 'addBatchResults'; data: SerializedTransformResultEvent[]; isSearchRunning: boolean }
   | { type: 'replaceDone' }
   | { type: 'stop' }
   | { type: 'focusSearchInput' }

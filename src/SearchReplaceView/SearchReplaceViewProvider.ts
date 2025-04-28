@@ -56,7 +56,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     // Инициализация с параметрами расширения
     this._state.params = Object.assign({}, extension.getParams())
   }
-
+  private isSearchRunning = false;
   private _registerGlobalEventListeners(): void {
     if (this._listenerRegistered) return
 
@@ -73,9 +73,11 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
         this._state.status.numFilesThatWillChange = 0
         this._state.status.numFilesWithMatches = 0
         this._state.status.numFilesWithErrors = 0
-        this._notifyWebviewIfActive('status', {
-          status: this._state.status,
-        })
+        this._state.status.completed = 0
+        this._state.status.total = 0
+        this._state.results = []
+        this.isSearchRunning = true;
+        // this._notifyWebviewIfActive('clearResults', {})
       },
       stop: () => {
         // Отправляем оставшиеся буферизованные результаты перед очисткой
@@ -93,6 +95,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
           status: this._state.status,
         })
         this._notifyWebviewIfActive('clearResults', {})
+        this.isSearchRunning = false;
       },
       done: () => {
         // Отправляем оставшиеся буферизованные результаты
@@ -102,6 +105,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
         this._notifyWebviewIfActive('status', {
           status: this._state.status,
         })
+        this.isSearchRunning = false;
       },
       progress: ({ completed, total }: ProgressEvent) => {
         this._state.status.completed = completed
@@ -109,6 +113,10 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
         this._notifyWebviewIfActive('status', {
           status: this._state.status,
         })
+        const isNoMatches = total === completed && !this._state.status.numMatches;
+        if (isNoMatches) {
+          this._notifyWebviewIfActive('clearResults', {})
+        }
       },
     }
 
@@ -186,8 +194,8 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     )
 
     // Отправляем весь буфер результатов в webview
-    this._notifyWebviewIfActive('addBatchResults', { data: this._resultBuffer })
-
+    this._notifyWebviewIfActive('addBatchResults', { data: this._resultBuffer, isSearchRunning: this.isSearchRunning })
+    this.isSearchRunning = false;
     // Очищаем буфер после отправки
     this._resultBuffer = []
   }
