@@ -387,7 +387,7 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
         find,
         matchCase,
         wholeWord,
-        matches,
+        matches
       )
     } catch (err: any) {
       if (signal.aborted) return
@@ -454,7 +454,9 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
         const newMatchStart = Math.min(
           match.start - (queryLength - matchTextLength)
         )
-        const newMatchEnd = Math.max(match.end + (queryLength - matchTextLength))
+        const newMatchEnd = Math.max(
+          match.end + (queryLength - matchTextLength)
+        )
         const matchText = result.source!.substring(newMatchStart, newMatchEnd)
 
         // Применяем ту же логику фильтрации, что и в SearchCache.resultMatchesQuery
@@ -516,7 +518,7 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
     find: string,
     matchCase: boolean,
     wholeWord: boolean,
-    matches: ExtendedIpcMatch[],
+    matches: ExtendedIpcMatch[]
   ): Promise<void> {
     // Проверка на прерывание поиска
     if (this.abortController?.signal.aborted) {
@@ -763,8 +765,8 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
         source[lineEndOffset] === '\r' && source[lineEndOffset + 1] === '\n'
           ? 2
           : source[lineEndOffset] === '\n' || source[lineEndOffset] === '\r'
-            ? 1
-            : 0
+          ? 1
+          : 0
       const nextOffset = lineEndOffset + newlineLength
 
       if (startOffset >= currentOffset && startOffset <= lineEndOffset) {

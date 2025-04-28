@@ -197,18 +197,18 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       .get<{ [key: string]: boolean }>('exclude')
 
     // Начинаем с DEFAULT_IGNORED_PATTERNS
-    let excludePatterns = [...DEFAULT_IGNORED_PATTERNS];
+    let excludePatterns = [...DEFAULT_IGNORED_PATTERNS]
 
     if (exclude) {
       // Добавляем шаблоны из настроек пользователя
       const userPatterns = Object.entries(exclude)
         .filter(([, value]) => value === true)
-        .map(([key]) => key);
+        .map(([key]) => key)
 
-      excludePatterns = [...excludePatterns, ...userPatterns];
+      excludePatterns = [...excludePatterns, ...userPatterns]
     }
 
-    return excludePatterns;
+    return excludePatterns
   }
 
   // Добавляем метод для получения include patterns из настроек
@@ -412,7 +412,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
     // Add logging to see if setParams is called and compare params
     const areEqual = isEqual(this.params, params)
 
-    if (areEqual) return;
+    if (areEqual) return
 
     this.params = params
     if (!this.params.paused && this.pausedRestart) {
@@ -474,7 +474,8 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
         this.run()
       } catch (error) {
         this.extension.channel.appendLine(
-          `Failed to restart worker pool: ${error instanceof Error ? error.stack : String(error)
+          `Failed to restart worker pool: ${
+            error instanceof Error ? error.stack : String(error)
           }`
         )
       }
@@ -533,7 +534,8 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
     if (fileInPreviousResults) {
       this.refreshFileSourceInSearchResults(fileUri).catch((error) => {
         this.extension.channel.appendLine(
-          `Failed to update file in search results: ${error instanceof Error ? error.stack : String(error)
+          `Failed to update file in search results: ${
+            error instanceof Error ? error.stack : String(error)
           }`
         )
       })
@@ -628,7 +630,8 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
     // Добавляем информацию о типе includePattern
     if (typeof includePattern === 'object' && 'pattern' in includePattern) {
       this.extension.channel.appendLine(
-        `[DEBUG] Pattern is a RelativePattern with base: ${(includePattern as vscode.RelativePattern).base
+        `[DEBUG] Pattern is a RelativePattern with base: ${
+          (includePattern as vscode.RelativePattern).base
         }`
       )
     }
@@ -915,7 +918,8 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       )}`
     )
     this.extension.channel.appendLine(
-      `Exclude pattern type: ${typeof excludePattern}, value: ${excludePattern || 'null'
+      `Exclude pattern type: ${typeof excludePattern}, value: ${
+        excludePattern || 'null'
       }`
     )
 
@@ -1005,7 +1009,8 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       )
     } catch (error) {
       this.extension.channel.appendLine(
-        `Error in text search: ${error instanceof Error ? error.stack : String(error)
+        `Error in text search: ${
+          error instanceof Error ? error.stack : String(error)
         }`
       )
     } finally {
@@ -1144,32 +1149,32 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
             !part.includes('[')
           ) {
             // Удаляем слеш в конце, если есть
-            const cleanPart = part.endsWith('/') ? part.slice(0, -1) : part;
+            const cleanPart = part.endsWith('/') ? part.slice(0, -1) : part
 
             // Экранируем специальные символы в пути для корректной работы с glob
-            const escapedPart = cleanPart.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+            const escapedPart = cleanPart.replace(/[.+^${}()|[\]\\]/g, '\\$&')
 
             // Преобразуем в формат исключения папки с разными вариантами шаблонов
             // для более надежного исключения
-            return `${escapedPart}/**,**/${escapedPart}/**,**/${escapedPart}`;
+            return `${escapedPart}/**,**/${escapedPart}/**,**/${escapedPart}`
           }
 
           // Для шаблонов с * или ? или [] просто возвращаем как есть
-          return part;
-        });
+          return part
+        })
 
         // Собираем все части обратно в строку
-        userExclude = processedParts.join(',');
+        userExclude = processedParts.join(',')
 
-        excludeGlob = userExclude;
+        excludeGlob = userExclude
 
         // Добавляем системные исключения только если они есть
         if (excludePatterns.length > 0) {
-          excludeGlob += `,${excludePatterns.join(',')}`;
+          excludeGlob += `,${excludePatterns.join(',')}`
         }
       } else {
         // Если пользовательских исключений нет, используем только системные
-        excludeGlob = excludePatterns.join(',');
+        excludeGlob = excludePatterns.join(',')
       }
 
       // Преобразуем строковый паттерн исключения, если он есть
@@ -1273,7 +1278,8 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       )
     } catch (error) {
       this.extension.channel.appendLine(
-        `Error in search: ${error instanceof Error ? error.stack : String(error)
+        `Error in search: ${
+          error instanceof Error ? error.stack : String(error)
         }`
       )
     } finally {
@@ -1354,7 +1360,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
   private onSearchDone(): void {
     // Устанавливаем abortController в undefined после завершения поиска
     if (this.abortController) {
-      this.abortController = undefined;
+      this.abortController = undefined
     }
   }
 
@@ -1365,8 +1371,8 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
   ): boolean {
     // Перехватываем событие 'done' для очистки abortController
     if (event === 'done') {
-      this.onSearchDone();
+      this.onSearchDone()
     }
-    return super.emit(event, ...args);
+    return super.emit(event, ...args)
   }
 }
