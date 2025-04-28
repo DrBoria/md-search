@@ -204,7 +204,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       const userPatterns = Object.entries(exclude)
         .filter(([, value]) => value === true)
         .map(([key]) => key);
-      
+
       excludePatterns = [...excludePatterns, ...userPatterns];
     }
 
@@ -410,48 +410,26 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
 
   setParams(params: Params): void {
     // Add logging to see if setParams is called and compare params
-    this.extension.channel.appendLine(`[Debug] setParams called.`)
-    this.extension.channel.appendLine(
-      `[Debug]   Params changing: searchMode=${params.searchMode}, searchInResults=${params.searchInResults}, paused=${params.paused}`
-    )
     const areEqual = isEqual(this.params, params)
-    this.extension.channel.appendLine(`[Debug]   isEqual result: ${areEqual}`)
 
-    if (!areEqual) {
-      this.extension.channel.appendLine(`[Debug] Params changed (not equal).`)
+    if (areEqual) return;
 
-      // Проверяем изменения include/exclude для сброса кеша
-      if (
-        this.params.include !== params.include ||
-        this.params.exclude !== params.exclude
-      ) {
-        this.extension.channel.appendLine(
-          `[ВАЖНО] Изменились параметры include/exclude, очищаем кеш.`
-        )
-        // Сбрасываем кеш перед сменой параметров
-        this.clearCache()
-      }
-
-      this.params = params
-      if (!this.params.paused && this.pausedRestart) {
-        this.extension.channel.appendLine('[Debug] Resuming paused restart.')
-        this.pausedRestart = false
-        this.restartSoon()
-      } else if (this.params.paused) {
-        this.extension.channel.appendLine(
-          '[Debug] Params changed, but runner is paused. Skipping runSoon.'
-        )
-      } else {
-        this.extension.channel.appendLine(
-          '[Debug] Params changed, calling runSoon.'
-        )
-        this.runSoon()
-      }
+    this.params = params
+    if (!this.params.paused && this.pausedRestart) {
+      this.pausedRestart = false
+      this.restartSoon()
     } else {
-      this.extension.channel.appendLine(
-        '[Debug] Params are equal, no action taken in setParams.'
-      )
+      this.runSoon()
     }
+  }
+
+  abort(): void {
+    if (this.abortController) {
+      this.extension.channel.appendLine('Aborting current run...')
+      this.abortController.abort()
+      this.abortController = undefined
+    }
+    this.textSearchRunner.stop()
   }
 
   stop(): void {
@@ -466,9 +444,6 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
     this.textSearchRunner.stop()
     this.astxSearchRunner.stop()
     this.emit('stop')
-    this.extension.channel.appendLine(
-      'Run stopped, results cleared (preserved previous search files).'
-    )
   }
 
   restartSoon: () => void = () => {
@@ -484,12 +459,12 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
   debouncedRestart: () => void = debounce(
     async () => {
       this.extension.channel.appendLine('Executing debounced restart...')
-      
+
       // Останавливаем поиск только если он активен и не завершён
       if (this.abortController && !this.abortController.signal.aborted) {
         this.stop()
       }
-      
+
       try {
         this.extension.channel.appendLine(
           'Restarting worker pool via startup()...'
@@ -499,8 +474,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
         this.run()
       } catch (error) {
         this.extension.channel.appendLine(
-          `Failed to restart worker pool: ${
-            error instanceof Error ? error.stack : String(error)
+          `Failed to restart worker pool: ${error instanceof Error ? error.stack : String(error)
           }`
         )
       }
@@ -518,25 +492,17 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
 
   runSoon: () => void = () => {
     if (!this.params.paused) {
-      this.extension.channel.appendLine('Debouncing run...')
       this.debouncedRun()
-    } else {
-      this.extension.channel.appendLine('Run requested but paused.')
     }
   }
 
   debouncedRun: () => void = debounce(
     () => {
-      this.extension.channel.appendLine('Executing debounced run...')
       // Ожидаем окончания индексации, если она идет, затем запускаем поиск
       if (this.fileIndexPromise) {
-        this.extension.channel.appendLine(
-          'Waiting for file indexing to complete...'
-        )
         this.fileIndexPromise
           .then(() => this.run())
           .catch((err) => {
-            this.extension.channel.appendLine(`File indexing error: ${err}`)
             this.run() // Запускаем поиск даже если индексация не завершилась
           })
       } else {
@@ -567,8 +533,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
     if (fileInPreviousResults) {
       this.refreshFileSourceInSearchResults(fileUri).catch((error) => {
         this.extension.channel.appendLine(
-          `Failed to update file in search results: ${
-            error instanceof Error ? error.stack : String(error)
+          `Failed to update file in search results: ${error instanceof Error ? error.stack : String(error)
           }`
         )
       })
@@ -663,8 +628,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
     // Добавляем информацию о типе includePattern
     if (typeof includePattern === 'object' && 'pattern' in includePattern) {
       this.extension.channel.appendLine(
-        `[DEBUG] Pattern is a RelativePattern with base: ${
-          (includePattern as vscode.RelativePattern).base
+        `[DEBUG] Pattern is a RelativePattern with base: ${(includePattern as vscode.RelativePattern).base
         }`
       )
     }
@@ -951,8 +915,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       )}`
     )
     this.extension.channel.appendLine(
-      `Exclude pattern type: ${typeof excludePattern}, value: ${
-        excludePattern || 'null'
+      `Exclude pattern type: ${typeof excludePattern}, value: ${excludePattern || 'null'
       }`
     )
 
@@ -1042,8 +1005,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       )
     } catch (error) {
       this.extension.channel.appendLine(
-        `Error in text search: ${
-          error instanceof Error ? error.stack : String(error)
+        `Error in text search: ${error instanceof Error ? error.stack : String(error)
         }`
       )
     } finally {
@@ -1060,11 +1022,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       return
     }
 
-    // Останавливаем предыдущий поиск только если он активен и не завершён
-    if (this.abortController && !this.abortController.signal.aborted) {
-      this.extension.channel.appendLine('Stopping active search before starting a new one...')
-      this.stop()
-    }
+    this.abort()
 
     const abortController = new AbortController()
     this.abortController = abortController
@@ -1081,8 +1039,6 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       this.emit('done')
       return
     }
-
-
 
     // Если индексация еще не завершена, обновляем индекс файлов в TextSearchRunner только один раз перед поиском
     if (this.fileIndexCache.size > 0) {
@@ -1189,15 +1145,15 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
           ) {
             // Удаляем слеш в конце, если есть
             const cleanPart = part.endsWith('/') ? part.slice(0, -1) : part;
-            
+
             // Экранируем специальные символы в пути для корректной работы с glob
             const escapedPart = cleanPart.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-            
+
             // Преобразуем в формат исключения папки с разными вариантами шаблонов
             // для более надежного исключения
             return `${escapedPart}/**,**/${escapedPart}/**,**/${escapedPart}`;
           }
-          
+
           // Для шаблонов с * или ? или [] просто возвращаем как есть
           return part;
         });
@@ -1317,8 +1273,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       )
     } catch (error) {
       this.extension.channel.appendLine(
-        `Error in search: ${
-          error instanceof Error ? error.stack : String(error)
+        `Error in search: ${error instanceof Error ? error.stack : String(error)
         }`
       )
     } finally {

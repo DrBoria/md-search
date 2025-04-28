@@ -1366,40 +1366,20 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     }, [vscode, flushPendingResults]); // Добавили flushPendingResults в зависимости
 
     // --- Callbacks ---
-    const postValuesChange = useCallback((changed: Partial<SearchReplaceViewValues>) => {
-        // Clear existing timeout
-        if (debounceTimerRef.current) {
-            clearTimeout(debounceTimerRef.current);
-        }
-
-        // Если это изменение строки поиска и поиск в данный момент идет - 
-        // немедленно отправляем новые значения для остановки текущего поиска
-        if (changed?.find !== undefined && status.running) {
-            setValues(prev => {
-                const next = { ...prev, ...changed, isReplacement: false };
-                // Немедленно отправляем новые значения
-                vscode.postMessage({ type: 'values', values: next });
-                setIsSearchRequested(Boolean(changed?.find));
-                return next;
-            });
-        } else {
-            // В противном случае используем debounce как обычно
-            debounceTimerRef.current = setTimeout(() => {
-                // Immediately update local state for responsiveness
-                setValues(prev => {
-                    const next = { ...prev, ...changed, isReplacement: false };
-                    // Update dependent local state right away
-                    if (changed?.searchMode !== undefined) setCurrentSearchMode(changed?.searchMode);
-                    if (changed?.matchCase !== undefined) setMatchCase(changed?.matchCase);
-                    if (changed?.wholeWord !== undefined) setWholeWord(changed?.wholeWord);
-                    // Post the complete updated values
-                    vscode.postMessage({ type: 'values', values: next });
-                    setIsSearchRequested(Boolean(changed?.find));
-                    return next;
-                });
-            }, 150);
-        }
-    }, [vscode, status.running]);
+    const postValuesChange = debounce(useCallback((changed: Partial<SearchReplaceViewValues>) => {
+        // Immediately update local state for responsiveness
+        setValues(prev => {
+            const next = { ...prev, ...changed, isReplacement: false };
+            // Update dependent local state right away
+            if (changed?.searchMode !== undefined) setCurrentSearchMode(changed?.searchMode);
+            if (changed?.matchCase !== undefined) setMatchCase(changed?.matchCase);
+            if (changed?.wholeWord !== undefined) setWholeWord(changed?.wholeWord);
+            // Post the complete updated values
+            vscode.postMessage({ type: 'values', values: next });
+            setIsSearchRequested(Boolean(changed?.find));
+            return next;
+        });
+    }, [vscode, status.running]), 300);
 
     // Cleanup debounce timer on unmount
     useEffect(() => {
@@ -1758,7 +1738,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
 
                 return newLevels;
             });
-        }, 150),
+        }, 300),
         [status.running, vscode, values.searchInResults]
     );
 
