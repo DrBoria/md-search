@@ -437,7 +437,6 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
             )
             const level = message.level.toUpperCase()
             const logMessage = `[Webview ${level}] ${message.message}`
-
             // Safely log the message without logging sensitive content
             this.extension.channel.appendLine(logMessage)
 
@@ -652,3 +651,4 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     this._sendBufferedResults()
   }
 }
+

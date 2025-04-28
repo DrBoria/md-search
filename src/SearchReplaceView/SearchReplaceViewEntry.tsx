@@ -1,6 +1,6 @@
 import * as React from 'react'
 import ReactDOM from 'react-dom/client'
-import SearchReplaceViewController from './SearchReplaceViewController'
+import SearchReplaceViewController, { SearchReplaceWebviewApi } from './SearchReplaceViewController'
 
 // Import icon styles
 import '@vscode/codicons/dist/codicon.css'
@@ -25,10 +25,10 @@ const el = document.createElement('div')
 document.body.appendChild(el)
 
 const root = ReactDOM.createRoot(el)
-root.render(<SearchReplaceViewController vscode={vscode} />)
+root.render(<SearchReplaceViewController vscode={vscode as SearchReplaceWebviewApi} />)
 
 if (module.hot) {
   module.hot.accept('./SearchReplaceViewController', () => {
-    root.render(<SearchReplaceViewController vscode={vscode} />)
+    root.render(<SearchReplaceViewController vscode={vscode as SearchReplaceWebviewApi} />)
   })
 }
