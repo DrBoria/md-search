@@ -136,6 +136,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
   private setupEventForwarding(runner: TypedEmitter<AstxRunnerEvents>): void {
     runner.on('result', (event) => this.emit('result', event))
     runner.on('stop', () => this.emit('stop'))
+    runner.on('abort', () => this.emit('abort'))
     runner.on('start', () => this.emit('start'))
     runner.on('progress', (event) => this.emit('progress', event))
     runner.on('done', () => this.emit('done'))
@@ -425,18 +426,15 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
 
   abort(): void {
     if (this.abortController) {
-      this.extension.channel.appendLine('Aborting current run...')
       this.abortController.abort()
-      this.abortController = undefined
     }
-    this.textSearchRunner.stop()
+    this.textSearchRunner.abort()
   }
 
   stop(): void {
     if (this.abortController) {
       this.extension.channel.appendLine('Aborting current run...')
       this.abortController.abort()
-      this.abortController = undefined
     }
     // this.transformResults.clear()
     // this.processedFiles.clear()

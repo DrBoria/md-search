@@ -1,6 +1,6 @@
 {
   "name": "md-search",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "displayName": "MD Search",
   "description": "VSCode extension for nested code search and replace functionality",
   "publisher": "drboria",
@@ -22,7 +22,7 @@
     "onCommand:mdSearch.findInFile",
     "onCommand:mdSearch.search",
     "onCommand:mdSearch.clearAllState",
-    "onStartupFinished"
+    "workbenchLoad"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -130,16 +130,14 @@
     ],
     "keybindings": [
       {
-        "command": "mdSearch.findInFile",
+        "command": "mdSearch.search",
         "key": "ctrl+shift+f",
-        "mac": "cmd+shift+f",
-        "when": "!editorFocus"
+        "mac": "cmd+shift+f"
       },
       {
         "command": "mdSearch.replace",
         "key": "ctrl+shift+h",
-        "mac": "cmd+shift+h",
-        "when": "!editorFocus"
+        "mac": "cmd+shift+h"
       },
       {
         "command": "mdSearch.copyMatches",

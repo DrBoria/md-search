@@ -933,10 +933,21 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     const nestedSearchInputRef = useRef<any>(null);
     const searchInputRef = useRef<any>(null);
 
+    // Добавляем ref для кнопки настроек
+    const optionsButtonRef = useRef<HTMLDivElement>(null);
+
     // Закрыть меню при клике вне его области или нажатии клавиши Escape
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
-            if (optionsMenuRef.current && !optionsMenuRef.current.contains(event.target as Node)) {
+            // Проверяем, не является ли цель клика самой кнопкой настроек или ее дочерним элементом
+            const isClickOnOptionsButton = optionsButtonRef.current && 
+                (optionsButtonRef.current === event.target || 
+                 optionsButtonRef.current.contains(event.target as Node));
+
+            // Клик вне меню И не на кнопке настроек закрывает меню
+            if (optionsMenuRef.current && 
+                !optionsMenuRef.current.contains(event.target as Node) && 
+                !isClickOnOptionsButton) {
                 setOptionsMenuOpen(false);
             }
         };
@@ -1289,29 +1300,130 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
 
                     break;
                 }
+                case 'focusSearchInput': {
+                    // Показываем и фокусируем соответствующее поле поиска в зависимости от режима
+                    setTimeout(() => {
+                        try {
+                            if (isInNestedSearch) {
+                                // Если мы во вложенном поиске, фокусируем поле вложенного поиска
+                                if (nestedSearchInputRef.current) {
+                                    nestedSearchInputRef.current.focus()
+                                    vscode.postMessage({ 
+                                        type: 'log', 
+                                        level: 'info', 
+                                        message: 'Focused nested search input via ref' 
+                                    })
+                                } else {
+                                    // Запасной вариант поиска элемента в DOM
+                                    const nestedInput = document.querySelector('textarea[name="nestedSearch"]')
+                                    if (nestedInput) {
+                                        (nestedInput as HTMLTextAreaElement).focus()
+                                        vscode.postMessage({ 
+                                            type: 'log', 
+                                            level: 'info', 
+                                            message: 'Focused nested search input via DOM' 
+                                        })
+                                    } else {
+                                        vscode.postMessage({ 
+                                            type: 'log', 
+                                            level: 'error', 
+                                            message: 'Could not find nested search input' 
+                                        })
+                                    }
+                                }
+                            } else {
+                                // Используем основное поле поиска
+                                if (searchInputRef.current) {
+                                    searchInputRef.current.focus()
+                                    vscode.postMessage({ 
+                                        type: 'log', 
+                                        level: 'info', 
+                                        message: 'Focused main search input via ref' 
+                                    })
+                                } else {
+                                    // Запасной вариант поиска элемента в DOM
+                                    const mainInput = document.querySelector('textarea[name="search"]')
+                                    if (mainInput) {
+                                        (mainInput as HTMLTextAreaElement).focus()
+                                        vscode.postMessage({ 
+                                            type: 'log', 
+                                            level: 'info', 
+                                            message: 'Focused main search input via DOM' 
+                                        })
+                                    } else {
+                                        vscode.postMessage({ 
+                                            type: 'log', 
+                                            level: 'error', 
+                                            message: 'Could not find main search input' 
+                                        })
+                                    }
+                                }
+                            }
+                        } catch (e) {
+                            vscode.postMessage({
+                                type: 'log',
+                                level: 'error',
+                                message: `Error focusing search input: ${e}`
+                            })
+                        }
+                    }, 100)
+                    break
+                }
                 case 'focusReplaceInput': {
                     // Показываем панель замены, если она не видна
-                    setIsReplaceVisible(true);
+                    if (isInNestedSearch) {
+                        setIsNestedReplaceVisible(true)
+                    } else {
+                        setIsReplaceVisible(true)
+                    }
 
                     // Устанавливаем фокус на поле ввода с небольшой задержкой, чтобы DOM успел обновиться
                     setTimeout(() => {
                         try {
-                            const replaceInput = document.querySelector('textarea[name="replace"]') as HTMLTextAreaElement;
-                            if (replaceInput) {
-                                replaceInput.focus();
-                                vscode.postMessage({ type: 'log', level: 'info', message: 'Focused replace input' });
+                            if (isInNestedSearch) {
+                                // Ищем поле замены вложенного поиска
+                                const nestedReplaceInput = document.querySelector('textarea[name="nestedReplace"]') as HTMLTextAreaElement
+                                if (nestedReplaceInput) {
+                                    nestedReplaceInput.focus()
+                                    vscode.postMessage({ 
+                                        type: 'log', 
+                                        level: 'info', 
+                                        message: 'Focused nested replace input' 
+                                    })
+                                } else {
+                                    vscode.postMessage({ 
+                                        type: 'log', 
+                                        level: 'warn', 
+                                        message: 'Nested replace input not found' 
+                                    })
+                                }
                             } else {
-                                vscode.postMessage({ type: 'log', level: 'warn', message: 'Replace input not found' });
+                                // Ищем основное поле замены
+                                const replaceInput = document.querySelector('textarea[name="replace"]') as HTMLTextAreaElement
+                                if (replaceInput) {
+                                    replaceInput.focus()
+                                    vscode.postMessage({ 
+                                        type: 'log', 
+                                        level: 'info', 
+                                        message: 'Focused main replace input' 
+                                    })
+                                } else {
+                                    vscode.postMessage({ 
+                                        type: 'log', 
+                                        level: 'warn', 
+                                        message: 'Main replace input not found' 
+                                    })
+                                }
                             }
                         } catch (e) {
                             vscode.postMessage({
                                 type: 'log',
                                 level: 'error',
                                 message: `Error focusing replace input: ${e}`
-                            });
+                            })
                         }
-                    }, 100);
-                    break;
+                    }, 150)
+                    break
                 }
                 case 'replacementComplete': {
                     // При получении сообщения о завершении замены, очищаем дерево и показываем результат
@@ -2342,6 +2454,12 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
         );
     };
 
+    // Добавим обработчики для кнопок остановки и возобновления поиска
+    const handleStopSearch = useCallback(() => {
+        vscode.postMessage({ type: 'abort' });
+        setIsSearchRequested(false);
+    }, [vscode]);
+
     // В секции где раньше отображались результаты в режиме списка
     return (
         <div
@@ -2562,10 +2680,24 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                     margin-top: 8px;
                     margin-bottom: 8px;
                 `}>
+                            {/* Кнопка Pause/Play для управления поиском */}
+                            {status.running && (
+                                <VSCodeButton
+                                    appearance="icon"
+                                    onClick={handleStopSearch}
+                                    title="Stop search"
+                                    className={css` margin-right: 5px; `}
+                                >
+                                    <span className="codicon codicon-debug-pause"></span>
+                                </VSCodeButton>
+                            )}
+
+                            {/* Find in Found Button */}
                             <VSCodeButton
                                 appearance="icon"
                                 onClick={handleFindInFound}
                                 title="Search within these results"
+                                className={css` margin-right: 5px; `}
                             >
                                 <span className="codicon codicon-filter-filled"></span>
                             </VSCodeButton>
@@ -2620,11 +2752,30 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                 onInput={handleFindChange}
                                 className={css` flex-grow: 1; `} // Make text area grow
                             />
+                            
+                            {/* Кнопка Pause/Play для управления поиском */}
+                            {values.find && (
+                                status.running ? (
+                                    <VSCodeButton
+                                        appearance="icon"
+                                        onClick={handleStopSearch}
+                                        title="Stop search"
+                                        className={css` flex-shrink: 0; `}
+                                    >
+                                        <span className="codicon codicon-debug-pause"></span>
+                                    </VSCodeButton>
+                                ) : null
+                            )}
+                            
                             {/* Search Options Buttons */}
                             <div className={css` position: relative; `}>
                                 <VSCodeButton
                                     appearance="icon"
-                                    onClick={() => setOptionsMenuOpen(!optionsMenuOpen)}
+                                    onClick={(e) => {
+                                        // Добавляем обработчик, который останавливает всплытие события
+                                        e.stopPropagation();
+                                        setOptionsMenuOpen(!optionsMenuOpen);
+                                    }}
                                     title="Search Options"
                                     className={css`
                                         position: relative;
@@ -2632,7 +2783,10 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                         ${(matchCase || wholeWord || currentSearchMode !== 'text') ? 'background-color: var(--vscode-button-secondaryBackground);' : ''}
                                     `}
                                 >
-                                    <span className="codicon codicon-settings-gear" />
+                                    <span 
+                                        className="codicon codicon-settings-gear" 
+                                        ref={optionsButtonRef} // Используем ref на внутреннем элементе
+                                    />
                                     {(matchCase || wholeWord || currentSearchMode !== 'text') && (
                                         <span className={css`
                                             position: absolute;
@@ -2777,7 +2931,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                 appearance="icon"
                                 onClick={handleFindInFound}
                                 title="Search within these results"
-                                className={css` margin-right: 5px; `} /* Add margin to separate from view toggles */
+                                className={css` margin-right: 5px; `}
                             >
                                 <span className="codicon codicon-filter-filled"></span>
                             </VSCodeButton>
@@ -3156,7 +3310,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     )
 }
 
-// Helper function to escape regex special characters
+// Функция для экранирования спецсимволов в строке для поиска по регулярным выражениям
 function escapeRegExp(string: string): string {
-    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& означает всё совпадение
 }

@@ -495,16 +495,18 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
     this.emit('result', result)
   }
 
-  stop(): void {
+  abort(): void {
     if (this.abortController) {
-      this.extension.channel.appendLine('Aborting current text search...')
       this.abortController.abort()
-      this.abortController = undefined
     }
+  }
+
+  stop(): void {
+    this.abort();
+
     this.isSearchRunning = false
     this.isIndexSetInCurrentSearch = false
     this.emit('stop')
-    this.extension.channel.appendLine('Text search stopped, results cleared.')
   }
 
   setAbortController(controller: AbortController): void {

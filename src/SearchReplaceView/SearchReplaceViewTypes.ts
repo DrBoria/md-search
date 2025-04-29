@@ -160,6 +160,7 @@ export type MessageFromWebview =
       data?: any // Optional structured data
     }
   | { type: 'stop' }
+  | { type: 'abort' }
   | { type: 'copyMatches' }
   | { type: 'cutMatches' }
   | { type: 'pasteToMatches' }

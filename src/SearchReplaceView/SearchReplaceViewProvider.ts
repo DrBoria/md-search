@@ -376,13 +376,6 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
           }
           case 'openFile': {
             const uri = vscode.Uri.parse(message.filePath)
-            // const range = message.range
-            //   ? new vscode.Range(
-            //       // Placeholder positions - will be recalculated if possible
-            //       new vscode.Position(0, 0),
-            //       new vscode.Position(0, 0)
-            //     )
-            //   : undefined
 
             // Check if there's a transformed version available to show a diff
             const result = this.extension.transformResultProvider.results.get(
@@ -480,48 +473,108 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     this._view?.show()
   }
 
-  // New method to show and focus the search input
+  // Updated method to show and focus the search input
   showWithSearchFocus(): void {
-    this._view?.show(true) // Use 'true' to preserve focus
+    // Если view не инициализирован, активируем через команду
+    if (!this._view) {
+      this.extension.channel.appendLine(
+        'View not initialized, forcing activation via command'
+      )
+      vscode.commands
+        .executeCommand('workbench.view.extension.mdSearch-mdSearch')
+        .then(() => {
+          setTimeout(() => {
+            this._focusSearchInput()
+          }, 300) // Увеличиваем задержку для гарантии загрузки view
+        })
+      return
+    }
 
-    // Получаем текущие параметры из расширения
-    const currentParams = this.extension.getParams()
+    // Если view уже доступен, используем стандартный подход
+    this._view.show(true)
+    this._focusSearchInput()
+  }
 
-    // Give the webview time to activate before sending the focus message
+  // Helper method to focus search input
+  private _focusSearchInput(): void {
+    this.extension.channel.appendLine('Sending focus command to search input')
+    
+    // Отправляем несколько команд фокуса с разными задержками
+    // для большей надежности срабатывания
     setTimeout(() => {
-      // Отправляем текущие параметры в webview
+      // Get current params
+      const currentParams = this.extension.getParams()
+
+      // Send parameters to webview first
       this.postMessage({
         type: 'values',
         values: currentParams,
       })
-
-      // Фокусируемся на поле поиска
+      
+      // Focus on search input
       this.postMessage({
         type: 'focusSearchInput',
       })
-    }, 200)
+    }, 300)
+    
+    // Повторная попытка с большей задержкой для надежности
+    setTimeout(() => {
+      this.postMessage({
+        type: 'focusSearchInput',
+      })
+    }, 700)
   }
 
-  // New method to show and focus the replace input
+  // Updated method to show and focus the replace input
   showWithReplaceFocus(): void {
-    this._view?.show(true) // Use 'true' to preserve focus
+    // Если view не инициализирован, активируем через команду
+    if (!this._view) {
+      this.extension.channel.appendLine(
+        'View not initialized, forcing activation via command'
+      )
+      vscode.commands
+        .executeCommand('workbench.view.extension.mdSearch-mdSearch')
+        .then(() => {
+          setTimeout(() => {
+            this._focusReplaceInput()
+          }, 300) // Увеличиваем задержку для гарантии загрузки view
+        })
+      return
+    }
 
-    // Получаем текущие параметры из расширения
-    const currentParams = this.extension.getParams()
+    // Если view уже доступен, используем стандартный подход
+    this._view.show(true)
+    this._focusReplaceInput()
+  }
 
-    // Give the webview time to activate before sending the focus message
+  // Helper method to focus replace input
+  private _focusReplaceInput(): void {
+    this.extension.channel.appendLine('Sending focus command to replace input')
+    
+    // Отправляем несколько команд фокуса с разными задержками
+    // для большей надежности срабатывания
     setTimeout(() => {
-      // Отправляем текущие параметры в webview
+      // Get current params
+      const currentParams = this.extension.getParams()
+
+      // Send parameters to webview first
       this.postMessage({
         type: 'values',
         values: currentParams,
       })
-
-      // Фокусируемся на поле замены
+      
+      // Focus on replace input with some delay after params
+      this.postMessage({
+        type: 'focusReplaceInput',
+      }) 
+    }, 300)
+    
+    // Повторная попытка с большей задержкой для надежности
+    setTimeout(() => {
       this.postMessage({
         type: 'focusReplaceInput',
       })
-    }, 200)
+    }, 700)
   }
 
   get visible(): boolean {

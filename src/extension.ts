@@ -215,15 +215,52 @@ export class AstxExtension {
     // что SearchReplaceViewProvider уже инициализирован
     context.subscriptions.push(
       vscode.commands.registerCommand('mdSearch.search', () => {
-        this.searchReplaceViewProvider.showWithSearchFocus()
+        this.channel.appendLine(
+          'Command mdSearch.search executed - showing view with search focus'
+        )
+
+        // Всегда сначала активируем расширение в сайдбаре, чтобы убедиться, что панель видима
+        vscode.commands
+          .executeCommand('workbench.view.extension.mdSearch-mdSearch')
+          .then(() => {
+            // После активации сайдбара, показываем наш view и фокусируем ввод
+            setTimeout(() => {
+              this.searchReplaceViewProvider.showWithSearchFocus()
+            }, 150)
+          })
+          .then(undefined, (error: Error) => {
+            // В случае ошибки, пробуем прямой метод
+            this.channel.appendLine(
+              `Error activating sidebar: ${error.message}`
+            )
+            this.searchReplaceViewProvider.showWithSearchFocus()
+          })
       })
     )
 
     // Команда replace, открывающая панель с фокусом на поле замены
     context.subscriptions.push(
       vscode.commands.registerCommand('mdSearch.replace', () => {
-        // Сначала показываем панель с фокусом на поле замены
-        this.searchReplaceViewProvider.showWithReplaceFocus()
+        this.channel.appendLine(
+          'Command mdSearch.replace executed - showing view with replace focus'
+        )
+
+        // Всегда сначала активируем расширение в сайдбаре, чтобы убедиться, что панель видима
+        vscode.commands
+          .executeCommand('workbench.view.extension.mdSearch-mdSearch')
+          .then(() => {
+            // После активации сайдбара, показываем наш view и фокусируем ввод
+            setTimeout(() => {
+              this.searchReplaceViewProvider.showWithReplaceFocus()
+            }, 150)
+          })
+          .then(undefined, (error: Error) => {
+            // В случае ошибки, пробуем прямой метод
+            this.channel.appendLine(
+              `Error activating sidebar: ${error.message}`
+            )
+            this.searchReplaceViewProvider.showWithReplaceFocus()
+          })
       })
     )
 
@@ -790,13 +827,12 @@ export function activate(context: vscode.ExtensionContext): void {
   extension = new AstxExtension(context)
   extension.activate(context)
 
-  // Ensure the search view is activated as soon as possible
-  // This ensures the event listeners and state persistence are active
-  // even if the user hasn't opened the UI yet
-  activateSearchView(context)
+  // Remove automatic activation to prevent unwanted focus
+  // activateSearchView(context)
 }
 
-// Helper function to activate the search view programmatically
+// Helper function to activate the search view programmatically is kept for reference
+// but no longer used on startup
 function activateSearchView(context: vscode.ExtensionContext): void {
   // Try to activate the search view programmatically
   vscode.commands

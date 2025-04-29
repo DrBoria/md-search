@@ -17,6 +17,7 @@ export interface AstxRunnerEvents {
   done: () => void
   error: (error: Error) => void
   replaceDone: () => void
+  abort: () => void
 }
 
 export interface SearchCacheEntry {
