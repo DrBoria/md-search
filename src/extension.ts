@@ -729,13 +729,8 @@ export class AstxExtension {
     const clipboardText = await vscode.env.clipboard.readText()
 
     if (clipboardText.length === 0) {
-      this.channel.appendLine('Paste cancelled: Buffer is empty.')
       return 0
     }
-
-    this.channel.appendLine(
-      `Pasting ${clipboardText.length} values from buffer to matches...`
-    )
 
     // Use current matches and direct replacement instead of regular expressions
     const resultsMap = this.transformResultProvider.results
@@ -765,13 +760,11 @@ export class AstxExtension {
               // Apply replacements to each match
               for (let i = 0; i < sortedMatches.length; i++) {
                 const match = sortedMatches[i]
-                // Take value from buffer cyclically
-                const replaceValue = clipboardText[i % clipboardText.length]
 
                 // Make direct replacement without any modifications
                 newContent =
                   newContent.substring(0, match.start) +
-                  replaceValue +
+                  clipboardText +
                   newContent.substring(match.end)
 
                 replacementsInFile++
@@ -779,9 +772,6 @@ export class AstxExtension {
 
               // Write changes only if they actually exist
               if (newContent !== originalContent) {
-                this.channel.appendLine(
-                  `Replacing ${replacementsInFile} matches in: ${uri.fsPath}`
-                )
                 totalReplacements += replacementsInFile
                 totalFilesChanged++
 
@@ -831,35 +821,6 @@ export function activate(context: vscode.ExtensionContext): void {
   // activateSearchView(context)
 }
 
-// Helper function to activate the search view programmatically is kept for reference
-// but no longer used on startup
-function activateSearchView(context: vscode.ExtensionContext): void {
-  // Try to activate the search view programmatically
-  vscode.commands
-    .executeCommand(`${SearchReplaceViewProvider.viewType}.focus`)
-    .then(
-      () => {
-        // After focusing, hide it unless the user explicitly wanted it
-        // This is just to initialize the view's state
-        // Hide it only in setInterval to avoid flickering the UI
-        setTimeout(() => {
-          if (extension.searchReplaceViewProvider.visible) {
-            // If the view was already visible before we focused it, keep it open
-            // The user probably opened it manually before this was called
-          } else {
-            // Otherwise, we can safely hide it since we only needed to initialize it
-            vscode.commands.executeCommand(`workbench.action.closePanel`)
-          }
-        }, 100)
-      },
-      (error: Error) => {
-        // If the command fails (e.g., in tests), log the error but don't fail the activation
-        extension.channel.appendLine(
-          `Failed to programmatically activate search view: ${error.message}`
-        )
-      }
-    )
-}
 
 export async function deactivate(): Promise<void> {
   // eslint-disable-next-line no-console
