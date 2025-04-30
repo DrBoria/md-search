@@ -19,7 +19,7 @@ export type AstxParser =
   | 'recast/babel/auto'
 
 export type Params = {
-  find?: string
+  find: string
   replace?: string
   useTransformFile?: boolean
   transformFile?: string
@@ -48,7 +48,7 @@ export class AstxExtension {
   isProduction: boolean
   replacing = false
 
-  channel: vscode.OutputChannel = vscode.window.createOutputChannel('astx')
+  channel: vscode.OutputChannel = vscode.window.createOutputChannel('MD Search')
   runner: SearchRunner
   transformResultProvider: TransformResultProvider
   searchReplaceViewProvider: SearchReplaceViewProvider
@@ -81,10 +81,9 @@ export class AstxExtension {
   }
 
   async importAstxNode(): Promise<typeof AstxNodeTypes> {
-    const config = vscode.workspace.getConfiguration('astx')
+    const config = vscode.workspace.getConfiguration('MD Search')
     if (!config.astxPath) return await import('astx/node')
 
-    this.channel.appendLine(`importing astx/node from ${config.astxPath}...`)
     const result = await (async () => {
       const pkg = await fs.readJson(path.join(config.astxPath, 'package.json'))
       let subpath
@@ -119,7 +118,7 @@ export class AstxExtension {
   logError = (error: Error): void => {
     const message = `ERROR: ${error.stack || error.message || String(error)}`
     this.channel.appendLine(message)
-    const config = vscode.workspace.getConfiguration('astx')
+    const config = vscode.workspace.getConfiguration('MD Search')
     if (config.showErrorNotifications) {
       vscode.window.showErrorMessage(message)
     }
@@ -163,15 +162,12 @@ export class AstxExtension {
           this.setExternalWatchPattern(undefined)
         }
       }
-      const config = vscode.workspace.getConfiguration('astx')
+      const config = vscode.workspace.getConfiguration('MD Search')
       for (const key of paramsInConfig) {
         if (params[key] !== this.params[key]) {
           config.update(key, params[key], vscode.ConfigurationTarget.Workspace)
         }
       }
-      this.channel.appendLine(
-        `[Debug] Setting params: find="${params.find}", replace="${params.replace}", searchInResults=${params.searchInResults}`
-      )
 
       // Clear search cache when search parameters change (matchCase, wholeWord)
       if (
@@ -179,9 +175,6 @@ export class AstxExtension {
         params.wholeWord !== this.params.wholeWord ||
         params.exclude !== this.params.exclude
       ) {
-        this.channel.appendLine(
-          `[Cache] Clearing cache due to search parameter changes`
-        )
         this.runner.clearCache()
       }
 
@@ -215,10 +208,6 @@ export class AstxExtension {
     // что SearchReplaceViewProvider уже инициализирован
     context.subscriptions.push(
       vscode.commands.registerCommand('mdSearch.search', () => {
-        this.channel.appendLine(
-          'Command mdSearch.search executed - showing view with search focus'
-        )
-
         // Всегда сначала активируем расширение в сайдбаре, чтобы убедиться, что панель видима
         vscode.commands
           .executeCommand('workbench.view.extension.mdSearch-mdSearch')
@@ -268,7 +257,7 @@ export class AstxExtension {
       vscode.workspace.onDidChangeConfiguration(
         (e: vscode.ConfigurationChangeEvent) => {
           if (!e.affectsConfiguration('astx')) return
-          const config = vscode.workspace.getConfiguration('astx')
+          const config = vscode.workspace.getConfiguration('MD Search')
           if (paramsInConfig.some((p) => this.params[p] !== config[p])) {
             this.setParams({
               ...this.params,
@@ -467,11 +456,6 @@ export class AstxExtension {
       this.runner
         .startup()
         .catch(this.logError)
-        .then(() => {
-          this.channel.appendLine(
-            'Background SearchRunner initialization completed'
-          )
-        })
     }, 500)
   }
 
@@ -609,9 +593,6 @@ export class AstxExtension {
 
     // Check if we are in replace mode
     if (this.replacing) {
-      this.channel.appendLine(
-        `[Debug] File changed during replace: ${uri.fsPath}`
-      )
       this.runner.updateDocumentsForChangedFile(uri)
       return
     }

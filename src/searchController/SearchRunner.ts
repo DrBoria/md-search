@@ -145,15 +145,8 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
   }
 
   async startup(): Promise<void> {
-    this.extension.channel.appendLine(
-      'Starting SearchRunner startup sequence...'
-    )
-
     try {
       await this.astxSearchRunner.setupWorkerPool()
-      this.extension.channel.appendLine(
-        'SearchRunner startup sequence completed successfully.'
-      )
     } catch (error) {
       this.extension.channel.appendLine(
         `SearchRunner startup sequence failed: ${error}`
@@ -167,13 +160,9 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
     if (this.isIndexing || this.fileIndexPromise) return
 
     this.isIndexing = true
-    this.extension.channel.appendLine('Starting background file indexing...')
 
     this.fileIndexPromise = this.indexWorkspaceFolders()
       .then(() => {
-        this.extension.channel.appendLine(
-          `Background file indexing completed with ${this.fileIndexCache.size} file type groups.`
-        )
         // Сразу после завершения индексации передаем индекс в TextSearchRunner
         this.textSearchRunner.setFileIndex(this.fileIndexCache)
         this.isIndexing = false
@@ -347,9 +336,6 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
     this.includeGlob = null
     if (processedIncludePatterns.length > 0) {
       this.includeGlob = `{${processedIncludePatterns.join(',')}}`
-      this.extension.channel.appendLine(
-        `[DEBUG] Using include glob: ${this.includeGlob}`
-      )
     }
 
     // Также создаем индекс для общих групп файлов для более быстрого поиска
@@ -368,9 +354,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
     this.fileIndexCache.set('**/*', allFilesSet)
 
     // Создаем логирование прогресса
-    const total = allPatterns.length
     let completed = 0
-    this.extension.channel.appendLine(`Индексирую ${total} шаблонов файлов...`)
 
     // Индексируем в пакетах для снижения нагрузки
     const batchSize = 5
@@ -392,9 +376,6 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
             files.forEach((f) => allFilesSet.add(f.fsPath))
 
             completed++
-            this.extension.channel.appendLine(
-              `Индексировано [${completed}/${total}]: ${fileSet.size} ${fileType} файлов`
-            )
           } catch (error) {
             this.extension.channel.appendLine(
               `Ошибка индексации ${fileType}: ${error}`
@@ -403,10 +384,6 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
         })
       )
     }
-
-    this.extension.channel.appendLine(
-      `Индексация завершена: всего ${allFilesSet.size} уникальных файлов`
-    )
   }
 
   setParams(params: Params): void {
@@ -433,7 +410,6 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
 
   stop(): void {
     if (this.abortController) {
-      this.extension.channel.appendLine('Aborting current run...')
       this.abortController.abort()
     }
     // this.transformResults.clear()
@@ -446,29 +422,21 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
 
   restartSoon: () => void = () => {
     if (this.params.paused) {
-      this.extension.channel.appendLine('Restart requested but paused.')
       this.pausedRestart = true
     } else {
-      this.extension.channel.appendLine('Debouncing restart...')
       this.debouncedRestart()
     }
   }
 
   debouncedRestart: () => void = debounce(
     async () => {
-      this.extension.channel.appendLine('Executing debounced restart...')
-
       // Останавливаем поиск только если он активен и не завершён
       if (this.abortController && !this.abortController.signal.aborted) {
         this.stop()
       }
 
       try {
-        this.extension.channel.appendLine(
-          'Restarting worker pool via startup()...'
-        )
         await this.startup()
-        this.extension.channel.appendLine('Worker pool restarted successfully.')
         this.run()
       } catch (error) {
         this.extension.channel.appendLine(
@@ -483,10 +451,8 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
   )
 
   async shutdown(): Promise<void> {
-    this.extension.channel.appendLine('Shutting down SearchRunner...')
     this.stop()
     await this.astxSearchRunner.shutdown()
-    this.extension.channel.appendLine('SearchRunner shut down complete.')
   }
 
   runSoon: () => void = () => {
@@ -553,12 +519,9 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       fileExtension = parts[parts.length - 1].toLowerCase()
     }
 
-    // Флаг, показывающий, что индекс был изменен
-    let indexChanged = false
-
     // Проверяем существование файла
     vscode.workspace.fs.stat(fileUri).then(
-      (stat) => {
+      () => {
         // Файл существует - добавляем его в индекс если соответствует расширению
         if (fileExtension) {
           // Перебираем все паттерны и проверяем соответствие расширению
@@ -566,10 +529,6 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
             if (pattern.includes(`*.${fileExtension}`) || pattern === '**/*') {
               if (!fileSet.has(filePath)) {
                 fileSet.add(filePath)
-                indexChanged = true
-                this.extension.channel.appendLine(
-                  `[FileIndex] Добавлен файл ${filePath} в индекс ${pattern}`
-                )
               }
             }
           }
@@ -579,38 +538,16 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
         const allFilesSet = this.fileIndexCache.get('**/*')
         if (allFilesSet && !allFilesSet.has(filePath)) {
           allFilesSet.add(filePath)
-          indexChanged = true
         }
       },
       () => {
-        // Файл не существует - удаляем его из индекса
-        let removed = false
         for (const fileSet of this.fileIndexCache.values()) {
           if (fileSet.has(filePath)) {
             fileSet.delete(filePath)
-            removed = true
-            indexChanged = true
           }
-        }
-        if (removed) {
-          this.extension.channel.appendLine(
-            `[FileIndex] Удален файл ${filePath} из индекса`
-          )
         }
       }
     )
-
-    // Если текущий поиск активен и индекс изменился, обновляем индекс в TextSearchRunner
-    // НО не делаем этого во время выполнения поиска, чтобы избежать зацикливания
-    if (
-      indexChanged &&
-      !this.params.paused &&
-      !this.abortController?.signal.aborted
-    ) {
-      this.extension.channel.appendLine(
-        `[FileIndex] Индекс обновлен, но не передается во время активного поиска`
-      )
-    }
   }
 
   // Метод для быстрого поиска файлов, соответствующих шаблону
@@ -620,27 +557,10 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
     const startTime = Date.now()
     let fileUris: vscode.Uri[] = []
 
-    // Добавим подробную отладочную информацию
-    this.extension.channel.appendLine(
-      `[DEBUG] Getting file list for pattern: ${includePattern.toString()}`
-    )
-
-    // Добавляем информацию о типе includePattern
-    if (typeof includePattern === 'object' && 'pattern' in includePattern) {
-      this.extension.channel.appendLine(
-        `[DEBUG] Pattern is a RelativePattern with base: ${
-          (includePattern as vscode.RelativePattern).base
-        }`
-      )
-    }
-
     try {
       // Если у нас есть общий индекс всех файлов, используем его
       const allFilesCache = this.fileIndexCache.get('**/*')
       if (allFilesCache && allFilesCache.size > 0) {
-        this.extension.channel.appendLine(
-          `Using all files index (${allFilesCache.size} files)`
-        )
         fileUris = Array.from(allFilesCache).map((path) =>
           vscode.Uri.file(path)
         )
@@ -676,26 +596,9 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       const excludeGlob =
         excludePatterns.length > 0 ? `{${excludePatterns.join(',')}}` : null
 
-      this.extension.channel.appendLine(
-        `[DEBUG] Using exclude glob: ${excludeGlob}`
-      )
-
-      // Используем паттерн, указанный пользователем, или простой паттерн для всех файлов
-      const actualPattern = this.params.include || '**/*'
-      this.extension.channel.appendLine(
-        `[DEBUG] Using pattern for search: ${actualPattern}`
-      )
-
-      // Используем поиск с исключением паттернов
       try {
         fileUris = await vscode.workspace.findFiles(includePattern, excludeGlob)
-        this.extension.channel.appendLine(
-          `[DEBUG] Found ${fileUris.length} files with VS Code findFiles and includePattern directly`
-        )
       } catch (err) {
-        this.extension.channel.appendLine(
-          `[ERROR] Error using includePattern directly: ${err}`
-        )
 
         // Запасной вариант: используем строку из this.params.include
         if (this.params.include) {
@@ -703,70 +606,33 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
             this.params.include,
             excludeGlob
           )
-          this.extension.channel.appendLine(
-            `[DEBUG] Found ${fileUris.length} files with this.params.include string pattern`
-          )
         } else {
           // Если нет include, ищем все файлы
           fileUris = await vscode.workspace.findFiles('**/*', excludeGlob)
-          this.extension.channel.appendLine(
-            `[DEBUG] Found ${fileUris.length} files with fallback pattern **/*`
-          )
         }
       }
 
       // Если пользователь указал exclude, выполняем дополнительную фильтрацию
       if (this.params.exclude && this.params.exclude.trim()) {
-        const originalCount = fileUris.length
         fileUris = this.applyManualExcludeFilter(
           fileUris,
           this.params.exclude.trim()
         )
-        this.extension.channel.appendLine(
-          `Manual exclude: ${originalCount} → ${fileUris.length} files after filtering with "${this.params.exclude}"`
-        )
       }
-
-      this.extension.channel.appendLine(
-        `[DEBUG] Found ${fileUris.length} files with exclusions`
-      )
 
       // Если этот поиск не дал результатов, попробуем найти любые файлы
       if (fileUris.length === 0) {
         fileUris = await vscode.workspace.findFiles('**/*', excludeGlob)
-        this.extension.channel.appendLine(
-          `[DEBUG] Fallback search for any files found ${fileUris.length} files`
-        )
 
         // Если пользователь указал exclude, выполняем дополнительную фильтрацию
         if (this.params.exclude && this.params.exclude.trim()) {
-          const originalCount = fileUris.length
           fileUris = this.applyManualExcludeFilter(
             fileUris,
             this.params.exclude.trim()
           )
-          this.extension.channel.appendLine(
-            `Manual exclude (fallback): ${originalCount} → ${fileUris.length} files after filtering`
-          )
-        }
-
-        if (fileUris.length === 0) {
-          // Если даже этот поиск не дал результатов, значит рабочая область пуста
-          this.extension.channel.appendLine(
-            `[ERROR] No files found in workspace.`
-          )
-        } else {
-          // Есть какие-то файлы, но исходный паттерн не подходит
-          this.extension.channel.appendLine(
-            `[ERROR] Files exist but don't match pattern: ${actualPattern}`
-          )
         }
       }
     } catch (error) {
-      this.extension.channel.appendLine(
-        `[ERROR] Error finding files: ${error}, falling back to slower method.`
-      )
-
       // Аварийный вариант: искать с учётом исключений
       try {
         const excludePatterns = this.getSearchExcludePatterns()
@@ -777,19 +643,11 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
 
         // Если пользователь указал exclude, выполняем дополнительную фильтрацию
         if (this.params.exclude && this.params.exclude.trim()) {
-          const originalCount = fileUris.length
           fileUris = this.applyManualExcludeFilter(
             fileUris,
             this.params.exclude.trim()
           )
-          this.extension.channel.appendLine(
-            `Manual exclude (emergency): ${originalCount} → ${fileUris.length} files after filtering`
-          )
         }
-
-        this.extension.channel.appendLine(
-          `[DEBUG] Emergency search found ${fileUris.length} files`
-        )
       } catch (innerError) {
         this.extension.channel.appendLine(
           `[ERROR] Even emergency search failed: ${innerError}`
@@ -798,9 +656,6 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
     }
 
     const duration = Date.now() - startTime
-    this.extension.channel.appendLine(
-      `Found ${fileUris.length} files in ${duration}ms`
-    )
 
     return fileUris
   }
@@ -832,10 +687,6 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
         return new RegExp(regexPattern, 'i')
       }
     })
-
-    this.extension.channel.appendLine(
-      `Created ${excludeRegexes.length} exclude regexes`
-    )
 
     // Фильтруем файлы, исключая те, что соответствуют хотя бы одному регексу
     return files.filter((uri) => {
@@ -906,21 +757,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
     FsImpl: any,
     includePattern: vscode.GlobPattern,
     excludePattern: vscode.GlobPattern | null,
-    cancellationToken: vscode.CancellationToken
   ): Promise<void> {
-    const startTime = Date.now()
-    this.extension.channel.appendLine('Starting optimized text search...')
-    this.extension.channel.appendLine(
-      `Include pattern type: ${typeof includePattern}, value: ${JSON.stringify(
-        includePattern
-      )}`
-    )
-    this.extension.channel.appendLine(
-      `Exclude pattern type: ${typeof excludePattern}, value: ${
-        excludePattern || 'null'
-      }`
-    )
-
     try {
       // Установить контроллер прерывания для текстового поиска
       this.textSearchRunner.setAbortController(
@@ -931,18 +768,11 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       const indexedFileUris = await this.getFastFileList(includePattern)
 
       if (this.abortController?.signal.aborted) {
-        this.extension.channel.appendLine(
-          'Text search aborted during file listing.'
-        )
         return
       }
 
       // Создаем Set путей индексированных файлов для быстрой проверки дубликатов
       const indexedFilePaths = new Set(indexedFileUris.map((uri) => uri.fsPath))
-      this.extension.channel.appendLine(
-        `Found ${indexedFilePaths.size} indexed files`
-      )
-
       // Получаем все файлы, соответствующие includePattern и не исключенные excludePattern
       // Используем стандартный метод findFiles от VS Code
       const exclude = excludePattern ? excludePattern : null
@@ -950,9 +780,6 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
 
       try {
         allFileUris = await vscode.workspace.findFiles(includePattern, exclude)
-        this.extension.channel.appendLine(
-          `Files found with VS Code's findFiles: ${allFileUris.length}`
-        )
       } catch (err) {
         this.extension.channel.appendLine(
           `Error during findFiles: ${err}. Using indexedFiles only.`
@@ -971,19 +798,9 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
         }
       }
 
-      this.extension.channel.appendLine(
-        `Added ${addedCount} additional non-indexed files matching criteria`
-      )
-      this.extension.channel.appendLine(
-        `Total files to search: ${finalFileUris.length}`
-      )
-
       // Убедимся, что индекс файлов передан в TextSearchRunner
       if (this.fileIndexCache.size > 0) {
         this.textSearchRunner.setFileIndex(this.fileIndexCache)
-        this.extension.channel.appendLine(
-          `Индекс ${this.fileIndexCache.size} групп файлов передан в TextSearchRunner перед запуском поиска`
-        )
       }
 
       // Выполняем текстовый поиск по объединенному списку файлов
@@ -999,12 +816,6 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
         // Уровень 0 - всегда для исходного поиска
         this.previousSearchFiles[0] = new Set(filesWithMatches)
       }
-
-      // Логируем результаты
-      const duration = Date.now() - startTime
-      this.extension.channel.appendLine(
-        `Text search completed in ${duration}ms. Found matches in ${filesWithMatches.size} files.`
-      )
     } catch (error) {
       this.extension.channel.appendLine(
         `Error in text search: ${
@@ -1021,7 +832,6 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
   // Базовая функция запуска поиска
   run(): void {
     if (this.params.paused) {
-      this.extension.channel.appendLine('Search paused. Not running.')
       return
     }
 
@@ -1036,20 +846,8 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
     this.checkSearchParamsChanged()
 
     if (!this.params.find && !this.params.useTransformFile) {
-      this.extension.channel.appendLine(
-        'No search pattern or transform file specified.'
-      )
       this.emit('done')
       return
-    }
-
-    // Если индексация еще не завершена, обновляем индекс файлов в TextSearchRunner только один раз перед поиском
-    if (this.fileIndexCache.size > 0) {
-      // Нет необходимости передавать индекс здесь,
-      // это будет сделано перед запуском поиска в getFastFileList
-      this.extension.channel.appendLine(
-        `[DEBUG] Индекс ${this.fileIndexCache.size} групп файлов будет передан перед запуском поиска`
-      )
     }
 
     const FsImpl: any = {
@@ -1095,7 +893,6 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
     const workspaceFolderPaths =
       vscode.workspace.workspaceFolders?.map((f) => f.uri.fsPath) || []
     if (workspaceFolderPaths.length === 0) {
-      this.extension.channel.appendLine('No workspace folders open.')
       this.emit('error', new Error('No workspace folders open.'))
       this.emit('done')
       return
@@ -1108,22 +905,15 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
     try {
       // Используем значение из настроек include, если оно задано через includeGlob
       const include =
-        this.includeGlob || this.params.include || '**/*.{js,jsx,ts,tsx}'
+        this.includeGlob || this.params.include || "";
 
       // Проверяем, не является ли include уже объектом RelativePattern
       if (typeof include === 'object' && 'pattern' in include) {
-        this.extension.channel.appendLine(
-          `Using include as RelativePattern directly`
-        )
         includePattern = include
       } else {
         // Преобразуем строковый паттерн
         includePattern = convertGlobPattern(include, workspaceFolderPaths)
       }
-
-      this.extension.channel.appendLine(
-        `[DEBUG] Include pattern: ${JSON.stringify(includePattern)}`
-      )
 
       // Получаем паттерны ТОЛЬКО из настроек Search: Exclude
       const excludePatterns = this.getSearchExcludePatterns()
@@ -1179,9 +969,6 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       excludePattern = excludeGlob
         ? convertGlobPattern(excludeGlob, workspaceFolderPaths)
         : null
-      this.extension.channel.appendLine(
-        `[DEBUG] Exclude pattern: ${excludePattern}`
-      )
 
       // Если mode = searchInResults, выполняем поиск только в предыдущих результатах
       if (
@@ -1189,7 +976,6 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
         typeof this.params.searchInResults === 'number'
       ) {
         const searchLevel = this.params.searchInResults
-        const maxAvailableLevel = this.previousSearchFiles.length - 1
 
         // Проверяем доступность уровня
         if (searchLevel > 0) {
@@ -1200,10 +986,6 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
             searchLevel
           )
           return
-        } else {
-          this.extension.channel.appendLine(
-            `Invalid search level ${searchLevel}. Available levels: 0 to ${maxAvailableLevel}.`
-          )
         }
       }
 
@@ -1211,7 +993,6 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
         FsImpl,
         includePattern,
         excludePattern,
-        abortController.signal as unknown as vscode.CancellationToken
       )
     } catch (error: any) {
       this.extension.channel.appendLine(
@@ -1228,11 +1009,6 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
     cancellationToken: AbortSignal,
     searchLevel = 0
   ): Promise<void> {
-    const startTime = Date.now()
-    this.extension.channel.appendLine(
-      `Starting text search in previous results (level ${searchLevel})...`
-    )
-
     try {
       // Создаем список URI файлов из предыдущих результатов выбранного уровня
       const fileUris = Array.from(
@@ -1240,7 +1016,6 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       ).map((path) => vscode.Uri.file(path))
 
       if (cancellationToken.aborted) {
-        this.extension.channel.appendLine('Search aborted during setup.')
         return
       }
 
@@ -1270,10 +1045,6 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
         }
       }
 
-      const duration = Date.now() - startTime
-      this.extension.channel.appendLine(
-        `Search in previous results completed in ${duration}ms. Found matches in ${filesWithMatches.size} files.`
-      )
     } catch (error) {
       this.extension.channel.appendLine(
         `Error in search: ${
@@ -1320,9 +1091,6 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
   clearCacheForFile(fileUri: vscode.Uri): void {
     // Очищаем кеш в TextSearchRunner
     this.textSearchRunner.clearCacheForFile(fileUri)
-    this.extension.channel.appendLine(
-      `Кеш поиска очищен для файла: ${fileUri.fsPath}`
-    )
   }
 
   /**
@@ -1331,7 +1099,6 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
   clearCache(): void {
     // Очищаем кеш в TextSearchRunner
     this.textSearchRunner.clearCache()
-    this.extension.channel.appendLine('Кеш поиска полностью очищен')
   }
 
   // Проверяем изменения include и exclude для сброса кеша

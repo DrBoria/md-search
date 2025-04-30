@@ -4,6 +4,7 @@ import { TypedEmitter } from 'tiny-typed-emitter'
 import { AstxRunnerEvents, TransformResultEvent } from './SearchRunnerTypes'
 import { cpus } from 'os'
 import { SearchCache } from './SearchCache'
+import { Params } from '../extension'
 
 // Количество worker threads для параллельной обработки файлов
 const DEFAULT_CONCURRENT_WORKERS = Math.max(1, Math.min(cpus().length - 1, 4))
@@ -42,17 +43,11 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
   setFileIndex(fileIndexCache: Map<string, Set<string>>): void {
     // Если индекс уже установлен в текущем поиске, не вызываем повторно
     if (this.isSearchRunning && this.isIndexSetInCurrentSearch) {
-      this.extension.channel.appendLine(
-        `[TextSearchRunner] Попытка повторной установки индекса во время поиска игнорируется`
-      )
       return
     }
 
     this.fileIndexCache = fileIndexCache
     this.isIndexSetInCurrentSearch = true
-    this.extension.channel.appendLine(
-      `[TextSearchRunner] Получен индекс файлов с ${fileIndexCache.size} типами файлов`
-    )
   }
 
   // Оптимизированная фильтрация списка файлов с использованием индекса
@@ -63,10 +58,6 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
     if (!this.fileIndexCache || fileUris.length === 0) {
       return { indexedFiles: [], otherFiles: fileUris }
     }
-
-    this.extension.channel.appendLine(
-      `[TextSearchRunner] Разделение ${fileUris.length} файлов на индексированные и неиндексированные...`
-    )
 
     const startTime = Date.now()
     const indexedFiles: vscode.Uri[] = []
@@ -96,15 +87,12 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
     })
 
     const duration = Date.now() - startTime
-    this.extension.channel.appendLine(
-      `[TextSearchRunner] Выделено ${indexedFiles.length} индексированных и ${otherFiles.length} неиндексированных файлов за ${duration}ms`
-    )
 
     return { indexedFiles, otherFiles }
   }
 
   async performTextSearch(
-    params: any,
+    params: Params,
     fileUris: vscode.Uri[],
     FsImpl: any,
     logMessage: (message: string) => void
@@ -123,55 +111,49 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
     const startTime = Date.now()
 
     // Извлекаем параметры поиска
-    const { find, matchCase, wholeWord, exclude, include } = params
+    const { find, matchCase, wholeWord, exclude, include, searchMode } = params
 
-    // Проверяем текущий узел кеша, если он существует
-    const currentNode = this.searchCache.getCurrentNode()
-
-    // Если текущий узел существует, но запрос не является его расширением или
-    // дочерним узлом, очищаем кеш полностью
-    if (currentNode && find && !find.startsWith(currentNode.query)) {
-      this.searchCache.clearCache()
-    }
-
-    // Проверяем наличие подходящего кеша
-    let cacheNode = this.searchCache.findSuitableCache(
-      find,
-      matchCase,
-      wholeWord,
-      exclude,
-      include // Передаем include-паттерн в метод поиска кеша
-    )
-
-    if (!cacheNode) {
-      // Если подходящий кеш не найден, создаем новый
-      cacheNode = this.searchCache.createCacheNode(
+    // Not applicable for regexp and astx search
+    if (searchMode === 'text') {
+      // Проверяем наличие подходящего кеша
+      let cacheNode = this.searchCache.findSuitableCache(
         find,
         matchCase,
         wholeWord,
         exclude,
-        include
+        include // Передаем include-паттерн в метод поиска кеша
       )
-    } else {
-      // Для уточняющего запроса создаем новый узел кеша, если он еще не существует
-      if (cacheNode.query !== find) {
+
+      if (!cacheNode) {
+        // Если подходящий кеш не найден, создаем новый
         cacheNode = this.searchCache.createCacheNode(
           find,
           matchCase,
           wholeWord,
           exclude,
-          include
+          include,
         )
-      }
+      } else {
+        // Для уточняющего запроса создаем новый узел кеша, если он еще не существует
+        if (cacheNode.query !== find) {
+          cacheNode = this.searchCache.createCacheNode(
+            find,
+            matchCase,
+            wholeWord,
+            exclude,
+            include
+          )
+        }
 
-      // Добавляем файлы из кеша в результаты
-      const cachedResults = this.searchCache.getCurrentResults()
-      if (cachedResults) {
-        // Подсчитываем добавленные результаты для логирования
-        for (const [uri, result] of cachedResults.entries()) {
-          if (result.file) {
-            filesWithMatches.add(result.file.toString())
-            this.handleResult(result)
+        // Добавляем файлы из кеша в результаты
+        const cachedResults = this.searchCache.getCurrentResults()
+        if (cachedResults) {
+          // Подсчитываем добавленные результаты для логирования
+          for (const [uri, result] of cachedResults.entries()) {
+            if (result.file) {
+              filesWithMatches.add(result.file.toString())
+              this.handleResult(result)
+            }
           }
         }
       }
@@ -179,7 +161,7 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
 
     try {
       // Получаем списки файлов, которые уже обработаны и которые нужно пропустить
-      const processedFiles = this.searchCache.getProcessedFiles()
+      const processedFiles = searchMode === 'text' ? this.searchCache.getProcessedFiles() : new Set();
       const excludedFiles = this.searchCache.getExcludedFiles()
 
       // Фильтруем файлы, которые не нужно обрабатывать повторно
@@ -212,10 +194,6 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
 
       // Обрабатываем индексированные файлы первыми (они приоритетны)
       if (indexedFiles.length > 0) {
-        logMessage(
-          `Обработка ${indexedFiles.length} проиндексированных файлов...`
-        )
-
         // Преобразуем в пути к файлам
         const indexedPaths = indexedFiles.map((uri) => uri.fsPath)
 
@@ -252,10 +230,6 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
 
       // Затем обрабатываем остальные файлы, если поиск не отменен
       if (!signal.aborted && otherFiles.length > 0) {
-        logMessage(
-          `Обработка ${otherFiles.length} непроиндексированных файлов...`
-        )
-
         // Преобразуем в пути к файлам
         const otherPaths = otherFiles.map((uri) => uri.fsPath)
 
@@ -291,7 +265,6 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
       // Если поиск не был прерван, помечаем кеш как завершенный
       if (!signal.aborted) {
         this.searchCache.markCurrentAsComplete()
-        logMessage(`Поиск завершен, кеш "${find}" помечен как завершенный.`)
       }
 
       return filesWithMatches
@@ -323,7 +296,7 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
   // Новый метод для потоковой обработки групп файлов
   private async processFilesInBatches(
     fileGroups: string[][],
-    params: any,
+    params: Params,
     FsImpl: any,
     signal: AbortSignal,
     onMatchFound: (file: string, result: TransformResultEvent) => void,
@@ -358,7 +331,7 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
   // Обработка одного файла
   private async processFile(
     file: string,
-    params: any,
+    params: Params,
     FsImpl: any,
     signal: AbortSignal,
     onMatchFound: (file: string, result: TransformResultEvent) => void,
@@ -367,7 +340,7 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
   ): Promise<void> {
     if (signal.aborted) return
 
-    const { find, matchCase, wholeWord } = params
+    const { find, matchCase, wholeWord, searchMode } = params
     let source = ''
     let fileError: Error | undefined = undefined
     const matches: ExtendedIpcMatch[] = []
@@ -385,9 +358,11 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
         source,
         normalizedPath,
         find,
+        searchMode,
         matchCase,
         wholeWord,
-        matches
+        matches,
+        logMessage
       )
     } catch (err: any) {
       if (signal.aborted) return
@@ -437,57 +412,60 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
     }
 
     // Получаем текущий узел кеша и его запрос
-    const currentNode = this.searchCache.getCurrentNode()
+    // const currentNode = this.searchCache.getCurrentNode()
 
-    if (
-      currentNode &&
-      result.matches &&
-      result.matches.length > 0 &&
-      result.source
-    ) {
-      const { query, params } = currentNode
+    // if (
+    //   currentNode &&
+    //   result.matches &&
+    //   result.matches.length > 0 &&
+    //   result.source
+    // ) {
+    //   const { query, params } = currentNode
 
-      // Фильтруем совпадения, чтобы показывать только те, которые соответствуют текущему запросу
-      const filteredMatches = result.matches.filter((match) => {
-        const queryLength = query.length
-        const matchTextLength = match.end - match.start
-        const newMatchStart = Math.min(
-          match.start - (queryLength - matchTextLength)
-        )
-        const newMatchEnd = Math.max(
-          match.end + (queryLength - matchTextLength)
-        )
-        const matchText = result.source!.substring(newMatchStart, newMatchEnd)
+    //   // Фильтруем совпадения, чтобы показывать только те, которые соответствуют текущему запросу
+    //   const filteredMatches = result.matches.filter((match) => {
+    //     const queryLength = query.length
+    //     const matchTextLength = match.end - match.start
+    //     const newMatchStart = Math.min(
+    //       match.start - (queryLength - matchTextLength)
+    //     )
+    //     const newMatchEnd = Math.max(
+    //       match.end + (queryLength - matchTextLength)
+    //     )
+    //     const matchText = result.source!.substring(newMatchStart, newMatchEnd)
 
-        // Применяем ту же логику фильтрации, что и в SearchCache.resultMatchesQuery
-        if (!params.matchCase) {
-          const lowerText = matchText.toLowerCase()
-          const lowerQuery = query.toLowerCase()
+    //     if (params.searchMode === 'regex') {
+    //       return new RegExp(query, 'g').test(matchText)
+    //     }
+    //     // Применяем ту же логику фильтрации, что и в SearchCache.resultMatchesQuery
+    //     if (!params.matchCase) {
+    //       const lowerText = matchText.toLowerCase()
+    //       const lowerQuery = query.toLowerCase()
 
-          if (params.wholeWord) {
-            const regex = new RegExp(`\\b${escapeRegExp(lowerQuery)}\\b`, 'i')
-            return regex.test(lowerText)
-          } else {
-            return lowerText.includes(lowerQuery)
-          }
-        } else {
-          if (params.wholeWord) {
-            const regex = new RegExp(`\\b${escapeRegExp(query)}\\b`)
-            return regex.test(matchText)
-          } else {
-            return matchText.includes(query)
-          }
-        }
-      })
+    //       if (params.wholeWord) {
+    //         const regex = new RegExp(`\\b${escapeRegExp(lowerQuery)}\\b`, 'i')
+    //         return regex.test(lowerText)
+    //       } else {
+    //         return lowerText.includes(lowerQuery)
+    //       }
+    //     } else {
+    //       if (params.wholeWord) {
+    //         const regex = new RegExp(`\\b${escapeRegExp(query)}\\b`)
+    //         return regex.test(matchText)
+    //       } else {
+    //         return matchText.includes(query)
+    //       }
+    //     }
+    //   })
 
-      // Если после фильтрации в файле не осталось совпадений, не добавляем его в результаты
-      if (filteredMatches.length === 0) {
-        return
-      }
+    //   // Если после фильтрации в файле не осталось совпадений, не добавляем его в результаты
+    //   if (filteredMatches.length === 0) {
+    //     return
+    //   }
 
-      // Обновляем результат с отфильтрованными совпадениями
-      result.matches = filteredMatches
-    }
+    //   // Обновляем результат с отфильтрованными совпадениями
+    //   result.matches = filteredMatches
+    // }
 
     this.processedFiles.add(file.fsPath)
 
@@ -518,9 +496,11 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
     source: string,
     file: string,
     find: string,
+    searchMode: 'text' | 'regex' | 'astx',
     matchCase: boolean,
     wholeWord: boolean,
-    matches: ExtendedIpcMatch[]
+    matches: ExtendedIpcMatch[],
+    logMessage: (message: string) => void
   ): Promise<void> {
     // Проверка на прерывание поиска
     if (this.abortController?.signal.aborted) {
@@ -530,17 +510,32 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
     const regexFlags = matchCase ? 'g' : 'gi'
     const escapedPattern = find.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')
     const searchPattern = wholeWord ? `\\b${escapedPattern}\\b` : escapedPattern
-    const regex = new RegExp(searchPattern, regexFlags)
+
+    // Обработка специального случая с $N в конце регулярного выражения
+    let captureGroupIndex = 0
+    let regexPattern = find
+
+    if (searchMode === 'regex') {
+      // Проверяем, заканчивается ли регулярное выражение на $N
+      const captureGroupMatch = find.match(/\$(\d+)$/);
+      if (captureGroupMatch) {
+        // Извлекаем индекс группы захвата и обрезаем регулярное выражение
+        captureGroupIndex = parseInt(captureGroupMatch[1], 10);
+        regexPattern = find.slice(0, -captureGroupMatch[0].length);
+      }
+    }
+
+    const regex = searchMode === "regex" ? new RegExp(regexPattern, 'gi') : new RegExp(searchPattern, regexFlags)
 
     // Используем разные подходы в зависимости от размера файла
     if (source.length > 1024 * 1024) {
       // 1 MB
       // Для больших файлов используем поиск по чанкам без разбиения всего файла на строки
-      await this.findMatchesInChunks(source, file, regex, matches)
+      await this.findMatchesInChunks(source, file, regex, matches, captureGroupIndex, logMessage)
     } else {
       // Для небольших файлов можно использовать обычный подход
       const lines = source.split(/\r\n?|\n/)
-      await this.findMatchesInSource(source, file, regex, lines, matches)
+      await this.findMatchesInSource(source, file, regex, lines, matches, captureGroupIndex, logMessage)
     }
   }
 
@@ -549,7 +544,9 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
     source: string,
     file: string,
     regex: RegExp,
-    matches: ExtendedIpcMatch[]
+    matches: ExtendedIpcMatch[],
+    captureGroupIndex = 0,
+    logMessage: (message: string) => void
   ): Promise<void> {
     const CHUNK_SIZE = 512 * 1024 // 512 KB
     const overlap = 1024 // 1 KB overlap между чанками для обработки совпадений на границах
@@ -597,15 +594,21 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
         }
 
         // Пропускаем пустые совпадения
-        if (matchResult[0].length === 0) {
+        if (matchResult[captureGroupIndex].length === 0) {
           regex.lastIndex++
           continue
         }
 
+        logMessage(`FILE: ${file}, \nMATCHES: ${formatMatchResult(matchResult)}`);
         const chunkOffset = startPos
-        const matchStartOffset = chunkOffset + matchResult.index
-        const matchEndOffset = matchStartOffset + matchResult[0].length
-        const matchText = matchResult[0]
+        // Находим позицию группы захвата внутри общего совпадения
+        const fullMatch = matchResult[0]
+        const groupMatch = matchResult[captureGroupIndex]
+        const groupOffset = fullMatch.indexOf(groupMatch)
+
+        const matchStartOffset = chunkOffset + matchResult.index + (captureGroupIndex > 0 ? groupOffset : 0)
+        const matchEndOffset = matchStartOffset + matchResult[captureGroupIndex].length
+        const matchText = matchResult[captureGroupIndex]
 
         // Пропускаем дубликаты, которые могут возникнуть из-за перекрытия
         const isDuplicate = matches.some(
@@ -702,7 +705,9 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
     file: string,
     regex: RegExp,
     lines: string[],
-    matches: ExtendedIpcMatch[]
+    matches: ExtendedIpcMatch[],
+    captureGroupIndex = 0,
+    logMessage: (message: string) => void
   ): Promise<void> {
     // Проверка флага abort через abortController
     if (this.abortController?.signal.aborted) return
@@ -710,7 +715,11 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
     let matchResult: RegExpExecArray | null
     let matchesFound = 0
 
-    while ((matchResult = regex.exec(source)) !== null) {
+    // Создаем копию регулярки для безопасности
+    const workingRegex = new RegExp(regex.source, regex.flags);
+    workingRegex.lastIndex = 0;
+
+    while ((matchResult = workingRegex.exec(source)) !== null) {
       // Проверка прерывания поиска внутри цикла
       if (this.abortController?.signal.aborted) return
 
@@ -719,24 +728,37 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
         await new Promise((resolve) => setTimeout(resolve, 0))
       }
 
+      const matchTextResult = matchResult[captureGroupIndex];
+
+      logMessage(`FILE: ${file}, \nMATCHES: ${formatMatchResult(matchResult)}`);
       // Пропускаем пустые совпадения
-      if (matchResult[0].length === 0) {
-        regex.lastIndex++
+      if (matchTextResult.length === 0) {
+        workingRegex.lastIndex++
         continue
       }
+      // Находим позицию группы захвата внутри общего совпадения
+      const fullMatch = matchResult[0]
+      const groupMatch = matchResult[captureGroupIndex]
+      const groupOffset = fullMatch.indexOf(groupMatch)
 
-      const startOffset = matchResult.index
-      const endOffset = startOffset + matchResult[0].length
+      const startOffset = matchResult.index + (captureGroupIndex > 0 ? groupOffset : 0)
+      const endOffset = startOffset + matchResult[captureGroupIndex].length
 
       this.addMatch(
         source,
         file,
         startOffset,
         endOffset,
-        matchResult[0],
+        matchTextResult,
         lines,
         matches
       )
+
+      // ВАЖНО: После нахождения совпадения продвигаем lastIndex вперед
+      // чтобы продолжить поиск с конца текущего совпадения
+      if (workingRegex.lastIndex <= endOffset) {
+        workingRegex.lastIndex = endOffset + 1;
+      }
     }
   }
 
@@ -755,11 +777,13 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
       return
     }
 
-    let line = 0,
-      column = 0,
+    let startLine = 0,
+      startColumn = 0,
+      endLine = 0,
+      endColumn = 0,
       currentOffset = 0
 
-    // Находим номер строки и столбца для совпадения
+    // Находим номер строки и столбца для начала совпадения
     for (let i = 0; i < lines.length; i++) {
       const lineLength = lines[i].length
       const lineEndOffset = currentOffset + lineLength
@@ -767,13 +791,47 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
         source[lineEndOffset] === '\r' && source[lineEndOffset + 1] === '\n'
           ? 2
           : source[lineEndOffset] === '\n' || source[lineEndOffset] === '\r'
-          ? 1
-          : 0
+            ? 1
+            : 0
       const nextOffset = lineEndOffset + newlineLength
 
       if (startOffset >= currentOffset && startOffset <= lineEndOffset) {
-        line = i
-        column = startOffset - currentOffset
+        startLine = i
+        startColumn = startOffset - currentOffset
+        break
+      }
+
+      currentOffset = nextOffset
+    }
+
+    // Сбрасываем текущий отступ и начинаем поиск для конечной позиции
+    currentOffset = 0
+
+    // Находим номер строки и столбца для конца совпадения
+    for (let i = 0; i < lines.length; i++) {
+      const lineLength = lines[i].length
+      const lineEndOffset = currentOffset + lineLength
+      const newlineLength =
+        source[lineEndOffset] === '\r' && source[lineEndOffset + 1] === '\n'
+          ? 2
+          : source[lineEndOffset] === '\n' || source[lineEndOffset] === '\r'
+            ? 1
+            : 0
+      const nextOffset = lineEndOffset + newlineLength
+
+      if (endOffset > currentOffset && endOffset <= lineEndOffset) {
+        endLine = i
+        endColumn = endOffset - currentOffset
+        break
+      } else if (endOffset === nextOffset) {
+        // Особый случай: конец совпадения точно на символе новой строки
+        endLine = i
+        endColumn = lineLength
+        break
+      } else if (endOffset > lineEndOffset && endOffset < nextOffset) {
+        // Особый случай: конец совпадения между символами новой строки \r\n
+        endLine = i
+        endColumn = lineLength
         break
       }
 
@@ -791,11 +849,8 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
       report: undefined,
       transformed: undefined,
       loc: {
-        start: { line: line + 1, column },
-        end: {
-          line: line + 1,
-          column: column + matchText.length,
-        },
+        start: { line: startLine + 1, column: startColumn },
+        end: { line: endLine + 1, column: endColumn },
       },
       path: undefined,
       node: undefined,
@@ -953,4 +1008,18 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
 // Функция для экранирования спецсимволов в регулярных выражениях
 function escapeRegExp(string: string): string {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+// Добавляем функцию форматирования результатов поиска
+function formatMatchResult(matchResult: RegExpExecArray): string {
+  if (!matchResult) return 'no matches';
+
+  let result = `$0: ${matchResult[0]}`;
+
+  // Добавляем группы захвата, если они есть
+  for (let i = 1; i < matchResult.length; i++) {
+    result += `\n$${i}: ${matchResult[i]}`;
+  }
+
+  return result;
 }

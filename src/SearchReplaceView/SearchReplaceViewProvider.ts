@@ -189,10 +189,6 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
       return
     }
 
-    this.extension.channel.appendLine(
-      `Sending batch of ${this._resultBuffer.length} results to webview`
-    )
-
     // Отправляем весь буфер результатов в webview
     this._notifyWebviewIfActive('addBatchResults', {
       data: this._resultBuffer,
@@ -227,11 +223,6 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     if (!this.extension.isProduction) {
       // Добавляем свойство devToolsEnabled напрямую, так как оно может быть недоступно в типах WebviewOptions
       ;(webviewView.webview.options as any).devToolsEnabled = true
-
-      // Выводим информацию для разработчика
-      this.extension.channel.appendLine(
-        '[Debug] Webview debugging is enabled. You can use the "Debug Webview" launch configuration.'
-      )
     }
 
     webviewView.webview.html = this._getHtmlForWebview(webviewView.webview)
@@ -239,10 +230,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     webviewView.webview.onDidReceiveMessage((_message: any) => {
       const message: MessageFromWebview = _message
-      // Log message type only, without full content
-      this.extension.channel.appendLine(
-        `[Provider] Received message type: ${message.type}`
-      )
+
       // Make the message handler async to allow await for file operations
       const handleMessage = async (message: MessageFromWebview) => {
         switch (message.type) {
@@ -428,10 +416,6 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
           }
           // Add case to handle logging messages from webview
           case 'log': {
-            // Add logging here to confirm message receipt
-            this.extension.channel.appendLine(
-              '[Provider] Received log message from webview:'
-            )
             const level = message.level.toUpperCase()
             const logMessage = `[Webview ${level}] ${message.message}`
             // Safely log the message without logging sensitive content
@@ -497,8 +481,6 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
 
   // Helper method to focus search input
   private _focusSearchInput(): void {
-    this.extension.channel.appendLine('Sending focus command to search input')
-    
     // Отправляем несколько команд фокуса с разными задержками
     // для большей надежности срабатывания
     setTimeout(() => {

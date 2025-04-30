@@ -35,12 +35,6 @@ export class SearchCache {
   private maxSize = 20
   // Counter for tracking cache size
   private size = 0
-  // Reference to output channel for logging
-  private outputChannel: vscode.OutputChannel
-
-  constructor(outputChannel: vscode.OutputChannel) {
-    this.outputChannel = outputChannel
-  }
 
   /**
    * Finds a suitable cache for a new search
@@ -89,9 +83,6 @@ export class SearchCache {
             include
           )
         ) {
-          this.outputChannel.appendLine(
-            `[SearchCache] Using child cache for query "${query}" from parent "${childNode.query}"`
-          )
           this.currentNode = childNode
           return childNode
         }
@@ -99,9 +90,6 @@ export class SearchCache {
 
       // If no suitable child, but current node is a partial match
       if (query.startsWith(this.currentNode.query)) {
-        this.outputChannel.appendLine(
-          `[SearchCache] Using current cache for query "${query}"`
-        )
         return this.currentNode
       }
     }
@@ -157,9 +145,6 @@ export class SearchCache {
     }
 
     if (bestMatch) {
-      this.outputChannel.appendLine(
-        `[SearchCache] Found suitable cache for "${query}" in node "${bestMatch.query}"`
-      )
       this.currentNode = bestMatch
       return bestMatch
     }
@@ -189,7 +174,6 @@ export class SearchCache {
     const sameExclude = node.params.exclude === exclude
     // Check include pattern match
     const sameInclude = node.params.include === include
-
     // Must check include match, as it is critical for search results
     return sameCase && sameWholeWord && sameExclude && sameInclude
   }
@@ -249,20 +233,10 @@ export class SearchCache {
           }
         }
 
-        this.outputChannel.appendLine(
-          `[SearchCache] From parent cache "${parentNode.query}" filtered ` +
-            `${filteredFiles} files, excluded ${excludedFiles} files for query "${query}"`
-        )
-
         // Copy the list of processed files
         parentNode.processedFiles.forEach((file) => {
           newNode.processedFiles.add(file)
         })
-      } else {
-        this.outputChannel.appendLine(
-          `[SearchCache] Parent cache "${parentNode.query}" is not complete, ` +
-            `additional search will be performed for query "${query}"`
-        )
       }
     } else {
       // If no parent node found, this node becomes the root
@@ -274,12 +248,6 @@ export class SearchCache {
 
     // Trim the cache if it's too large
     this.pruneCache()
-
-    this.outputChannel.appendLine(
-      `[SearchCache] Created new cache node for query "${query}" with include="${
-        include || 'not set'
-      }"`
-    )
     return newNode
   }
 
@@ -296,9 +264,6 @@ export class SearchCache {
     // Add only if there are matches
     if (result.matches && result.matches.length > 0) {
       this.currentNode.results.set(uri, result)
-      this.outputChannel.appendLine(
-        `[SearchCache] Added result for file ${uri}`
-      )
     } else {
       this.currentNode.excludedFiles.add(uri)
     }
@@ -313,9 +278,6 @@ export class SearchCache {
   markCurrentAsComplete(): void {
     if (this.currentNode) {
       this.currentNode.isComplete = true
-      this.outputChannel.appendLine(
-        `[SearchCache] Node "${this.currentNode.query}" marked as complete`
-      )
     }
   }
 
@@ -370,16 +332,6 @@ export class SearchCache {
       }
     })
 
-    // Logging result
-    if (result.file) {
-      const fileName =
-        result.file.toString().split('/').pop() || result.file.toString()
-      this.outputChannel.appendLine(
-        `[SearchCache] Query "${query}" for file ${fileName}: ` +
-          `${hasMatch ? 'match found' : 'match NOT found'}`
-      )
-    }
-
     return hasMatch
   }
 
@@ -390,7 +342,6 @@ export class SearchCache {
     this.root = null
     this.currentNode = null
     this.size = 0
-    this.outputChannel.appendLine(`[SearchCache] Cache cleared`)
   }
 
   /**
@@ -402,9 +353,6 @@ export class SearchCache {
     }
 
     const filePath = fileUri.toString()
-    this.outputChannel.appendLine(
-      `[SearchCache] Clearing cache for file ${filePath}`
-    )
 
     // Clear cache recursively for all nodes
     const clearRecursive = (node: SearchCacheNode) => {
@@ -451,10 +399,6 @@ export class SearchCache {
       return
     }
 
-    this.outputChannel.appendLine(
-      `[SearchCache] Cache trimming (current size: ${this.size})`
-    )
-
     // Find leaf nodes and sort them by last usage time
     const leafNodes: SearchCacheNode[] = []
 
@@ -483,9 +427,6 @@ export class SearchCache {
       }
 
       this.size--
-      this.outputChannel.appendLine(
-        `[SearchCache] Removed node for query "${nodeToRemove.query}"`
-      )
     }
   }
 

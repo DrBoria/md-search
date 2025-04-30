@@ -15,7 +15,7 @@ export type SerializedTransformResultEvent = {
   file: string
   source?: string
   transformed?: string
-  matches?: Array<{ start: number; end: number }>
+  matches?: Array<{ start: number; end: number, loc: { start: { line: number; column: number }, end: { line: number; column: number } } }>
   reports?: any[]
   error?: any
   data?: unknown

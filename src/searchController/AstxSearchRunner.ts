@@ -18,12 +18,9 @@ export class AstxSearchRunner extends TypedEmitter<AstxRunnerEvents> {
   }
 
   async setupWorkerPool(): Promise<void> {
-    this.extension.channel.appendLine('Importing astx/node...')
     this.astxNode = await this.extension.importAstxNode()
-    this.extension.channel.appendLine('Creating AstxWorkerPool...')
     const oldPool = this.pool
     if (oldPool) {
-      this.extension.channel.appendLine('Ending previous worker pool...')
       oldPool
         .end()
         .catch((e: any) =>
@@ -34,7 +31,6 @@ export class AstxSearchRunner extends TypedEmitter<AstxRunnerEvents> {
       throw new Error('Failed to load astx/node, cannot create worker pool.')
     }
     this.pool = new this.astxNode.AstxWorkerPool()
-    this.extension.channel.appendLine('AstxWorkerPool created.')
   }
 
   async performAstSearch(
@@ -75,11 +71,6 @@ export class AstxSearchRunner extends TypedEmitter<AstxRunnerEvents> {
     }
 
     this.config = astConfig as AstxConfig
-
-    logMessage('Starting AST search')
-    logMessage(
-      `AST config: parser=${astConfig.parser}, prettier=${astConfig.prettier}, preferSimpleReplacement=${astConfig.preferSimpleReplacement}`
-    )
 
     const filesWithMatches = new Set<string>()
     let transformFile = origTransformFile
