@@ -40,7 +40,7 @@ declare global {
 function getHighlightedMatchContext(source: string | undefined, locOrPos: { start: { line: number; column: number }, end: { line: number; column: number } } | { start: number, end: number } | number | any, endParam?: number): React.ReactNode {
     // Поддержка разных форматов вызова
     let loc: { start: { line: number; column: number }, end: { line: number; column: number } };
-    
+
     if (typeof locOrPos === 'number' && typeof endParam === 'number') {
         // Старый формат с числовыми позициями
         loc = {
@@ -57,11 +57,11 @@ function getHighlightedMatchContext(source: string | undefined, locOrPos: { star
         // Объект с числовыми start/end
         const start = locOrPos.start;
         const end = locOrPos.end;
-        
+
         if (!source) {
             return `Match at ${start}...${end}`;
         }
-        
+
         try {
             // Используем старую реализацию для числовых индексов
             const lineStart = source.lastIndexOf('\n', start - 1) + 1;
@@ -69,20 +69,20 @@ function getHighlightedMatchContext(source: string | undefined, locOrPos: { star
             if (lineEnd === -1) {
                 lineEnd = source.length;
             }
-            
+
             const lineText = source.substring(lineStart, lineEnd);
             const highlightStart = start - lineStart;
             const highlightEnd = end - lineStart;
-            
-            if (highlightStart < 0 || highlightEnd < 0 || highlightStart > lineText.length || 
+
+            if (highlightStart < 0 || highlightEnd < 0 || highlightStart > lineText.length ||
                 highlightEnd > lineText.length || highlightStart >= highlightEnd) {
                 return lineText || `Match at ${start}...${end}`;
             }
-            
+
             const before = lineText.substring(0, highlightStart);
             const highlighted = lineText.substring(highlightStart, highlightEnd);
             const after = lineText.substring(highlightEnd);
-            
+
             return (
                 <>
                     {before}
@@ -108,20 +108,20 @@ function getHighlightedMatchContext(source: string | undefined, locOrPos: { star
     try {
         // Split source into lines
         const lines = source.split('\n');
-        
+
         // Проверим, является ли совпадение многострочным
         const isMultiline = loc.start.line !== loc.end.line;
-        
+
         if (!isMultiline) {
             // Для однострочного совпадения используем прежнюю логику
             const lineText = lines[loc.start.line - 1] || '';
-            
+
             // Calculate highlight positions relative to the start of the line
             const highlightStart = loc.start.column;
             const highlightEnd = loc.end.column;
 
             // Ensure highlight indices are within the bounds of the extracted line
-            if (highlightStart < 0 || highlightEnd < 0 || highlightStart > lineText.length || 
+            if (highlightStart < 0 || highlightEnd < 0 || highlightStart > lineText.length ||
                 highlightEnd > lineText.length || highlightStart >= highlightEnd) {
                 return lineText || `Match at ${loc.start.line}:${loc.start.column}...${loc.end.line}:${loc.end.column}`;
             }
@@ -145,13 +145,13 @@ function getHighlightedMatchContext(source: string | undefined, locOrPos: { star
             // Для многострочного совпадения
             // Создаем массив элементов для каждой строки
             const elements: React.ReactNode[] = [];
-            
+
             // Обрабатываем первую строку
             const firstLineIndex = loc.start.line - 1;
             const firstLine = lines[firstLineIndex] || '';
             const firstLineBefore = firstLine.substring(0, loc.start.column);
             const firstLineHighlighted = firstLine.substring(loc.start.column);
-            
+
             elements.push(
                 <div key={`line-${firstLineIndex}`}>
                     {firstLineBefore}
@@ -161,7 +161,7 @@ function getHighlightedMatchContext(source: string | undefined, locOrPos: { star
                     }}>{firstLineHighlighted}</span>
                 </div>
             );
-            
+
             // Обрабатываем промежуточные строки
             for (let i = firstLineIndex + 1; i < loc.end.line - 1; i++) {
                 const line = lines[i] || '';
@@ -174,14 +174,14 @@ function getHighlightedMatchContext(source: string | undefined, locOrPos: { star
                     </div>
                 );
             }
-            
+
             // Обрабатываем последнюю строку
             const lastLineIndex = loc.end.line - 1;
             if (lastLineIndex > firstLineIndex) {
                 const lastLine = lines[lastLineIndex] || '';
                 const lastLineHighlighted = lastLine.substring(0, loc.end.column);
                 const lastLineAfter = lastLine.substring(loc.end.column);
-                
+
                 elements.push(
                     <div key={`line-${lastLineIndex}`}>
                         <span style={{
@@ -192,7 +192,7 @@ function getHighlightedMatchContext(source: string | undefined, locOrPos: { star
                     </div>
                 );
             }
-            
+
             // Возвращаем контейнер с многострочным содержимым
             return (
                 <div className={css`
@@ -224,7 +224,7 @@ function getHighlightedMatchContextWithReplacement(
 ): React.ReactNode {
     // Поддержка разных форматов вызова
     let loc: { start: { line: number; column: number }, end: { line: number; column: number } };
-    
+
     if (typeof locOrPos === 'number' && typeof endParam === 'number') {
         // Старый формат с числовыми позициями
         loc = {
@@ -241,11 +241,11 @@ function getHighlightedMatchContextWithReplacement(
         // Объект с числовыми start/end
         const start = locOrPos.start;
         const end = locOrPos.end;
-        
+
         if (!source) {
             return `Match at ${start}...${end}`;
         }
-        
+
         try {
             // Используем старую реализацию для числовых индексов
             const lineStart = source.lastIndexOf('\n', start - 1) + 1;
@@ -253,26 +253,26 @@ function getHighlightedMatchContextWithReplacement(
             if (lineEnd === -1) {
                 lineEnd = source.length;
             }
-            
+
             const lineText = source.substring(lineStart, lineEnd);
             const originalMatch = source.substring(start, end);
             const highlightStart = start - lineStart;
             const highlightEnd = end - lineStart;
-            
-            if (highlightStart < 0 || highlightEnd < 0 || highlightStart > lineText.length || 
+
+            if (highlightStart < 0 || highlightEnd < 0 || highlightStart > lineText.length ||
                 highlightEnd > lineText.length || highlightStart >= highlightEnd) {
                 return lineText || `Match at ${start}...${end}`;
             }
-            
+
             // Создаем замену в зависимости от режима поиска
             let replacement = replace;
-            
+
             if (searchMode === 'regex') {
                 try {
                     // Для regex применяем замену с поддержкой групп захвата
                     const flags = matchCase ? 'g' : 'gi';
                     const regex = new RegExp(find, flags);
-                    
+
                     // Сбрасываем lastIndex и применяем regex к оригинальному совпадению
                     regex.lastIndex = 0;
                     replacement = originalMatch.replace(regex, replace);
@@ -283,11 +283,11 @@ function getHighlightedMatchContextWithReplacement(
                 // Для текстового режима - простая замена
                 replacement = replace;
             }
-            
+
             const before = lineText.substring(0, highlightStart);
             const highlighted = lineText.substring(highlightStart, highlightEnd);
             const after = lineText.substring(highlightEnd);
-            
+
             return (
                 <>
                     {before}
@@ -323,24 +323,24 @@ function getHighlightedMatchContextWithReplacement(
     try {
         // Split source into lines
         const lines = source.split('\n');
-        
+
         // Проверим, является ли совпадение многострочным
         const isMultiline = loc.start.line !== loc.end.line;
-        
+
         // Извлекаем текст совпадения
         let originalMatch = '';
-        
+
         if (!isMultiline) {
             // Для однострочного совпадения
             const lineText = lines[loc.start.line - 1] || '';
             originalMatch = lineText.substring(loc.start.column, loc.end.column);
-            
+
             // Ensure highlight indices are within the bounds of the extracted line
-            if (loc.start.column < 0 || loc.end.column < 0 || loc.start.column > lineText.length || 
+            if (loc.start.column < 0 || loc.end.column < 0 || loc.start.column > lineText.length ||
                 loc.end.column > lineText.length || loc.start.column >= loc.end.column) {
                 return lineText || `Match at ${loc.start.line}:${loc.start.column}...${loc.end.line}:${loc.end.column}`;
             }
-            
+
             // Создаем замену в зависимости от режима поиска
             let replacement = replace;
 
@@ -360,7 +360,7 @@ function getHighlightedMatchContextWithReplacement(
                 // Для текстового режима - простая замена
                 replacement = replace;
             }
-            
+
             const before = lineText.substring(0, loc.start.column);
             const highlighted = originalMatch;
             const after = lineText.substring(loc.end.column);
@@ -388,7 +388,7 @@ function getHighlightedMatchContextWithReplacement(
             );
         } else {
             // Для многострочного совпадения
-            
+
             // Собираем исходный текст совпадения
             for (let i = loc.start.line - 1; i <= loc.end.line - 1; i++) {
                 const line = lines[i] || '';
@@ -400,10 +400,10 @@ function getHighlightedMatchContextWithReplacement(
                     originalMatch += '\n' + line;
                 }
             }
-            
+
             // Создаем замену
             let replacement = replace;
-            
+
             if (searchMode === 'regex') {
                 try {
                     const flags = matchCase ? 'g' : 'gi';
@@ -416,16 +416,16 @@ function getHighlightedMatchContextWithReplacement(
             } else if (searchMode === 'text') {
                 replacement = replace;
             }
-            
+
             // Создаем элементы для каждой строки
             const elements: React.ReactNode[] = [];
-            
+
             // Обрабатываем первую строку
             const firstLineIndex = loc.start.line - 1;
             const firstLine = lines[firstLineIndex] || '';
             const firstLineBefore = firstLine.substring(0, loc.start.column);
             const firstLineHighlighted = firstLine.substring(loc.start.column);
-            
+
             elements.push(
                 <div key={`line-${firstLineIndex}`}>
                     {firstLineBefore}
@@ -436,7 +436,7 @@ function getHighlightedMatchContextWithReplacement(
                     }}>{firstLineHighlighted}</span>
                 </div>
             );
-            
+
             // Обрабатываем промежуточные строки
             for (let i = firstLineIndex + 1; i < loc.end.line - 1; i++) {
                 const line = lines[i] || '';
@@ -450,14 +450,14 @@ function getHighlightedMatchContextWithReplacement(
                     </div>
                 );
             }
-            
+
             // Обрабатываем последнюю строку
             const lastLineIndex = loc.end.line - 1;
             if (lastLineIndex > firstLineIndex) {
                 const lastLine = lines[lastLineIndex] || '';
                 const lastLineHighlighted = lastLine.substring(0, loc.end.column);
                 const lastLineAfter = lastLine.substring(loc.end.column);
-                
+
                 elements.push(
                     <div key={`line-${lastLineIndex}`}>
                         <span style={{
@@ -469,7 +469,7 @@ function getHighlightedMatchContextWithReplacement(
                     </div>
                 );
             }
-            
+
             // Добавляем замену после последней строки
             if (replacement) {
                 elements.push(
@@ -486,7 +486,7 @@ function getHighlightedMatchContextWithReplacement(
                     </div>
                 );
             }
-            
+
             // Возвращаем контейнер с многострочным содержимым
             return (
                 <div className={css`
@@ -1264,13 +1264,13 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
             // Проверяем, не является ли цель клика самой кнопкой настроек или ее дочерним элементом
-            const isClickOnOptionsButton = optionsButtonRef.current && 
-                (optionsButtonRef.current === event.target || 
-                 optionsButtonRef.current.contains(event.target as Node));
+            const isClickOnOptionsButton = optionsButtonRef.current &&
+                (optionsButtonRef.current === event.target ||
+                    optionsButtonRef.current.contains(event.target as Node));
 
             // Клик вне меню И не на кнопке настроек закрывает меню
-            if (optionsMenuRef.current && 
-                !optionsMenuRef.current.contains(event.target as Node) && 
+            if (optionsMenuRef.current &&
+                !optionsMenuRef.current.contains(event.target as Node) &&
                 !isClickOnOptionsButton) {
                 setOptionsMenuOpen(false);
             }
@@ -1336,9 +1336,6 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     // Keep track of whether replace interface is showing in the active nested search
     const [isNestedReplaceVisible, setIsNestedReplaceVisible] = useState(false);
 
-    // Ref для отслеживания последнего поиска, чтобы избежать циклической перерисовки
-    const lastSearchRef = useRef('');
-
     // Добавляем ref для контейнера хлебных крошек
     const breadcrumbsContainerRef = useRef<HTMLDivElement>(null);
 
@@ -1383,50 +1380,110 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
             }
         }
 
-        setResultsByFile(prev => {
-            // Если накопленных результатов нет, возвращаем предыдущее состояние без изменений
-            if (Object.keys(pendingResultsRef.current).length === 0) {
-                return prev;
-            }
-
-            // Создаем новый объект только если есть накопленные результаты
-            const newResults = { ...prev };
-
-            // Обрабатываем небольшими порциями для предотвращения блокировки UI
-            const entries = Object.entries(pendingResultsRef.current);
-            const batchSize = totalMatches > 500 ? 10 : 50; // Меньший размер пакета для больших наборов данных
-
-            for (let i = 0; i < Math.min(batchSize, entries.length); i++) {
-                const [filePath, results] = entries[i];
-                // Пропускаем файлы без результатов
-                if (results.length === 0) continue;
-
-                // Оптимизация: если файла еще нет, просто назначаем массив напрямую
-                if (!newResults[filePath]) {
-                    newResults[filePath] = results;
-                } else {
-                    // Используем push вместо spread для эффективности
-                    const existingResults = newResults[filePath];
-                    results.forEach(result => existingResults.push(result));
+        // Для вложенного поиска обновляем только текущий уровень searchLevels
+        // Для обычного поиска обновляем resultsByFile
+        if (isInNestedSearch && values.searchInResults > 0) {
+            // Обновляем только текущий уровень поиска
+            setSearchLevels(prev => {
+                // Если нет уровней поиска или неверный индекс, возвращаем как есть
+                if (prev.length === 0 || values.searchInResults < 0 || values.searchInResults >= prev.length) {
+                    return prev;
                 }
-            }
 
-            // Если остались необработанные файлы, запланируем следующий вызов
-            if (entries.length > batchSize) {
-                const remainingEntries = entries.slice(batchSize);
-                pendingResultsRef.current = Object.fromEntries(remainingEntries);
+                // Создаем копию массива уровней
+                const newLevels = [...prev];
 
-                // Запланировать следующую обработку
-                setTimeout(flushPendingResults, 10);
-            } else {
-                // Все обработано, очищаем очередь
-                pendingResultsRef.current = {};
-            }
+                // Получаем текущий уровень
+                const level = newLevels[values.searchInResults];
+                const updatedResultsByFile = { ...level.resultsByFile };
 
-            lastUpdateTimeRef.current = now;
+                // Обрабатываем небольшими порциями для предотвращения блокировки UI
+                const entries = Object.entries(pendingResultsRef.current);
+                const batchSize = totalMatches > 500 ? 10 : 50;
 
-            return newResults;
-        });
+                for (let i = 0; i < Math.min(batchSize, entries.length); i++) {
+                    const [filePath, results] = entries[i];
+                    // Пропускаем файлы без результатов
+                    if (results.length === 0) continue;
+
+                    // Добавляем результаты в текущий уровень
+                    if (!updatedResultsByFile[filePath]) {
+                        updatedResultsByFile[filePath] = [...results];
+                    } else {
+                        updatedResultsByFile[filePath] = [
+                            ...updatedResultsByFile[filePath],
+                            ...results
+                        ];
+                    }
+                }
+
+                // Если остались необработанные файлы, запланируем следующий вызов
+                if (entries.length > batchSize) {
+                    const remainingEntries = entries.slice(batchSize);
+                    pendingResultsRef.current = Object.fromEntries(remainingEntries);
+
+                    // Запланировать следующую обработку
+                    setTimeout(flushPendingResults, 10);
+                } else {
+                    // Все обработано, очищаем очередь
+                    pendingResultsRef.current = {};
+                }
+
+                // Обновляем текущий уровень с новыми результатами
+                newLevels[values.searchInResults] = {
+                    ...level,
+                    resultsByFile: updatedResultsByFile
+                };
+
+                return newLevels;
+            });
+        } else {
+            // Стандартная обработка для основного поиска
+            setResultsByFile(prev => {
+                // Если накопленных результатов нет, возвращаем предыдущее состояние без изменений
+                if (Object.keys(pendingResultsRef.current).length === 0) {
+                    return prev;
+                }
+
+                // Создаем новый объект только если есть накопленные результаты
+                const newResults = { ...prev };
+
+                // Обрабатываем небольшими порциями для предотвращения блокировки UI
+                const entries = Object.entries(pendingResultsRef.current);
+                const batchSize = totalMatches > 500 ? 10 : 50; // Меньший размер пакета для больших наборов данных
+
+                for (let i = 0; i < Math.min(batchSize, entries.length); i++) {
+                    const [filePath, results] = entries[i];
+                    // Пропускаем файлы без результатов
+                    if (results.length === 0) continue;
+
+                    // Оптимизация: если файла еще нет, просто назначаем массив напрямую
+                    if (!newResults[filePath]) {
+                        newResults[filePath] = results;
+                    } else {
+                        // Используем push вместо spread для эффективности
+                        const existingResults = newResults[filePath];
+                        results.forEach(result => existingResults.push(result));
+                    }
+                }
+
+                // Если остались необработанные файлы, запланируем следующий вызов
+                if (entries.length > batchSize) {
+                    const remainingEntries = entries.slice(batchSize);
+                    pendingResultsRef.current = Object.fromEntries(remainingEntries);
+
+                    // Запланировать следующую обработку
+                    setTimeout(flushPendingResults, 10);
+                } else {
+                    // Все обработано, очищаем очередь
+                    pendingResultsRef.current = {};
+                }
+
+                lastUpdateTimeRef.current = now;
+
+                return newResults;
+            });
+        }
 
         // Обновляем состояние развернутых файлов, чтобы автоматически свернуть файлы с большим количеством совпадений
         if (filesToCollapse.size > 0) {
@@ -1438,7 +1495,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                 return newSet;
             });
         }
-    }, [workspacePath]);
+    }, [workspacePath, values.searchInResults, isInNestedSearch]);
 
     // --- Save State Effect ---
     useEffect(() => {
@@ -1518,8 +1575,26 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                 case 'addBatchResults': {
                     // Получаем массив результатов
                     const batchResults = message.data;
+
+                    // Если это начало нового поиска, очищаем предыдущие результаты
                     if (message.isSearchRunning) {
-                        setResultsByFile({});
+                        if (isInNestedSearch && values.searchInResults > 0) {
+                            setResultsByFile({});
+                            // Если мы во вложенном поиске, очищаем только результаты текущего уровня
+                            setSearchLevels(prev => {
+                                const newLevels = [...prev];
+                                if (values.searchInResults >= 0 && values.searchInResults < newLevels.length) {
+                                    newLevels[values.searchInResults] = {
+                                        ...newLevels[values.searchInResults],
+                                        resultsByFile: {} // Очищаем результаты для текущего уровня
+                                    };
+                                }
+                                return newLevels;
+                            });
+                        } else {
+                            // Если это основной поиск, очищаем основные результаты
+                            setResultsByFile({});
+                        }
                         setIsSearchRequested(false);
                     }
 
@@ -1612,26 +1687,26 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                 // Если мы во вложенном поиске, фокусируем поле вложенного поиска
                                 if (nestedSearchInputRef.current) {
                                     nestedSearchInputRef.current.focus()
-                                    vscode.postMessage({ 
-                                        type: 'log', 
-                                        level: 'info', 
-                                        message: 'Focused nested search input via ref' 
+                                    vscode.postMessage({
+                                        type: 'log',
+                                        level: 'info',
+                                        message: 'Focused nested search input via ref'
                                     })
                                 } else {
                                     // Запасной вариант поиска элемента в DOM
                                     const nestedInput = document.querySelector('textarea[name="nestedSearch"]')
                                     if (nestedInput) {
                                         (nestedInput as HTMLTextAreaElement).focus()
-                                        vscode.postMessage({ 
-                                            type: 'log', 
-                                            level: 'info', 
-                                            message: 'Focused nested search input via DOM' 
+                                        vscode.postMessage({
+                                            type: 'log',
+                                            level: 'info',
+                                            message: 'Focused nested search input via DOM'
                                         })
                                     } else {
-                                        vscode.postMessage({ 
-                                            type: 'log', 
-                                            level: 'error', 
-                                            message: 'Could not find nested search input' 
+                                        vscode.postMessage({
+                                            type: 'log',
+                                            level: 'error',
+                                            message: 'Could not find nested search input'
                                         })
                                     }
                                 }
@@ -1639,26 +1714,26 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                 // Используем основное поле поиска
                                 if (searchInputRef.current) {
                                     searchInputRef.current.focus()
-                                    vscode.postMessage({ 
-                                        type: 'log', 
-                                        level: 'info', 
-                                        message: 'Focused main search input via ref' 
+                                    vscode.postMessage({
+                                        type: 'log',
+                                        level: 'info',
+                                        message: 'Focused main search input via ref'
                                     })
                                 } else {
                                     // Запасной вариант поиска элемента в DOM
                                     const mainInput = document.querySelector('textarea[name="search"]')
                                     if (mainInput) {
                                         (mainInput as HTMLTextAreaElement).focus()
-                                        vscode.postMessage({ 
-                                            type: 'log', 
-                                            level: 'info', 
-                                            message: 'Focused main search input via DOM' 
+                                        vscode.postMessage({
+                                            type: 'log',
+                                            level: 'info',
+                                            message: 'Focused main search input via DOM'
                                         })
                                     } else {
-                                        vscode.postMessage({ 
-                                            type: 'log', 
-                                            level: 'error', 
-                                            message: 'Could not find main search input' 
+                                        vscode.postMessage({
+                                            type: 'log',
+                                            level: 'error',
+                                            message: 'Could not find main search input'
                                         })
                                     }
                                 }
@@ -1689,16 +1764,16 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                 const nestedReplaceInput = document.querySelector('textarea[name="nestedReplace"]') as HTMLTextAreaElement
                                 if (nestedReplaceInput) {
                                     nestedReplaceInput.focus()
-                                    vscode.postMessage({ 
-                                        type: 'log', 
-                                        level: 'info', 
-                                        message: 'Focused nested replace input' 
+                                    vscode.postMessage({
+                                        type: 'log',
+                                        level: 'info',
+                                        message: 'Focused nested replace input'
                                     })
                                 } else {
-                                    vscode.postMessage({ 
-                                        type: 'log', 
-                                        level: 'warn', 
-                                        message: 'Nested replace input not found' 
+                                    vscode.postMessage({
+                                        type: 'log',
+                                        level: 'warn',
+                                        message: 'Nested replace input not found'
                                     })
                                 }
                             } else {
@@ -1706,16 +1781,16 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                 const replaceInput = document.querySelector('textarea[name="replace"]') as HTMLTextAreaElement
                                 if (replaceInput) {
                                     replaceInput.focus()
-                                    vscode.postMessage({ 
-                                        type: 'log', 
-                                        level: 'info', 
-                                        message: 'Focused main replace input' 
+                                    vscode.postMessage({
+                                        type: 'log',
+                                        level: 'info',
+                                        message: 'Focused main replace input'
                                     })
                                 } else {
-                                    vscode.postMessage({ 
-                                        type: 'log', 
-                                        level: 'warn', 
-                                        message: 'Main replace input not found' 
+                                    vscode.postMessage({
+                                        type: 'log',
+                                        level: 'warn',
+                                        message: 'Main replace input not found'
                                     })
                                 }
                             }
@@ -1762,17 +1837,24 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
         return () => {
             window.removeEventListener('message', handleMessage);
         };
-    }, [vscode, flushPendingResults]); // Добавили flushPendingResults в зависимости
+    }, [vscode, flushPendingResults, isInNestedSearch, values.searchInResults]); // Добавили isInNestedSearch и values.searchInResults в зависимости
 
     // --- Callbacks ---
     const postValuesChange = debounce(useCallback((changed: Partial<SearchReplaceViewValues>) => {
         // Immediately update local state for responsiveness
         setValues(prev => {
-            const next = { ...prev, ...changed, isReplacement: false };
+            const next = { 
+                ...prev, 
+                find: changed?.searchInResults !== undefined ? searchLevels[changed.searchInResults]?.values?.find ?? '' : prev.find, 
+                ...changed, 
+                isReplacement: false
+            };
             // Update dependent local state right away
             if (changed?.searchMode !== undefined) setCurrentSearchMode(changed?.searchMode);
             if (changed?.matchCase !== undefined) setMatchCase(changed?.matchCase);
             if (changed?.wholeWord !== undefined) setWholeWord(changed?.wholeWord);
+            if (changed?.searchInResults !== undefined) setSearchLevels(prev => prev.slice(0, (changed?.searchInResults ?? 0) + 1));
+
             // Post the complete updated values
             vscode.postMessage({ type: 'values', values: next });
             setIsSearchRequested(Boolean(changed?.find));
@@ -1885,21 +1967,21 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
         postValuesChange({ exclude: e.target.value });
     }, [postValuesChange]);
 
-    const handleParserChange = useCallback((e: any) => {
-        postValuesChange({ parser: e.target.value });
-    }, [postValuesChange]);
+    // const handleParserChange = useCallback((e: any) => {
+    //     postValuesChange({ parser: e.target.value });
+    // }, [postValuesChange]);
 
-    const handlePrettierChange = useCallback((e: any) => {
-        postValuesChange({ prettier: e.target.checked });
-    }, [postValuesChange]);
+    // const handlePrettierChange = useCallback((e: any) => {
+    //     postValuesChange({ prettier: e.target.checked });
+    // }, [postValuesChange]);
 
-    const handleBabelGeneratorHackChange = useCallback((e: any) => {
-        postValuesChange({ babelGeneratorHack: e.target.checked });
-    }, [postValuesChange]);
+    // const handleBabelGeneratorHackChange = useCallback((e: any) => {
+    //     postValuesChange({ babelGeneratorHack: e.target.checked });
+    // }, [postValuesChange]);
 
-    const handlePreferSimpleReplacementChange = useCallback((e: any) => {
-        postValuesChange({ preferSimpleReplacement: e.target.checked });
-    }, [postValuesChange]);
+    // const handlePreferSimpleReplacementChange = useCallback((e: any) => {
+    //     postValuesChange({ preferSimpleReplacement: e.target.checked });
+    // }, [postValuesChange]);
 
     const handleReplaceAllClick = useCallback(() => {
         // Собираем списки файлов из текущих результатов
@@ -2234,97 +2316,97 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
         setIsNestedReplaceVisible((prev: boolean) => !prev);
     }, []);
 
-    // Исправляем useEffect для вложенного поиска
-    useEffect(() => {
-        // Check if we're in nested search and we have search levels with a valid search query
-        if (isInNestedSearch &&
-            searchLevels.length > 0 &&
-            searchLevels[searchLevels.length - 1]?.values?.find) {
+    // // Исправляем useEffect для вложенного поиска
+    // useEffect(() => {
+    //     // Check if we're in nested search and we have search levels with a valid search query
+    //     if (isInNestedSearch &&
+    //         searchLevels.length > 0 &&
+    //         searchLevels[searchLevels.length - 1]?.values?.find) {
 
-            const currentLevel = searchLevels[searchLevels.length - 1];
-            const searchQuery = currentLevel.values?.find;
-            const currentSearchValue = `${searchQuery}_${currentLevel.values?.matchCase}_${currentLevel.values?.wholeWord}_${currentLevel.values?.searchMode}`;
+    //         const currentLevel = searchLevels[searchLevels.length - 1];
+    //         const searchQuery = currentLevel.values?.find;
+    //         const currentSearchValue = `${searchQuery}_${currentLevel.values?.matchCase}_${currentLevel.values?.wholeWord}_${currentLevel.values?.searchMode}`;
 
-            // Skip if this exact search was already performed
-            if (lastSearchRef.current === currentSearchValue && Object.keys(currentLevel.resultsByFile).length > 0) {
-                return;
-            }
+    //         // Skip if this exact search was already performed
+    //         if (lastSearchRef.current === currentSearchValue && Object.keys(currentLevel.resultsByFile).length > 0) {
+    //             return;
+    //         }
 
-            // Update the last search reference
-            lastSearchRef.current = currentSearchValue;
+    //         // Update the last search reference
+    //         lastSearchRef.current = currentSearchValue;
 
-            // Create search regex based on current settings
-            const pattern = currentLevel.values?.searchMode === 'regex'
-                ? searchQuery
-                : escapeRegExp(searchQuery);
+    //         // Create search regex based on current settings
+    //         const pattern = currentLevel.values?.searchMode === 'regex'
+    //             ? searchQuery
+    //             : escapeRegExp(searchQuery);
 
-            const modifiedPattern = currentLevel.values?.wholeWord && currentLevel.values?.searchMode === 'text'
-                ? `\\b${pattern}\\b`
-                : pattern;
+    //         const modifiedPattern = currentLevel.values?.wholeWord && currentLevel.values?.searchMode === 'text'
+    //             ? `\\b${pattern}\\b`
+    //             : pattern;
 
-            const flags = currentLevel.values?.matchCase ? 'g' : 'gi';
-            const regex = new RegExp(modifiedPattern, flags);
+    //         const flags = currentLevel.values?.matchCase ? 'g' : 'gi';
+    //         const regex = new RegExp(modifiedPattern, flags);
 
-            // Search through results from previous level
-            const newResults: Record<string, SerializedTransformResultEvent[]> = {};
+    //         // Search through results from previous level
+    //         const newResults: Record<string, SerializedTransformResultEvent[]> = {};
 
-            // Get results from the previous level (or base results if only one level back)
-            const sourceResults = searchLevels.length > 2
-                ? searchLevels[searchLevels.length - 2].resultsByFile
-                : resultsByFile;
+    //         // Get results from the previous level (or base results if only one level back)
+    //         const sourceResults = searchLevels.length > 2
+    //             ? searchLevels[searchLevels.length - 2].resultsByFile
+    //             : resultsByFile;
 
-            Object.entries(sourceResults).forEach(([filePath, fileResults]) => {
-                const fileMatches: SerializedTransformResultEvent[] = [];
+    //         Object.entries(sourceResults).forEach(([filePath, fileResults]) => {
+    //             const fileMatches: SerializedTransformResultEvent[] = [];
 
-                fileResults.forEach(result => {
-                    if (result.source) {
-                        const matches: Array<{ start: number; end: number }> = [];
-                        let match;
+    //             fileResults.forEach(result => {
+    //                 if (result.source) {
+    //                     const matches: Array<{ start: number; end: number }> = [];
+    //                     let match;
 
-                        // Reset lastIndex to start search from beginning of string
-                        regex.lastIndex = 0;
+    //                     // Reset lastIndex to start search from beginning of string
+    //                     regex.lastIndex = 0;
 
-                        while ((match = regex.exec(result.source)) !== null) {
-                            matches.push({
-                                start: match.index,
-                                end: match.index + match[0].length
-                            });
+    //                     while ((match = regex.exec(result.source)) !== null) {
+    //                         matches.push({
+    //                             start: match.index,
+    //                             end: match.index + match[0].length
+    //                         });
 
-                            // Avoid infinite loop for zero-length matches
-                            if (match.index === regex.lastIndex) {
-                                regex.lastIndex++;
-                            }
-                        }
+    //                         // Avoid infinite loop for zero-length matches
+    //                         if (match.index === regex.lastIndex) {
+    //                             regex.lastIndex++;
+    //                         }
+    //                     }
 
-                        if (matches.length > 0) {
-                            fileMatches.push({
-                                ...result,
-                                matches
-                            });
-                        }
-                    }
-                });
+    //                     if (matches.length > 0) {
+    //                         fileMatches.push({
+    //                             ...result,
+    //                             matches
+    //                         });
+    //                     }
+    //                 }
+    //             });
 
-                if (fileMatches.length > 0) {
-                    newResults[filePath] = fileMatches;
-                }
-            });
+    //             if (fileMatches.length > 0) {
+    //                 newResults[filePath] = fileMatches;
+    //             }
+    //         });
 
-            // Use a stable way to update searchLevels to avoid infinite loops
-            setSearchLevels((prev: SearchLevel[]) => {
-                const updated = [...prev];
-                updated[updated.length - 1] = {
-                    ...updated[updated.length - 1],
-                    resultsByFile: newResults
-                };
-                return updated;
-            });
-        }
-    }, [isInNestedSearch, searchLevels[searchLevels.length - 1]?.values?.find,
-        searchLevels[searchLevels.length - 1]?.values?.matchCase,
-        searchLevels[searchLevels.length - 1]?.values?.wholeWord,
-        searchLevels[searchLevels.length - 1]?.values?.searchMode,
-        resultsByFile]);
+    //         // Use a stable way to update searchLevels to avoid infinite loops
+    //         setSearchLevels((prev: SearchLevel[]) => {
+    //             const updated = [...prev];
+    //             updated[updated.length - 1] = {
+    //                 ...updated[updated.length - 1],
+    //                 resultsByFile: newResults
+    //             };
+    //             return updated;
+    //         });
+    //     }
+    // }, [isInNestedSearch, searchLevels[searchLevels.length - 1]?.values?.find,
+    //     searchLevels[searchLevels.length - 1]?.values?.matchCase,
+    //     searchLevels[searchLevels.length - 1]?.values?.wholeWord,
+    //     searchLevels[searchLevels.length - 1]?.values?.searchMode,
+    //     resultsByFile]);
 
     const handleNestedReplaceAllClick = useCallback(() => {
         // First, update the main values with nested values temporarily
@@ -2860,7 +2942,6 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                             if (index <= values.searchInResults - 1) {
                                                 const targetLevel = index + 1;
 
-                                                // Не сокращаем searchLevels, только устанавливаем searchInResults
                                                 postValuesChange({ searchInResults: targetLevel });
                                                 updateSearchLevelsLength(targetLevel);
                                             }
@@ -3055,7 +3136,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                 onInput={handleFindChange}
                                 className={css` flex-grow: 1; `} // Make text area grow
                             />
-                            
+
                             {/* Кнопка Pause/Play для управления поиском */}
                             {values.find && (
                                 status.running ? (
@@ -3069,7 +3150,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                     </VSCodeButton>
                                 ) : null
                             )}
-                            
+
                             {/* Search Options Buttons */}
                             <div className={css` position: relative; `}>
                                 <VSCodeButton
@@ -3086,8 +3167,8 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                         ${(matchCase || wholeWord || currentSearchMode !== 'text') ? 'background-color: var(--vscode-button-secondaryBackground);' : ''}
                                     `}
                                 >
-                                    <span 
-                                        className="codicon codicon-settings-gear" 
+                                    <span
+                                        className="codicon codicon-settings-gear"
                                         ref={optionsButtonRef} // Используем ref на внутреннем элементе
                                     />
                                     {(matchCase || wholeWord || currentSearchMode !== 'text') && (
