@@ -406,6 +406,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       this.abortController.abort()
     }
     this.textSearchRunner.abort()
+    this.emit('abort');
   }
 
   stop(): void {

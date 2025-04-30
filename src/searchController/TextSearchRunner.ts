@@ -904,10 +904,6 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
 
       // Обрабатываем индексированные файлы первыми (они приоритетны)
       if (indexedFiles.length > 0) {
-        logMessage(
-          `Обработка ${indexedFiles.length} проиндексированных файлов без кеша...`
-        )
-
         // Преобразуем в пути к файлам
         const indexedPaths = indexedFiles.map((uri) => uri.fsPath)
 
@@ -943,10 +939,6 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
 
       // Затем обрабатываем остальные файлы, если поиск не отменен
       if (!signal.aborted && otherFiles.length > 0) {
-        logMessage(
-          `Обработка ${otherFiles.length} непроиндексированных файлов без кеша...`
-        )
-
         // Преобразуем в пути к файлам
         const otherPaths = otherFiles.map((uri) => uri.fsPath)
 
@@ -1003,11 +995,6 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
       }
     }
   }
-}
-
-// Функция для экранирования спецсимволов в регулярных выражениях
-function escapeRegExp(string: string): string {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 // Добавляем функцию форматирования результатов поиска

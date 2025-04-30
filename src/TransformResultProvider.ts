@@ -20,6 +20,9 @@ export default class TransformResultProvider
       this._onDidChangeFileDecorations.fire(uris)
       for (const uri of uris) this._onDidChange.fire(uri)
     })
+    runner.on('abort', () => {
+      this.results.clear()
+    })
     runner.on('result', (event: TransformResultEvent) => {
       const { file } = event
       const uri = file.with({ scheme: 'file' })

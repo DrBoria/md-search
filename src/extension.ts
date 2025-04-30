@@ -256,7 +256,7 @@ export class AstxExtension {
     context.subscriptions.push(
       vscode.workspace.onDidChangeConfiguration(
         (e: vscode.ConfigurationChangeEvent) => {
-          if (!e.affectsConfiguration('astx')) return
+          if (!e.affectsConfiguration('MD Search')) return
           const config = vscode.workspace.getConfiguration('MD Search')
           if (paramsInConfig.some((p) => this.params[p] !== config[p])) {
             this.setParams({
@@ -304,27 +304,27 @@ export class AstxExtension {
 
     const setIncludePaths =
       ({ useTransformFile }: { useTransformFile: boolean }) =>
-      (dir: vscode.Uri, arg2: vscode.Uri[]) => {
-        const dirs =
-          Array.isArray(arg2) &&
-          arg2.every((item) => item instanceof vscode.Uri)
-            ? arg2
-            : [dir || vscode.window.activeTextEditor?.document.uri].filter(
+        (dir: vscode.Uri, arg2: vscode.Uri[]) => {
+          const dirs =
+            Array.isArray(arg2) &&
+              arg2.every((item) => item instanceof vscode.Uri)
+              ? arg2
+              : [dir || vscode.window.activeTextEditor?.document.uri].filter(
                 (x): x is vscode.Uri => x instanceof vscode.Uri
               )
-        if (!dirs.length) return
-        const newParams: Params = {
-          ...this.getParams(),
-          useTransformFile,
-          include: dirs.map(normalizeFsPath).join(', '),
+          if (!dirs.length) return
+          const newParams: Params = {
+            ...this.getParams(),
+            useTransformFile,
+            include: dirs.map(normalizeFsPath).join(', '),
+          }
+
+          // Сначала устанавливаем параметры
+          this.setParams(newParams)
+
+          // Затем уже показываем представление с фокусом
+          this.searchReplaceViewProvider.showWithSearchFocus()
         }
-
-        // Сначала устанавливаем параметры
-        this.setParams(newParams)
-
-        // Затем уже показываем представление с фокусом
-        this.searchReplaceViewProvider.showWithSearchFocus()
-      }
     const findInPath = setIncludePaths({ useTransformFile: false })
     // const transformInPath = setIncludePaths({ useTransformFile: true })
 
@@ -472,22 +472,10 @@ export class AstxExtension {
 
       // Check replace string only if this is not a replacement operation
       if (!isReplacementOperation && !params.replace) {
-        // Don't do anything if replace string is empty
-        this.channel.appendLine('Replace cancelled: Replace string is empty.')
         return
       }
 
-      if (params.searchMode === 'astx') {
-        // --- AST Mode Replacement (Existing Logic) ---
-        this.channel.appendLine('Starting AST replace...')
-        // Этот метод больше не поддерживается
-        // await this.runner.replace()
-        this.channel.appendLine('AST replace is not supported in this version.')
-      } else {
-        // --- Text/Regex Mode Replacement (Optimized Logic) ---
-        this.channel.appendLine(
-          `Starting optimized ${params.searchMode} replace...`
-        )
+      if (params.searchMode !== 'astx') {
         const resultsMap = this.transformResultProvider.results
         const { find, replace, matchCase, wholeWord, searchMode } = params
 
@@ -704,93 +692,98 @@ export class AstxExtension {
     return count
   }
 
-  // Method for pasting buffer value to all found matches
   async pasteToMatches(): Promise<number> {
-    // Get text from system clipboard
-    const clipboardText = await vscode.env.clipboard.readText()
+    try {
+      // Get text from system clipboard
+      const clipboardText = await vscode.env.clipboard.readText()
 
-    if (clipboardText.length === 0) {
+      if (clipboardText.length === 0) {
+        return 0
+      }
+
+      // Use current matches and direct replacement instead of regular expressions
+      const resultsMap = this.transformResultProvider.results
+      if (!resultsMap || resultsMap.size === 0) {
+        this.channel.appendLine('No matching results to paste to')
+        return 0
+      }
+
+      let totalReplacements = 0
+      let totalFilesChanged = 0
+
+      // Limit concurrent processing to avoid overloading the system
+      const MAX_CONCURRENT = 5
+      const fileBatches = Array.from(resultsMap.entries()).filter(
+        ([_, result]) => result.matches && result.matches.length > 0
+      )
+
+      for (let i = 0; i < fileBatches.length; i += MAX_CONCURRENT) {
+        const batch = fileBatches.slice(i, i + MAX_CONCURRENT)
+        await Promise.all(batch.map(async ([uriString, result]) => {
+          try {
+            if (!result.matches || result.matches.length === 0) {
+              return
+            }
+
+            const uri = vscode.Uri.parse(uriString)
+
+            // Read file content directly
+            const contentBytes = await vscode.workspace.fs.readFile(uri)
+            const originalContent = Buffer.from(contentBytes).toString('utf8')
+
+            // Process matches in reverse order to avoid shifting indices
+            const sortedMatches = [...result.matches].sort(
+              (a, b) => b.start - a.start
+            )
+
+            let newContent = originalContent
+            let replacementsInFile = 0
+
+            // Apply replacements to each match
+            for (const match of sortedMatches) {
+              if (typeof match.start !== 'number' || typeof match.end !== 'number') {
+                continue
+              }
+
+              // Make direct replacement without any modifications
+              newContent =
+                newContent.substring(0, match.start) +
+                clipboardText +
+                newContent.substring(match.end)
+
+              replacementsInFile++
+            }
+
+            // Write changes only if they actually exist
+            if (newContent !== originalContent) {
+              totalReplacements += replacementsInFile
+              totalFilesChanged++
+
+              // Write directly to file
+              const newContentBytes = Buffer.from(newContent, 'utf8')
+              await vscode.workspace.fs.writeFile(uri, newContentBytes)
+            }
+          } catch (error: any) {
+            this.logError(
+              new Error(
+                `Failed to replace in ${uriString}: ${error.message}`
+              )
+            )
+          }
+        }))
+      }
+
+      // Send message to webview with replacement results
+      this.searchReplaceViewProvider.notifyReplacementComplete(
+        totalReplacements,
+        totalFilesChanged
+      )
+
+      return totalFilesChanged
+    } catch (error: any) {
+      this.logError(new Error(`pasteToMatches error: ${error.message}`))
       return 0
     }
-
-    // Use current matches and direct replacement instead of regular expressions
-    const resultsMap = this.transformResultProvider.results
-    let totalReplacements = 0
-    let totalFilesChanged = 0
-
-    const modificationPromises: Promise<void>[] = []
-
-    for (const [uriString, result] of resultsMap.entries()) {
-      if (result.matches && result.matches.length > 0) {
-        const uri = vscode.Uri.parse(uriString)
-        modificationPromises.push(
-          (async () => {
-            try {
-              // Read file content directly
-              const contentBytes = await vscode.workspace.fs.readFile(uri)
-              const originalContent = Buffer.from(contentBytes).toString('utf8')
-
-              // Process matches in reverse order to avoid shifting indices
-              const sortedMatches = [...result.matches].sort(
-                (a, b) => b.start - a.start
-              )
-
-              let newContent = originalContent
-              let replacementsInFile = 0
-
-              // Apply replacements to each match
-              for (let i = 0; i < sortedMatches.length; i++) {
-                const match = sortedMatches[i]
-
-                // Make direct replacement without any modifications
-                newContent =
-                  newContent.substring(0, match.start) +
-                  clipboardText +
-                  newContent.substring(match.end)
-
-                replacementsInFile++
-              }
-
-              // Write changes only if they actually exist
-              if (newContent !== originalContent) {
-                totalReplacements += replacementsInFile
-                totalFilesChanged++
-
-                // Write directly to file
-                const newContentBytes = Buffer.from(newContent, 'utf8')
-                await vscode.workspace.fs.writeFile(uri, newContentBytes)
-              }
-            } catch (error: any) {
-              this.logError(
-                new Error(
-                  `Failed to replace in ${uri.fsPath}: ${error.message}`
-                )
-              )
-            }
-          })()
-        )
-      }
-    }
-
-    // Wait for all file operations to complete
-    await Promise.all(modificationPromises)
-
-    // Send message to webview with replacement results
-    this.searchReplaceViewProvider.notifyReplacementComplete(
-      totalReplacements,
-      totalFilesChanged
-    )
-
-    this.channel.appendLine(
-      `Paste finished. Replaced ${totalReplacements} occurrences in ${totalFilesChanged} files.`
-    )
-
-    return totalFilesChanged
-  }
-
-  // Method for getting matches buffer
-  getMatchesBuffer(): string[] {
-    return [...this.matchesBuffer]
   }
 }
 
@@ -811,11 +804,10 @@ export async function deactivate(): Promise<void> {
 function normalizeFsPath(uri: vscode.Uri): string {
   const folder = vscode.workspace.getWorkspaceFolder(uri)
   return folder
-    ? `${
-        (vscode.workspace.workspaceFolders?.length ?? 0) > 1
-          ? path.basename(folder.uri.path) + '/'
-          : ''
-      }${path.relative(folder.uri.path, uri.path)}`
+    ? `${(vscode.workspace.workspaceFolders?.length ?? 0) > 1
+      ? path.basename(folder.uri.path) + '/'
+      : ''
+    }${path.relative(folder.uri.path, uri.path)}`
     : uri.fsPath
 }
 

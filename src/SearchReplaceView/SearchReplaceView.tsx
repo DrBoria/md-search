@@ -1168,7 +1168,7 @@ function getFolderIcon(folderPath: string, isOpen = false): React.ReactNode {
 export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): React.ReactElement {
     // --- State Initialization using VS Code Webview API ---
     const initialState = vscode.getState() || {};
-    const initialStateSearchLevelsLength = initialState.searchLevels.length;
+    const initialStateSearchLevelsLength = initialState.searchLevels?.length;
     const [values, setValues] = useState<SearchReplaceViewValues>({
         // Default values first
         find: '', replace: '', paused: false, include: '', exclude: '',
@@ -1239,7 +1239,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     // --- UI State ---
     const [isReplaceVisible, setIsReplaceVisible] = useState(initialState.isReplaceVisible ?? false);
     const [showSettings, setShowSettings] = useState(initialState.showSettings ?? true);
-    const [viewMode, setViewMode] = useState<'list' | 'tree'>(initialState.viewMode || 'list');
+    const [viewMode, setViewMode] = useState<'list' | 'tree'>(initialState.viewMode || 'tree');
     // Store expanded paths (relative paths) as Sets
     const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set([]));
     const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set([]));
@@ -1833,7 +1833,6 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
 
         // Request initial data on mount
         vscode.postMessage({ type: 'mount' });
-
         return () => {
             window.removeEventListener('message', handleMessage);
         };
@@ -3020,13 +3019,6 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                 >
                                     <span className="codicon codicon-regex" />
                                 </VSCodeButton>
-                                <VSCodeButton
-                                    appearance={searchLevels[values.searchInResults].values?.searchMode === 'astx' ? "secondary" : "icon"}
-                                    onClick={() => handleNestedModeChange('astx')}
-                                    title="Use AST Search (<*>)"
-                                >
-                                    <span className="codicon codicon-symbol-struct" />
-                                </VSCodeButton>
                             </div>
 
                             {/* --- Nested Replace Input Row --- */}
@@ -3246,23 +3238,6 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                             `}>✓</span>
                                             <span className="codicon codicon-regex" style={{ marginRight: '8px' }}></span>
                                             <span>Use Regular Expression (.*)</span>
-                                        </div>
-
-                                        <div className={css`
-                                            padding: 6px 8px;
-                                            display: flex;
-                                            align-items: center;
-                                            cursor: pointer;
-                                            &:hover {
-                                                background-color: var(--vscode-list-hoverBackground);
-                                            }
-                                        `} onClick={() => { handleModeChange('astx'); setOptionsMenuOpen(false); }}>
-                                            <span className={css`
-                                                visibility: ${isAstxMode ? 'visible' : 'hidden'};
-                                                margin-right: 8px;
-                                            `}>✓</span>
-                                            <span className="codicon codicon-symbol-struct" style={{ marginRight: '8px' }}></span>
-                                            <span>Use AST Search ({'<*>'})</span>
                                         </div>
                                     </div>
                                 )}
