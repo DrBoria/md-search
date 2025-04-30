@@ -406,7 +406,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       this.abortController.abort()
     }
     this.textSearchRunner.abort()
-    this.emit('abort');
+    this.emit('abort')
   }
 
   stop(): void {
@@ -600,7 +600,6 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       try {
         fileUris = await vscode.workspace.findFiles(includePattern, excludeGlob)
       } catch (err) {
-
         // Запасной вариант: используем строку из this.params.include
         if (this.params.include) {
           fileUris = await vscode.workspace.findFiles(
@@ -757,7 +756,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
   private async runTextSearch(
     FsImpl: any,
     includePattern: vscode.GlobPattern,
-    excludePattern: vscode.GlobPattern | null,
+    excludePattern: vscode.GlobPattern | null
   ): Promise<void> {
     try {
       // Установить контроллер прерывания для текстового поиска
@@ -905,8 +904,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
 
     try {
       // Используем значение из настроек include, если оно задано через includeGlob
-      const include =
-        this.includeGlob || this.params.include || "";
+      const include = this.includeGlob || this.params.include || ''
 
       // Проверяем, не является ли include уже объектом RelativePattern
       if (typeof include === 'object' && 'pattern' in include) {
@@ -990,11 +988,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
         }
       }
 
-      void this.runTextSearch(
-        FsImpl,
-        includePattern,
-        excludePattern,
-      )
+      void this.runTextSearch(FsImpl, includePattern, excludePattern)
     } catch (error: any) {
       this.extension.channel.appendLine(
         `Error in search: ${error.stack || error}`
@@ -1045,7 +1039,6 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
           this.previousSearchFiles.splice(searchLevel + 1)
         }
       }
-
     } catch (error) {
       this.extension.channel.appendLine(
         `Error in search: ${

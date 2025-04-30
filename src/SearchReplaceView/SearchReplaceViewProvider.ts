@@ -492,13 +492,13 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
         type: 'values',
         values: currentParams,
       })
-      
+
       // Focus on search input
       this.postMessage({
         type: 'focusSearchInput',
       })
     }, 300)
-    
+
     // Повторная попытка с большей задержкой для надежности
     setTimeout(() => {
       this.postMessage({
@@ -532,7 +532,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
   // Helper method to focus replace input
   private _focusReplaceInput(): void {
     this.extension.channel.appendLine('Sending focus command to replace input')
-    
+
     // Отправляем несколько команд фокуса с разными задержками
     // для большей надежности срабатывания
     setTimeout(() => {
@@ -544,13 +544,13 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
         type: 'values',
         values: currentParams,
       })
-      
+
       // Focus on replace input with some delay after params
       this.postMessage({
         type: 'focusReplaceInput',
-      }) 
+      })
     }, 300)
-    
+
     // Повторная попытка с большей задержкой для надежности
     setTimeout(() => {
       this.postMessage({

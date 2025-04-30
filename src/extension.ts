@@ -304,27 +304,27 @@ export class AstxExtension {
 
     const setIncludePaths =
       ({ useTransformFile }: { useTransformFile: boolean }) =>
-        (dir: vscode.Uri, arg2: vscode.Uri[]) => {
-          const dirs =
-            Array.isArray(arg2) &&
-              arg2.every((item) => item instanceof vscode.Uri)
-              ? arg2
-              : [dir || vscode.window.activeTextEditor?.document.uri].filter(
+      (dir: vscode.Uri, arg2: vscode.Uri[]) => {
+        const dirs =
+          Array.isArray(arg2) &&
+          arg2.every((item) => item instanceof vscode.Uri)
+            ? arg2
+            : [dir || vscode.window.activeTextEditor?.document.uri].filter(
                 (x): x is vscode.Uri => x instanceof vscode.Uri
               )
-          if (!dirs.length) return
-          const newParams: Params = {
-            ...this.getParams(),
-            useTransformFile,
-            include: dirs.map(normalizeFsPath).join(', '),
-          }
-
-          // Сначала устанавливаем параметры
-          this.setParams(newParams)
-
-          // Затем уже показываем представление с фокусом
-          this.searchReplaceViewProvider.showWithSearchFocus()
+        if (!dirs.length) return
+        const newParams: Params = {
+          ...this.getParams(),
+          useTransformFile,
+          include: dirs.map(normalizeFsPath).join(', '),
         }
+
+        // Сначала устанавливаем параметры
+        this.setParams(newParams)
+
+        // Затем уже показываем представление с фокусом
+        this.searchReplaceViewProvider.showWithSearchFocus()
+      }
     const findInPath = setIncludePaths({ useTransformFile: false })
     // const transformInPath = setIncludePaths({ useTransformFile: true })
 
@@ -453,9 +453,7 @@ export class AstxExtension {
     // Используем setTimeout чтобы не блокировать активацию расширения
     setTimeout(() => {
       // Предварительно инициализируем SearchRunner
-      this.runner
-        .startup()
-        .catch(this.logError)
+      this.runner.startup().catch(this.logError)
     }, 500)
   }
 
@@ -719,58 +717,61 @@ export class AstxExtension {
 
       for (let i = 0; i < fileBatches.length; i += MAX_CONCURRENT) {
         const batch = fileBatches.slice(i, i + MAX_CONCURRENT)
-        await Promise.all(batch.map(async ([uriString, result]) => {
-          try {
-            if (!result.matches || result.matches.length === 0) {
-              return
-            }
-
-            const uri = vscode.Uri.parse(uriString)
-
-            // Read file content directly
-            const contentBytes = await vscode.workspace.fs.readFile(uri)
-            const originalContent = Buffer.from(contentBytes).toString('utf8')
-
-            // Process matches in reverse order to avoid shifting indices
-            const sortedMatches = [...result.matches].sort(
-              (a, b) => b.start - a.start
-            )
-
-            let newContent = originalContent
-            let replacementsInFile = 0
-
-            // Apply replacements to each match
-            for (const match of sortedMatches) {
-              if (typeof match.start !== 'number' || typeof match.end !== 'number') {
-                continue
+        await Promise.all(
+          batch.map(async ([uriString, result]) => {
+            try {
+              if (!result.matches || result.matches.length === 0) {
+                return
               }
 
-              // Make direct replacement without any modifications
-              newContent =
-                newContent.substring(0, match.start) +
-                clipboardText +
-                newContent.substring(match.end)
+              const uri = vscode.Uri.parse(uriString)
 
-              replacementsInFile++
-            }
+              // Read file content directly
+              const contentBytes = await vscode.workspace.fs.readFile(uri)
+              const originalContent = Buffer.from(contentBytes).toString('utf8')
 
-            // Write changes only if they actually exist
-            if (newContent !== originalContent) {
-              totalReplacements += replacementsInFile
-              totalFilesChanged++
-
-              // Write directly to file
-              const newContentBytes = Buffer.from(newContent, 'utf8')
-              await vscode.workspace.fs.writeFile(uri, newContentBytes)
-            }
-          } catch (error: any) {
-            this.logError(
-              new Error(
-                `Failed to replace in ${uriString}: ${error.message}`
+              // Process matches in reverse order to avoid shifting indices
+              const sortedMatches = [...result.matches].sort(
+                (a, b) => b.start - a.start
               )
-            )
-          }
-        }))
+
+              let newContent = originalContent
+              let replacementsInFile = 0
+
+              // Apply replacements to each match
+              for (const match of sortedMatches) {
+                if (
+                  typeof match.start !== 'number' ||
+                  typeof match.end !== 'number'
+                ) {
+                  continue
+                }
+
+                // Make direct replacement without any modifications
+                newContent =
+                  newContent.substring(0, match.start) +
+                  clipboardText +
+                  newContent.substring(match.end)
+
+                replacementsInFile++
+              }
+
+              // Write changes only if they actually exist
+              if (newContent !== originalContent) {
+                totalReplacements += replacementsInFile
+                totalFilesChanged++
+
+                // Write directly to file
+                const newContentBytes = Buffer.from(newContent, 'utf8')
+                await vscode.workspace.fs.writeFile(uri, newContentBytes)
+              }
+            } catch (error: any) {
+              this.logError(
+                new Error(`Failed to replace in ${uriString}: ${error.message}`)
+              )
+            }
+          })
+        )
       }
 
       // Send message to webview with replacement results
@@ -795,7 +796,6 @@ export function activate(context: vscode.ExtensionContext): void {
   // activateSearchView(context)
 }
 
-
 export async function deactivate(): Promise<void> {
   // eslint-disable-next-line no-console
   await extension?.deactivate().catch((error) => console.error(error))
@@ -804,10 +804,11 @@ export async function deactivate(): Promise<void> {
 function normalizeFsPath(uri: vscode.Uri): string {
   const folder = vscode.workspace.getWorkspaceFolder(uri)
   return folder
-    ? `${(vscode.workspace.workspaceFolders?.length ?? 0) > 1
-      ? path.basename(folder.uri.path) + '/'
-      : ''
-    }${path.relative(folder.uri.path, uri.path)}`
+    ? `${
+        (vscode.workspace.workspaceFolders?.length ?? 0) > 1
+          ? path.basename(folder.uri.path) + '/'
+          : ''
+      }${path.relative(folder.uri.path, uri.path)}`
     : uri.fsPath
 }
 

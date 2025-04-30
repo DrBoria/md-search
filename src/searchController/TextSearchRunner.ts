@@ -131,7 +131,7 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
           matchCase,
           wholeWord,
           exclude,
-          include,
+          include
         )
       } else {
         // Для уточняющего запроса создаем новый узел кеша, если он еще не существует
@@ -161,7 +161,8 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
 
     try {
       // Получаем списки файлов, которые уже обработаны и которые нужно пропустить
-      const processedFiles = searchMode === 'text' ? this.searchCache.getProcessedFiles() : new Set();
+      const processedFiles =
+        searchMode === 'text' ? this.searchCache.getProcessedFiles() : new Set()
       const excludedFiles = this.searchCache.getExcludedFiles()
 
       // Фильтруем файлы, которые не нужно обрабатывать повторно
@@ -480,7 +481,7 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
   }
 
   stop(): void {
-    this.abort();
+    this.abort()
 
     this.isSearchRunning = false
     this.isIndexSetInCurrentSearch = false
@@ -517,25 +518,43 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
 
     if (searchMode === 'regex') {
       // Проверяем, заканчивается ли регулярное выражение на $N
-      const captureGroupMatch = find.match(/\$(\d+)$/);
+      const captureGroupMatch = find.match(/\$(\d+)$/)
       if (captureGroupMatch) {
         // Извлекаем индекс группы захвата и обрезаем регулярное выражение
-        captureGroupIndex = parseInt(captureGroupMatch[1], 10);
-        regexPattern = find.slice(0, -captureGroupMatch[0].length);
+        captureGroupIndex = parseInt(captureGroupMatch[1], 10)
+        regexPattern = find.slice(0, -captureGroupMatch[0].length)
       }
     }
 
-    const regex = searchMode === "regex" ? new RegExp(regexPattern, 'gi') : new RegExp(searchPattern, regexFlags)
+    const regex =
+      searchMode === 'regex'
+        ? new RegExp(regexPattern, 'gi')
+        : new RegExp(searchPattern, regexFlags)
 
     // Используем разные подходы в зависимости от размера файла
     if (source.length > 1024 * 1024) {
       // 1 MB
       // Для больших файлов используем поиск по чанкам без разбиения всего файла на строки
-      await this.findMatchesInChunks(source, file, regex, matches, captureGroupIndex, logMessage)
+      await this.findMatchesInChunks(
+        source,
+        file,
+        regex,
+        matches,
+        captureGroupIndex,
+        logMessage
+      )
     } else {
       // Для небольших файлов можно использовать обычный подход
       const lines = source.split(/\r\n?|\n/)
-      await this.findMatchesInSource(source, file, regex, lines, matches, captureGroupIndex, logMessage)
+      await this.findMatchesInSource(
+        source,
+        file,
+        regex,
+        lines,
+        matches,
+        captureGroupIndex,
+        logMessage
+      )
     }
   }
 
@@ -599,15 +618,21 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
           continue
         }
 
-        logMessage(`FILE: ${file}, \nMATCHES: ${formatMatchResult(matchResult)}`);
+        logMessage(
+          `FILE: ${file}, \nMATCHES: ${formatMatchResult(matchResult)}`
+        )
         const chunkOffset = startPos
         // Находим позицию группы захвата внутри общего совпадения
         const fullMatch = matchResult[0]
         const groupMatch = matchResult[captureGroupIndex]
         const groupOffset = fullMatch.indexOf(groupMatch)
 
-        const matchStartOffset = chunkOffset + matchResult.index + (captureGroupIndex > 0 ? groupOffset : 0)
-        const matchEndOffset = matchStartOffset + matchResult[captureGroupIndex].length
+        const matchStartOffset =
+          chunkOffset +
+          matchResult.index +
+          (captureGroupIndex > 0 ? groupOffset : 0)
+        const matchEndOffset =
+          matchStartOffset + matchResult[captureGroupIndex].length
         const matchText = matchResult[captureGroupIndex]
 
         // Пропускаем дубликаты, которые могут возникнуть из-за перекрытия
@@ -716,8 +741,8 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
     let matchesFound = 0
 
     // Создаем копию регулярки для безопасности
-    const workingRegex = new RegExp(regex.source, regex.flags);
-    workingRegex.lastIndex = 0;
+    const workingRegex = new RegExp(regex.source, regex.flags)
+    workingRegex.lastIndex = 0
 
     while ((matchResult = workingRegex.exec(source)) !== null) {
       // Проверка прерывания поиска внутри цикла
@@ -728,9 +753,9 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
         await new Promise((resolve) => setTimeout(resolve, 0))
       }
 
-      const matchTextResult = matchResult[captureGroupIndex];
+      const matchTextResult = matchResult[captureGroupIndex]
 
-      logMessage(`FILE: ${file}, \nMATCHES: ${formatMatchResult(matchResult)}`);
+      logMessage(`FILE: ${file}, \nMATCHES: ${formatMatchResult(matchResult)}`)
       // Пропускаем пустые совпадения
       if (matchTextResult.length === 0) {
         workingRegex.lastIndex++
@@ -741,7 +766,8 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
       const groupMatch = matchResult[captureGroupIndex]
       const groupOffset = fullMatch.indexOf(groupMatch)
 
-      const startOffset = matchResult.index + (captureGroupIndex > 0 ? groupOffset : 0)
+      const startOffset =
+        matchResult.index + (captureGroupIndex > 0 ? groupOffset : 0)
       const endOffset = startOffset + matchResult[captureGroupIndex].length
 
       this.addMatch(
@@ -757,7 +783,7 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
       // ВАЖНО: После нахождения совпадения продвигаем lastIndex вперед
       // чтобы продолжить поиск с конца текущего совпадения
       if (workingRegex.lastIndex <= endOffset) {
-        workingRegex.lastIndex = endOffset + 1;
+        workingRegex.lastIndex = endOffset + 1
       }
     }
   }
@@ -791,8 +817,8 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
         source[lineEndOffset] === '\r' && source[lineEndOffset + 1] === '\n'
           ? 2
           : source[lineEndOffset] === '\n' || source[lineEndOffset] === '\r'
-            ? 1
-            : 0
+          ? 1
+          : 0
       const nextOffset = lineEndOffset + newlineLength
 
       if (startOffset >= currentOffset && startOffset <= lineEndOffset) {
@@ -815,8 +841,8 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
         source[lineEndOffset] === '\r' && source[lineEndOffset + 1] === '\n'
           ? 2
           : source[lineEndOffset] === '\n' || source[lineEndOffset] === '\r'
-            ? 1
-            : 0
+          ? 1
+          : 0
       const nextOffset = lineEndOffset + newlineLength
 
       if (endOffset > currentOffset && endOffset <= lineEndOffset) {
@@ -999,14 +1025,14 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
 
 // Добавляем функцию форматирования результатов поиска
 function formatMatchResult(matchResult: RegExpExecArray): string {
-  if (!matchResult) return 'no matches';
+  if (!matchResult) return 'no matches'
 
-  let result = `$0: ${matchResult[0]}`;
+  let result = `$0: ${matchResult[0]}`
 
   // Добавляем группы захвата, если они есть
   for (let i = 1; i < matchResult.length; i++) {
-    result += `\n$${i}: ${matchResult[i]}`;
+    result += `\n$${i}: ${matchResult[i]}`
   }
 
-  return result;
+  return result
 }
