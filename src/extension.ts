@@ -213,9 +213,7 @@ export class AstxExtension {
           .executeCommand('workbench.view.extension.mdSearch-mdSearch')
           .then(() => {
             // После активации сайдбара, показываем наш view и фокусируем ввод
-            setTimeout(() => {
-              this.searchReplaceViewProvider.showWithSearchFocus()
-            }, 150)
+            this.searchReplaceViewProvider.showWithSearchFocus()
           })
           .then(undefined, (error: Error) => {
             // В случае ошибки, пробуем прямой метод
@@ -241,7 +239,7 @@ export class AstxExtension {
             // После активации сайдбара, показываем наш view и фокусируем ввод
             setTimeout(() => {
               this.searchReplaceViewProvider.showWithReplaceFocus()
-            }, 150)
+            }, 100)
           })
           .then(undefined, (error: Error) => {
             // В случае ошибки, пробуем прямой метод
@@ -454,7 +452,7 @@ export class AstxExtension {
     setTimeout(() => {
       // Предварительно инициализируем SearchRunner
       this.runner.startup().catch(this.logError)
-    }, 500)
+    }, 200)
   }
 
   // Updated replace method with optimizations for text mode
@@ -570,7 +568,7 @@ export class AstxExtension {
       // FS change event triggers in about 250 ms
       setTimeout(() => {
         this.replacing = false
-      }, 300)
+      }, 250)
     }
   }
 

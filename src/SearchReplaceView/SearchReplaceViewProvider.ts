@@ -469,7 +469,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
         .then(() => {
           setTimeout(() => {
             this._focusSearchInput()
-          }, 300) // Увеличиваем задержку для гарантии загрузки view
+          }, 0) // Увеличиваем задержку для гарантии загрузки view
         })
       return
     }
@@ -497,14 +497,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
       this.postMessage({
         type: 'focusSearchInput',
       })
-    }, 300)
-
-    // Повторная попытка с большей задержкой для надежности
-    setTimeout(() => {
-      this.postMessage({
-        type: 'focusSearchInput',
-      })
-    }, 700)
+    }, 0)
   }
 
   // Updated method to show and focus the replace input
@@ -519,7 +512,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
         .then(() => {
           setTimeout(() => {
             this._focusReplaceInput()
-          }, 300) // Увеличиваем задержку для гарантии загрузки view
+          }, 0) // Увеличиваем задержку для гарантии загрузки view
         })
       return
     }
@@ -549,14 +542,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
       this.postMessage({
         type: 'focusReplaceInput',
       })
-    }, 300)
-
-    // Повторная попытка с большей задержкой для надежности
-    setTimeout(() => {
-      this.postMessage({
-        type: 'focusReplaceInput',
-      })
-    }, 700)
+    }, 100)
   }
 
   get visible(): boolean {

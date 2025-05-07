@@ -1,8 +1,8 @@
 {
   "name": "md-search",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "displayName": "MD Search",
-  "description": "VSCode extension for nested code search and replace functionality",
+  "description": "Find and replace in search results",
   "publisher": "drboria",
   "icon": "media/logo.jpeg",
   "engines": {

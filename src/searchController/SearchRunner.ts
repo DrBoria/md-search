@@ -555,7 +555,6 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
   private async getFastFileList(
     includePattern: vscode.GlobPattern
   ): Promise<vscode.Uri[]> {
-    const startTime = Date.now()
     let fileUris: vscode.Uri[] = []
 
     try {
@@ -654,8 +653,6 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
         )
       }
     }
-
-    const duration = Date.now() - startTime
 
     return fileUris
   }

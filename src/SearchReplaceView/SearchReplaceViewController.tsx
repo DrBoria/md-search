@@ -65,51 +65,29 @@ export default function SearchReplaceViewController({ vscode }: Props): React.Re
     const data: MessageToWebview = message.data
     switch (data.type) {
       case 'focusSearchInput':
-        setTimeout(() => {
-          try {
-            // Сначала проверяем, есть ли вложенный поиск
-            // В зависимости от наличия вложенного поиска меняется DOM-структура
-            const isInNestedSearch = document.querySelector('.search-level-breadcrumbs')
-            
-            let searchInput: HTMLTextAreaElement | null = null
-            
-            if (isInNestedSearch) {
-              // Если мы во вложенном поиске, ищем поле ввода вложенного поиска
-              searchInput = document.querySelector('textarea[name="nestedSearch"]') as HTMLTextAreaElement
-              vscode.postMessage({ 
-                type: 'log', 
-                level: 'info', 
-                message: 'Found nested search input field'
-              })
-            } else {
-              // Иначе ищем основное поле поиска
-              searchInput = document.querySelector('textarea[name="search"]') as HTMLTextAreaElement
-              vscode.postMessage({ 
-                type: 'log', 
-                level: 'info', 
-                message: 'Found main search input field'
-              })
-            }
-            
-            // Если нашли поле, фокусируем его
-            if (searchInput) {
-              searchInput.focus()
-              vscode.postMessage({ 
-                type: 'log', 
-                level: 'info', 
-                message: `Successfully focused on search input: ${isInNestedSearch ? 'nested' : 'main'}`
-              })
-            } else {
-              vscode.postMessage({ 
-                type: 'log', 
-                level: 'error', 
-                message: 'Could not find any search input field'
-              })
-            }
-          } catch (e) {
-            vscode.postMessage({ type: 'log', level: 'error', message: `Error focusing search input: ${e}` })
+        try {
+          // Сначала проверяем, есть ли вложенный поиск
+          // В зависимости от наличия вложенного поиска меняется DOM-структура
+          const isInNestedSearch = document.querySelector('.search-level-breadcrumbs')
+          
+          let searchInput: HTMLTextAreaElement | null = null
+          
+          if (isInNestedSearch) {
+            // Если мы во вложенном поиске, ищем поле ввода вложенного поиска
+            searchInput = document.querySelector('textarea[name="nestedSearch"]') as HTMLTextAreaElement
+          } else {
+            // Иначе ищем основное поле поиска
+            searchInput = document.querySelector('textarea[name="search"]') as HTMLTextAreaElement
+        
           }
-        }, 250) // Увеличиваем задержку для более надежной работы
+          
+          // Если нашли поле, фокусируем его
+          if (searchInput) {
+            searchInput.focus()
+          }
+        } catch (e) {
+          vscode.postMessage({ type: 'log', level: 'error', message: `Error focusing search input: ${e}` })
+        }
         break
       case 'focusReplaceInput':
         setTimeout(() => {
@@ -145,7 +123,7 @@ export default function SearchReplaceViewController({ vscode }: Props): React.Re
           } catch (e) {
             vscode.postMessage({ type: 'log', level: 'error', message: `Error focusing replace input: ${e}` })
           }
-        }, 250) // Увеличиваем задержку для более надежной работы
+        }, 50) // Увеличиваем задержку для более надежной работы
         break
     }
   })

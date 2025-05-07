@@ -1256,7 +1256,9 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     // Ref для поля поиска вложенного поиска
     const nestedSearchInputRef = useRef<any>(null);
     const searchInputRef = useRef<any>(null);
-
+    const includeInputRef = useRef<any>(null); // New ref for include
+    const excludeInputRef = useRef<any>(null); // New ref for exclude
+    const mainReplaceInputRef = useRef<any>(null); // New ref for main replace
     // Добавляем ref для кнопки настроек
     const optionsButtonRef = useRef<HTMLDivElement>(null);
 
@@ -1546,13 +1548,29 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                         if (searchInputRef.current) {
                             searchInputRef.current.value = message.values.find;
                         }
+                        if (mainReplaceInputRef.current && message.values.replace !== undefined) {
+                            mainReplaceInputRef.current.value = message.values.replace;
+                        }
+                        if (includeInputRef.current && message.values.include !== undefined) {
+                            includeInputRef.current.value = message.values.include;
+                        }
+                        if (excludeInputRef.current && message.values.exclude !== undefined) {
+                            excludeInputRef.current.value = message.values.exclude;
+                        }
+                        // Populate nested search input if applicable
+                        if (nestedSearchInputRef.current && message.values.searchInResults && message.values.searchInResults > 0) {
+                            const activeNestedLevelIndex = message.values.searchInResults;
+                            // searchLevels is the component's state, initialized from vscode.getState()
+                            if (searchLevels && searchLevels[activeNestedLevelIndex] && searchLevels[activeNestedLevelIndex].values && searchLevels[activeNestedLevelIndex].values.find !== undefined) {
+                                nestedSearchInputRef.current.value = searchLevels[activeNestedLevelIndex].values.find;
+                            }
+                        }
                     }
                     break;
                 case 'status':
                     setStatus(prev => ({ ...prev, ...message.status }));
                     break;
                 case 'clearResults':
-                    setResultsByFile({});
                     setStatus(prev => ({
                         ...prev,
                         numMatches: 0,
@@ -1570,6 +1588,35 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                     if (throttleTimeoutRef.current) {
                         clearTimeout(throttleTimeoutRef.current);
                         throttleTimeoutRef.current = null;
+                    }
+
+                    // Clear results for the currently active search level
+                    if (isInNestedSearch && values.searchInResults > 0) {
+                        setSearchLevels(prev => {
+                            const newLevels = [...prev];
+                            const currentIndex = values.searchInResults;
+                            if (currentIndex >= 0 && currentIndex < newLevels.length) {
+                                newLevels[currentIndex] = {
+                                    ...newLevels[currentIndex],
+                                    resultsByFile: {} // Clear results for the current nested level
+                                };
+                            }
+                            return newLevels;
+                        });
+                    } else {
+                        // This is a base search (or values.searchInResults is 0)
+                        setResultsByFile({});
+                        // Also ensure searchLevels[0] is cleared if it exists
+                        setSearchLevels(prev => {
+                            const newLevels = [...prev];
+                            if (newLevels.length > 0 && newLevels[0]) { // Check if level 0 exists
+                                 newLevels[0] = {
+                                     ...newLevels[0],
+                                     resultsByFile: {} // Clear results for the base level in searchLevels
+                                 };
+                            }
+                            return newLevels;
+                        });
                     }
                     break;
                 case 'addBatchResults': {
@@ -1686,7 +1733,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                             if (isInNestedSearch) {
                                 // Если мы во вложенном поиске, фокусируем поле вложенного поиска
                                 if (nestedSearchInputRef.current) {
-                                    nestedSearchInputRef.current.focus()
+                                    nestedSearchInputRef.current.select()
                                     vscode.postMessage({
                                         type: 'log',
                                         level: 'info',
@@ -1696,7 +1743,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                     // Запасной вариант поиска элемента в DOM
                                     const nestedInput = document.querySelector('textarea[name="nestedSearch"]')
                                     if (nestedInput) {
-                                        (nestedInput as HTMLTextAreaElement).focus()
+                                        (nestedInput as HTMLTextAreaElement).select()
                                         vscode.postMessage({
                                             type: 'log',
                                             level: 'info',
@@ -1713,7 +1760,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                             } else {
                                 // Используем основное поле поиска
                                 if (searchInputRef.current) {
-                                    searchInputRef.current.focus()
+                                    searchInputRef.current.select()
                                     vscode.postMessage({
                                         type: 'log',
                                         level: 'info',
@@ -1723,7 +1770,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                     // Запасной вариант поиска элемента в DOM
                                     const mainInput = document.querySelector('textarea[name="search"]')
                                     if (mainInput) {
-                                        (mainInput as HTMLTextAreaElement).focus()
+                                        (mainInput as HTMLTextAreaElement).select()
                                         vscode.postMessage({
                                             type: 'log',
                                             level: 'info',
@@ -1745,7 +1792,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                 message: `Error focusing search input: ${e}`
                             })
                         }
-                    }, 100)
+                    }, 0)
                     break
                 }
                 case 'focusReplaceInput': {
@@ -2070,8 +2117,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
         if (viewMode === 'tree' && filteredFileTree && filteredFileTree.children.length > 0) {
             const allFolderPaths = getAllFolderPaths(filteredFileTree);
 
-            // Получим все пути файлов, но исключим файлы с большим количеством совпадений
-            const allFilePaths = getAllFilePaths(filteredFileTree);
+
             const filesToExpand = new Set<string>();
 
             // Проверяем количество совпадений в каждом файле и развернем только если их <= 20
@@ -3024,8 +3070,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                             {/* --- Nested Replace Input Row --- */}
                             {isNestedReplaceVisible && (
                                 <div className={css` display: flex; align-items: center; gap: 2px; `}>
-                                    <VSCodeTextArea
-                                        placeholder="replace"
+                                    <VSCodeTextArea placeholder="replace"
                                         aria-label="Nested Replace Pattern"
                                         name="nestedReplace"
                                         rows={1}
@@ -3251,6 +3296,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                     aria-label="Replace Pattern"
                                     name="replace"
                                     rows={1}
+                                    ref={mainReplaceInputRef} // Assign ref
                                     defaultValue={values.replace}
                                     onInput={handleReplaceChange}
                                     className={css` flex-grow: 1; `} // Make textarea grow
@@ -3322,8 +3368,8 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
 
                 {!isInNestedSearch && showSettings && (
                     <div className={css` display: flex; flex-direction: column; gap: 5px; padding: 5px; border-top: 1px solid var(--vscode-divider-background); margin-top: 4px;`}>
-                        <VSCodeTextField name="filesToInclude" defaultValue={values.include || ''} onInput={handleIncludeChange}> files to include </VSCodeTextField>
-                        <VSCodeTextField name="filesToExclude" defaultValue={values.exclude || ''} onInput={handleExcludeChange}> files to exclude </VSCodeTextField>
+                        <VSCodeTextField name="filesToInclude" ref={includeInputRef} defaultValue={values.include || ''} onInput={handleIncludeChange}> files to include </VSCodeTextField>
+                        <VSCodeTextField name="filesToExclude" ref={excludeInputRef} defaultValue={values.exclude || ''} onInput={handleExcludeChange}> files to exclude </VSCodeTextField>
                         <VSCodeCheckbox
                             checked={!values.paused}
                             onChange={handleRerunAutomaticallyChange}
@@ -3332,7 +3378,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                         </VSCodeCheckbox>
 
                         {/* --- CONDITIONAL Parser and Other Advanced Settings --- */}
-                        {isAstxMode && (
+                        {/* {isAstxMode && (
                             <>
                                 <VSCodeDivider />
                                 <p>Parser:</p>
@@ -3363,7 +3409,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                     Prefer Simple Replacement
                                 </VSCodeCheckbox>
                             </>
-                        )}
+                        )} */}
                     </div>
                 )}
             </div>
