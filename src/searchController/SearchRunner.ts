@@ -496,7 +496,8 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
         this.run()
       } catch (error) {
         this.extension.channel.appendLine(
-          `Failed to restart worker pool: ${error instanceof Error ? error.stack : String(error)
+          `Failed to restart worker pool: ${
+            error instanceof Error ? error.stack : String(error)
           }`
         )
       }
@@ -553,7 +554,8 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
     if (fileInPreviousResults) {
       this.refreshFileSourceInSearchResults(fileUri).catch((error) => {
         this.extension.channel.appendLine(
-          `Failed to update file in search results: ${error instanceof Error ? error.stack : String(error)
+          `Failed to update file in search results: ${
+            error instanceof Error ? error.stack : String(error)
           }`
         )
       })
@@ -763,28 +765,41 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
     const workspaceFolders =
       vscode.workspace.workspaceFolders?.map((f) => f.uri.fsPath) || []
 
-    const includeParts = includePattern.split(',').map((part) => part.trim()).filter(Boolean)
+    const includeParts = includePattern
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean)
 
     // Строим массив объектов: { type: 'simple'|'glob', base: string, regex?: RegExp }
-    const includeMatchers: { type: 'simple' | 'glob', base: string, regex?: RegExp }[] = []
+    const includeMatchers: {
+      type: 'simple' | 'glob'
+      base: string
+      regex?: RegExp
+    }[] = []
 
     for (const folder of workspaceFolders) {
       for (const part of includeParts) {
         if (!part) continue
         const cleanPart = part.replace(/^\/+|\/+$/g, '')
         // Если паттерн содержит glob-символы — строим RegExp
-        if (cleanPart.includes('*') || cleanPart.includes('?') || cleanPart.includes('[')) {
+        if (
+          cleanPart.includes('*') ||
+          cleanPart.includes('?') ||
+          cleanPart.includes('[')
+        ) {
           // Преобразуем glob в RegExp относительно workspace
           // Например: src/** -> /abs/path/to/ws/src/.*  или src/client/core/about-us* -> /abs/path/to/ws/src/client/core/about-us.*
           const globToRegex = (glob: string) =>
             '^' +
             glob
-              .split('/').map(seg =>
+              .split('/')
+              .map((seg) =>
                 seg
                   .replace(/[.+^${}()|[\]\\]/g, '\\$&')
                   .replace(/\*/g, '.*')
                   .replace(/\?/g, '.')
-              ).join('[\\/]+') +
+              )
+              .join('[\\/]+') +
             '([\\/].*)?$'
           const regex = new RegExp(
             globToRegex(path.join(folder, cleanPart)),
@@ -793,7 +808,10 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
           includeMatchers.push({ type: 'glob', base: '', regex })
         } else {
           // Простой путь — фильтруем по startsWith
-          includeMatchers.push({ type: 'simple', base: path.join(folder, cleanPart) })
+          includeMatchers.push({
+            type: 'simple',
+            base: path.join(folder, cleanPart),
+          })
         }
       }
     }
@@ -890,7 +908,8 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       }
     } catch (error) {
       this.extension.channel.appendLine(
-        `Error in text search: ${error instanceof Error ? error.stack : String(error)
+        `Error in text search: ${
+          error instanceof Error ? error.stack : String(error)
         }`
       )
     } finally {
@@ -1112,7 +1131,8 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       }
     } catch (error) {
       this.extension.channel.appendLine(
-        `Error in search: ${error instanceof Error ? error.stack : String(error)
+        `Error in search: ${
+          error instanceof Error ? error.stack : String(error)
         }`
       )
     } finally {

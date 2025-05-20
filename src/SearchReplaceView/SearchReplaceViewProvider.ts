@@ -47,7 +47,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
 
   // --- ДОБАВЛЕНО: Очередь событий и флаг монтирования ---
   private _eventQueue: any[] = []
-  private _isWebviewMounted = false;
+  private _isWebviewMounted = false
 
   constructor(
     private extension: AstxExtension,
@@ -236,12 +236,12 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
 
       // --- ДОБАВЛЕНО: Обработка события mount ---
       if (message.type === 'mount') {
-        this._isWebviewMounted = true;
+        this._isWebviewMounted = true
         this._flushEventQueue()
       }
-      
+
       if (message.type === 'unmount') {
-        this._isWebviewMounted = false;
+        this._isWebviewMounted = false
       }
 
       // Make the message handler async to allow await for file operations
@@ -492,7 +492,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
       vscode.commands
         .executeCommand('workbench.view.extension.mdSearch-mdSearch')
         .then(() => {
-            this._focusSearchInput()
+          this._focusSearchInput()
         })
       return
     }

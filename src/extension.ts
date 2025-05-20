@@ -257,32 +257,32 @@ export class AstxExtension {
 
     const setIncludePaths =
       ({ useTransformFile }: { useTransformFile: boolean }) =>
-        (dir: vscode.Uri, arg2: vscode.Uri[]) => {
-          const dirs =
-            Array.isArray(arg2) &&
-              arg2.every((item) => item instanceof vscode.Uri)
-              ? arg2
-              : [dir || vscode.window.activeTextEditor?.document.uri].filter(
+      (dir: vscode.Uri, arg2: vscode.Uri[]) => {
+        const dirs =
+          Array.isArray(arg2) &&
+          arg2.every((item) => item instanceof vscode.Uri)
+            ? arg2
+            : [dir || vscode.window.activeTextEditor?.document.uri].filter(
                 (x): x is vscode.Uri => x instanceof vscode.Uri
               )
-          if (!dirs.length) return
-          const newParams: Params = {
-            ...this.getParams(),
-            useTransformFile,
-            include: dirs.map(normalizeFsPath).join(', '),
-          }
-
-          // Сначала устанавливаем параметры
-          this.setParams(newParams)
-
-          // Затем уже показываем представление с фокусом
-          this.searchReplaceViewProvider.showWithSearchFocus()
-
-          this.searchReplaceViewProvider.postMessage({
-            type: 'values',
-            values: newParams,
-          })
+        if (!dirs.length) return
+        const newParams: Params = {
+          ...this.getParams(),
+          useTransformFile,
+          include: dirs.map(normalizeFsPath).join(', '),
         }
+
+        // Сначала устанавливаем параметры
+        this.setParams(newParams)
+
+        // Затем уже показываем представление с фокусом
+        this.searchReplaceViewProvider.showWithSearchFocus()
+
+        this.searchReplaceViewProvider.postMessage({
+          type: 'values',
+          values: newParams,
+        })
+      }
     const findInPath = setIncludePaths({ useTransformFile: false })
     // const transformInPath = setIncludePaths({ useTransformFile: true })
 
@@ -762,10 +762,11 @@ export async function deactivate(): Promise<void> {
 function normalizeFsPath(uri: vscode.Uri): string {
   const folder = vscode.workspace.getWorkspaceFolder(uri)
   return folder
-    ? `${(vscode.workspace.workspaceFolders?.length ?? 0) > 1
-      ? path.basename(folder.uri.path) + '/'
-      : ''
-    }${path.relative(folder.uri.path, uri.path)}`
+    ? `${
+        (vscode.workspace.workspaceFolders?.length ?? 0) > 1
+          ? path.basename(folder.uri.path) + '/'
+          : ''
+      }${path.relative(folder.uri.path, uri.path)}`
     : uri.fsPath
 }
 
