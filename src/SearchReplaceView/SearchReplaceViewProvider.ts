@@ -45,6 +45,10 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
   // Таймер для батчинга результатов
   private _resultBatchTimer: NodeJS.Timeout | null = null
 
+  // --- ДОБАВЛЕНО: Очередь событий и флаг монтирования ---
+  private _eventQueue: any[] = []
+  private _isWebviewMounted = false;
+
   constructor(
     private extension: AstxExtension,
     private readonly _extensionUri: vscode.Uri = extension.context.extensionUri,
@@ -229,6 +233,16 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     webviewView.webview.onDidReceiveMessage((_message: any) => {
       const message: MessageFromWebview = _message
+
+      // --- ДОБАВЛЕНО: Обработка события mount ---
+      if (message.type === 'mount') {
+        this._isWebviewMounted = true;
+        this._flushEventQueue()
+      }
+      
+      if (message.type === 'unmount') {
+        this._isWebviewMounted = false;
+      }
 
       // Make the message handler async to allow await for file operations
       const handleMessage = async (message: MessageFromWebview) => {
@@ -478,9 +492,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
       vscode.commands
         .executeCommand('workbench.view.extension.mdSearch-mdSearch')
         .then(() => {
-          setTimeout(() => {
             this._focusSearchInput()
-          }, 0) // Увеличиваем задержку для гарантии загрузки view
         })
       return
     }
@@ -635,8 +647,19 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
   }
 
   postMessage(message: MessageToWebview): void {
-    if (this._view?.visible) {
+    if (this._isWebviewMounted && this._view?.visible) {
       this._view.webview.postMessage(message)
+    } else {
+      this._eventQueue.push(message)
+    }
+  }
+
+  private _flushEventQueue(): void {
+    if (this._view?.visible) {
+      for (const msg of this._eventQueue) {
+        this._view.webview.postMessage(msg)
+      }
+      this._eventQueue = []
     }
   }
 

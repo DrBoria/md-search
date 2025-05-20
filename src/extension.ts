@@ -214,19 +214,6 @@ export class AstxExtension {
           .then(() => {
             // После активации сайдбара, показываем наш view и фокусируем ввод
             this.searchReplaceViewProvider.showWithSearchFocus()
-
-            setTimeout(() => {
-              this.searchReplaceViewProvider.showWithSearchFocus()
-            }, 300)
-          })
-          .then(undefined, (error: Error) => {
-            // В случае ошибки, пробуем прямой метод
-            this.channel.appendLine(
-              `Error activating sidebar: ${error.message}`
-            )
-            setTimeout(() => {
-              this.searchReplaceViewProvider.showWithSearchFocus()
-            }, 150)
           })
       })
     )
@@ -244,18 +231,6 @@ export class AstxExtension {
           .then(() => {
             // После активации сайдбара, показываем наш view и фокусируем ввод
             this.searchReplaceViewProvider.showWithReplaceFocus()
-            setTimeout(() => {
-              this.searchReplaceViewProvider.showWithReplaceFocus()
-            }, 300)
-          })
-          .then(undefined, (error: Error) => {
-            // В случае ошибки, пробуем прямой метод
-            this.channel.appendLine(
-              `Error activating sidebar: ${error.message}`
-            )
-            setTimeout(() => {
-              this.searchReplaceViewProvider.showWithReplaceFocus()
-            }, 150)
           })
       })
     )
@@ -275,70 +250,39 @@ export class AstxExtension {
       )
     )
 
-    // this.fsWatcher = vscode.workspace.createFileSystemWatcher(
-    //   '**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}'
-    // )
-    // this.fsWatcher.onDidChange(this.handleFsChange)
-    // this.fsWatcher.onDidCreate(this.handleFsChange)
-    // this.fsWatcher.onDidDelete(this.handleFsChange)
-    // context.subscriptions.push(this.fsWatcher)
-
     vscode.workspace.onDidChangeTextDocument(
       this.handleTextDocumentChange,
       context.subscriptions
     )
 
-    // context.subscriptions.push(
-    //   vscode.commands.registerCommand(
-    //     'mdSearch.setAsTransformFile',
-    //     (
-    //       transformFile: vscode.Uri | undefined = vscode.window.activeTextEditor
-    //         ?.document.uri
-    //     ) => {
-    //       if (!transformFile) return
-    //       const newParams = {
-    //         ...this.getParams(),
-    //         useTransformFile: true,
-    //         transformFile: normalizeFsPath(transformFile),
-    //       }
-    //       this.setParams(newParams)
-    //       vscode.commands.executeCommand(
-    //         `${SearchReplaceViewProvider.viewType}.focus`
-    //       )
-    //     }
-    //   )
-    // )
-
     const setIncludePaths =
       ({ useTransformFile }: { useTransformFile: boolean }) =>
-      (dir: vscode.Uri, arg2: vscode.Uri[]) => {
-        const dirs =
-          Array.isArray(arg2) &&
-          arg2.every((item) => item instanceof vscode.Uri)
-            ? arg2
-            : [dir || vscode.window.activeTextEditor?.document.uri].filter(
+        (dir: vscode.Uri, arg2: vscode.Uri[]) => {
+          const dirs =
+            Array.isArray(arg2) &&
+              arg2.every((item) => item instanceof vscode.Uri)
+              ? arg2
+              : [dir || vscode.window.activeTextEditor?.document.uri].filter(
                 (x): x is vscode.Uri => x instanceof vscode.Uri
               )
-        if (!dirs.length) return
-        const newParams: Params = {
-          ...this.getParams(),
-          useTransformFile,
-          include: dirs.map(normalizeFsPath).join(', '),
-        }
+          if (!dirs.length) return
+          const newParams: Params = {
+            ...this.getParams(),
+            useTransformFile,
+            include: dirs.map(normalizeFsPath).join(', '),
+          }
 
-        // Сначала устанавливаем параметры
-        this.setParams(newParams)
+          // Сначала устанавливаем параметры
+          this.setParams(newParams)
 
-        // Затем уже показываем представление с фокусом
-        this.searchReplaceViewProvider.showWithSearchFocus()
+          // Затем уже показываем представление с фокусом
+          this.searchReplaceViewProvider.showWithSearchFocus()
 
-        setTimeout(() => {
           this.searchReplaceViewProvider.postMessage({
             type: 'values',
             values: newParams,
           })
-        }, 150)
-      }
+        }
     const findInPath = setIncludePaths({ useTransformFile: false })
     // const transformInPath = setIncludePaths({ useTransformFile: true })
 
@@ -818,11 +762,10 @@ export async function deactivate(): Promise<void> {
 function normalizeFsPath(uri: vscode.Uri): string {
   const folder = vscode.workspace.getWorkspaceFolder(uri)
   return folder
-    ? `${
-        (vscode.workspace.workspaceFolders?.length ?? 0) > 1
-          ? path.basename(folder.uri.path) + '/'
-          : ''
-      }${path.relative(folder.uri.path, uri.path)}`
+    ? `${(vscode.workspace.workspaceFolders?.length ?? 0) > 1
+      ? path.basename(folder.uri.path) + '/'
+      : ''
+    }${path.relative(folder.uri.path, uri.path)}`
     : uri.fsPath
 }
 

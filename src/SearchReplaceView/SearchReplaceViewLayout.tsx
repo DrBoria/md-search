@@ -912,7 +912,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                 message: `Error focusing search input: ${e}`
                             })
                         }
-                    }, 0)
+                    }, 10)
                     break
                 }
                 case 'focusReplaceInput': {
@@ -997,9 +997,15 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
         };
 
         window.addEventListener('message', handleMessage);
-
+        
         // Request initial data on mount
         vscode.postMessage({ type: 'mount' });
+
+        const handleBlur = () => {
+            vscode.postMessage({ type: 'unmount' });
+        }
+        window.addEventListener('blur', handleBlur);
+
         return () => {
             window.removeEventListener('message', handleMessage);
         };

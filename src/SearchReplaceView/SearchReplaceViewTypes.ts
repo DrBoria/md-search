@@ -141,9 +141,8 @@ export type MessageToWebview =
     }
 
 export type MessageFromWebview =
-  | {
-      type: 'mount'
-    }
+  | { type: 'mount' }
+  | { type: 'unmount' }
   | {
       type: 'values'
       values: SearchReplaceViewValues

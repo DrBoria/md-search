@@ -223,11 +223,14 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
           const gitignorePatterns = gitignoreLines.map((line) => {
             // Если строка заканчивается на / — это директория
             if (line.endsWith('/')) {
-              return `**/${line}**`
+              // Если начинается с / — путь от корня, но для glob лучше исключать на любом уровне
+              const cleanLine = line.replace(/^\/+/, '').replace(/\/+$/, '')
+              return `**/${cleanLine}/**`
             }
-            // Если строка начинается с / — путь от корня
+            // Если строка начинается с / — путь от корня (файл или папка)
             if (line.startsWith('/')) {
-              return `**${line}`
+              const cleanLine = line.replace(/^\/+/, '')
+              return `**/${cleanLine}`
             }
             // Если строка содержит * или другие glob-символы — оставляем как есть
             if (
@@ -344,7 +347,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
             ? subPattern.slice(0, -1)
             : subPattern
           // Преобразуем в формат исключения папки с разными вариантами шаблонов
-          return `${cleanPattern}/**,**/${cleanPattern}/**,**/${cleanPattern}`
+          return `${cleanPattern}/**,${cleanPattern}`
         }
         return subPattern
       })
@@ -377,8 +380,8 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
           const cleanPattern = subPattern.endsWith('/')
             ? subPattern.slice(0, -1)
             : subPattern
-          // Преобразуем в формат включения папки с разными вариантами шаблонов
-          return `${cleanPattern}/**,**/${cleanPattern}/**,**/${cleanPattern}`
+          // Включаем только папку в корне workspace
+          return `./${cleanPattern}/**`
         }
         return subPattern
       })
@@ -493,8 +496,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
         this.run()
       } catch (error) {
         this.extension.channel.appendLine(
-          `Failed to restart worker pool: ${
-            error instanceof Error ? error.stack : String(error)
+          `Failed to restart worker pool: ${error instanceof Error ? error.stack : String(error)
           }`
         )
       }
@@ -551,8 +553,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
     if (fileInPreviousResults) {
       this.refreshFileSourceInSearchResults(fileUri).catch((error) => {
         this.extension.channel.appendLine(
-          `Failed to update file in search results: ${
-            error instanceof Error ? error.stack : String(error)
+          `Failed to update file in search results: ${error instanceof Error ? error.stack : String(error)
           }`
         )
       })
@@ -759,44 +760,66 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
     files: vscode.Uri[],
     includePattern: string
   ): vscode.Uri[] {
-    // Разбиваем паттерн на части
-    const includeParts = includePattern.split(',').map((part) => part.trim())
+    const workspaceFolders =
+      vscode.workspace.workspaceFolders?.map((f) => f.uri.fsPath) || []
 
-    // Преобразуем в регулярные выражения для включения
-    const includeRegexes = includeParts.map((part) => {
-      if (!part.includes('*') && !part.includes('?') && !part.includes('[')) {
-        // Для простых имен папок создаем регекс, включающий эту папку и все в ней
-        const escapedPart = part.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')
-        return new RegExp(`(^|[/\\\\])${escapedPart}([/\\\\]|$)`, 'i')
-      } else {
-        // Для глоб-паттернов создаем соответствующий регекс
-        const regexPattern = part
-          .replace(/\./g, '\\.')
-          .replace(/\//g, '[/\\\\]')
-          .replace(/\\\\/g, '[/\\\\]')
-          .replace(/\*\*/g, '.*')
-          .replace(/\*/g, '[^/\\\\]*')
-          .replace(/\?/g, '[^/\\\\]')
-        return new RegExp(regexPattern, 'i')
-      }
-    })
+    const includeParts = includePattern.split(',').map((part) => part.trim()).filter(Boolean)
 
-    this.extension.channel.appendLine(
-      `Created ${includeRegexes.length} include regexes`
-    )
+    // Строим массив объектов: { type: 'simple'|'glob', base: string, regex?: RegExp }
+    const includeMatchers: { type: 'simple' | 'glob', base: string, regex?: RegExp }[] = []
 
-    // Фильтруем файлы, включая только те, что соответствуют хотя бы одному регексу
-    return files.filter((uri) => {
-      const filePath = uri.fsPath
-
-      // Если файл соответствует хотя бы одному шаблону включения, оставляем его
-      for (const regex of includeRegexes) {
-        if (regex.test(filePath)) {
-          return true
+    for (const folder of workspaceFolders) {
+      for (const part of includeParts) {
+        if (!part) continue
+        const cleanPart = part.replace(/^\/+|\/+$/g, '')
+        // Если паттерн содержит glob-символы — строим RegExp
+        if (cleanPart.includes('*') || cleanPart.includes('?') || cleanPart.includes('[')) {
+          // Преобразуем glob в RegExp относительно workspace
+          // Например: src/** -> /abs/path/to/ws/src/.*  или src/client/core/about-us* -> /abs/path/to/ws/src/client/core/about-us.*
+          const globToRegex = (glob: string) =>
+            '^' +
+            glob
+              .split('/').map(seg =>
+                seg
+                  .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+                  .replace(/\*/g, '.*')
+                  .replace(/\?/g, '.')
+              ).join('[\\/]+') +
+            '([\\/].*)?$'
+          const regex = new RegExp(
+            globToRegex(path.join(folder, cleanPart)),
+            'i'
+          )
+          includeMatchers.push({ type: 'glob', base: '', regex })
+        } else {
+          // Простой путь — фильтруем по startsWith
+          includeMatchers.push({ type: 'simple', base: path.join(folder, cleanPart) })
         }
       }
+    }
 
-      // Файл не соответствует ни одному шаблону включения, фильтруем его
+    this.extension.channel.appendLine(
+      `Created ${includeMatchers.length} include matchers`
+    )
+
+    return files.filter((uri) => {
+      const filePath = uri.fsPath
+      for (const matcher of includeMatchers) {
+        if (matcher.type === 'simple') {
+          if (
+            filePath === matcher.base ||
+            filePath.startsWith(matcher.base + path.sep) ||
+            filePath.startsWith(matcher.base + '/') ||
+            filePath.startsWith(matcher.base + '\\')
+          ) {
+            return true
+          }
+        } else if (matcher.type === 'glob' && matcher.regex) {
+          if (matcher.regex.test(filePath)) {
+            return true
+          }
+        }
+      }
       return false
     })
   }
@@ -867,8 +890,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       }
     } catch (error) {
       this.extension.channel.appendLine(
-        `Error in text search: ${
-          error instanceof Error ? error.stack : String(error)
+        `Error in text search: ${error instanceof Error ? error.stack : String(error)
         }`
       )
     } finally {
@@ -992,7 +1014,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
 
             // Преобразуем в формат исключения папки с разными вариантами шаблонов
             // для более надежного исключения
-            return `${escapedPart}/**,**/${escapedPart}/**,**/${escapedPart}`
+            return `${escapedPart}/**,${escapedPart}`
           }
 
           // Для шаблонов с * или ? или [] просто возвращаем как есть
@@ -1090,8 +1112,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       }
     } catch (error) {
       this.extension.channel.appendLine(
-        `Error in search: ${
-          error instanceof Error ? error.stack : String(error)
+        `Error in search: ${error instanceof Error ? error.stack : String(error)
         }`
       )
     } finally {
