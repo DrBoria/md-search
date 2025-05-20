@@ -7,7 +7,7 @@ import {
   SearchReplaceViewValues,
 } from './SearchReplaceViewTypes'
 import useEventListener from '../react/useEventListener'
-import SearchReplaceView from './SearchReplaceView'
+import SearchReplaceViewLayout from './SearchReplaceViewLayout'
 
 type SearchReplaceWebviewState = {
   status: SearchReplaceViewStatus
@@ -130,7 +130,7 @@ export default function SearchReplaceViewController({ vscode }: Props): React.Re
 
 
   return (
-    <SearchReplaceView
+    <SearchReplaceViewLayout
       // @ts-ignore TS2349: Ignoring potential incorrect type usage for SearchReplaceWebviewApi
       vscode={vscode}
     />
