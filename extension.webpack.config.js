@@ -1,9 +1,7 @@
 /* eslint-disable */
 
 const path = require('path')
-const webpack = require('webpack')
 const isProduction = process.env.NODE_ENV === 'production'
-const port = 9098
 const CopyPlugin = require('copy-webpack-plugin')
 
 module.exports = {

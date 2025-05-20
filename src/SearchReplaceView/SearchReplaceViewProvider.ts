@@ -26,18 +26,18 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     params: Params
     results: any[]
   } = {
-    status: {
-      running: false,
-      completed: 0,
-      total: 0,
-      numMatches: 0,
-      numFilesThatWillChange: 0,
-      numFilesWithMatches: 0,
-      numFilesWithErrors: 0,
-    },
-    params: {} as Params,
-    results: [],
-  }
+      status: {
+        running: false,
+        completed: 0,
+        total: 0,
+        numMatches: 0,
+        numFilesThatWillChange: 0,
+        numFilesWithMatches: 0,
+        numFilesWithErrors: 0,
+      },
+      params: {} as Params,
+      results: [],
+    }
   private _listenerRegistered = false
 
   // Буфер для накопления результатов
@@ -152,10 +152,10 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
       reports: e.reports,
       error: e.error
         ? {
-            message: e.error.message,
-            name: e.error.name,
-            stack: e.error.stack,
-          }
+          message: e.error.message,
+          name: e.error.name,
+          stack: e.error.stack,
+        }
         : undefined,
     }
 
@@ -209,7 +209,6 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     this._view = webviewView
 
     webviewView.webview.options = {
-      // Allow scripts in the webview
       enableScripts: true,
       // Разрешить доступ к расширению и его медиа-папке
       localResourceRoots: [
@@ -294,6 +293,18 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
               // Если список файлов не указан, выполняем обычную замену
               this.extension.replace()
             }
+            break
+          }
+          case 'abort': {
+            this.extension.channel.appendLine(
+              'Received stop command from webview, aborting search...'
+            )
+            this.runner.abort()
+
+            this._state.status.running = false
+            this._notifyWebviewIfActive('status', {
+              status: this._state.status,
+            });
             break
           }
           case 'stop': {
@@ -425,10 +436,9 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
             if (message.data) {
               const dataType = typeof message.data
               this.extension.channel.appendLine(
-                `Data properties: ${
-                  dataType === 'object' && message.data
-                    ? Object.keys(message.data).join(', ')
-                    : dataType
+                `Data properties: ${dataType === 'object' && message.data
+                  ? Object.keys(message.data).join(', ')
+                  : dataType
                 }`
               )
             }
@@ -556,48 +566,48 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     // Используем toWebviewUri для получения правильных URI ресурсов
     const scriptUri = isProduction
       ? webview.asWebviewUri(
-          vscode.Uri.joinPath(this._extensionUri, 'out', 'SearchReplaceView.js')
-        )
+        vscode.Uri.joinPath(this._extensionUri, 'out', 'SearchReplaceView.js')
+      )
       : `http://localhost:${port}/SearchReplaceView.js`
 
     const stylesUri = isProduction
       ? webview.asWebviewUri(
-          vscode.Uri.joinPath(
-            this._extensionUri,
-            'out',
-            'SearchReplaceView.css'
-          )
+        vscode.Uri.joinPath(
+          this._extensionUri,
+          'out',
+          'SearchReplaceView.css'
         )
+      )
       : `http://localhost:${port}/SearchReplaceView.css`
 
     // Обновляем путь к иконкам, используя скопированные в out файлы
     const codiconsUri = isProduction
       ? webview.asWebviewUri(
-          vscode.Uri.joinPath(this._extensionUri, 'out', 'codicons')
-        )
+        vscode.Uri.joinPath(this._extensionUri, 'out', 'codicons')
+      )
       : webview.asWebviewUri(
-          vscode.Uri.joinPath(
-            this._extensionUri,
-            'node_modules',
-            '@vscode/codicons',
-            'dist'
-          )
+        vscode.Uri.joinPath(
+          this._extensionUri,
+          'node_modules',
+          '@vscode/codicons',
+          'dist'
         )
+      )
 
     // Добавляем URI для material-icons
     const materialIconsUri = isProduction
       ? webview.asWebviewUri(
-          vscode.Uri.joinPath(this._extensionUri, 'out', 'material-icons')
-        )
+        vscode.Uri.joinPath(this._extensionUri, 'out', 'material-icons')
+      )
       : webview.asWebviewUri(
-          vscode.Uri.joinPath(
-            this._extensionUri,
-            'node_modules',
-            'vscode-material-icons',
-            'generated',
-            'icons'
-          )
+        vscode.Uri.joinPath(
+          this._extensionUri,
+          'node_modules',
+          'vscode-material-icons',
+          'generated',
+          'icons'
         )
+      )
 
     const nonce = Buffer.from(randomUUID()).toString('base64')
 
@@ -624,7 +634,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
   }
 
   postMessage(message: MessageToWebview): void {
-    if (this._view) {
+    if (this._view?.visible) {
       this._view.webview.postMessage(message)
     }
   }

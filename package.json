@@ -1,6 +1,6 @@
 {
   "name": "md-search",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "displayName": "MD Search",
   "description": "Find and replace in search results",
   "publisher": "drboria",
@@ -401,6 +401,7 @@
     "file-icons-js": "^1.1.0",
     "gitignore-fs": "^2.1.0",
     "lodash": "^4.17.21",
+    "micromatch": "^4.0.8",
     "minimatch": "^5.1.0",
     "p-event": "^4.0.0",
     "path-browserify": "^1.0.1",

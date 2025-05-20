@@ -9,6 +9,8 @@ import { TextDecoder } from 'util'
 import { TextSearchRunner } from './TextSearchRunner'
 import { AstxSearchRunner } from './AstxSearchRunner'
 import { AstxRunnerEvents } from './SearchRunnerTypes'
+import fs from 'fs';
+import path from 'path';
 
 export type { TransformResultEvent } from './SearchRunnerTypes'
 
@@ -179,7 +181,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
     return this.fileIndexPromise
   }
 
-  // Получает паттерны исключения из настроек VS Code Search: Exclude
+  // Получает паттерны исключения из настроек VS Code Search: Exclude и из .gitignore
   private getSearchExcludePatterns(): string[] {
     // Получаем настройки исключений для поиска
     const exclude = vscode.workspace
@@ -196,6 +198,47 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
         .map(([key]) => key)
 
       excludePatterns = [...excludePatterns, ...userPatterns]
+    }
+
+    // Читаем .gitignore и добавляем его паттерны
+    try {
+      // Импортируем fs и path только здесь, чтобы избежать проблем с окружением
+      // (если уже импортированы выше, можно убрать эти строки)
+
+      // Определяем путь к .gitignore относительно корня workspace
+      const workspaceFolders = vscode.workspace.workspaceFolders
+      if (workspaceFolders && workspaceFolders.length > 0) {
+        const gitignorePath = path.join(workspaceFolders[0].uri.fsPath, '.gitignore')
+        if (fs.existsSync(gitignorePath)) {
+          const gitignoreContent = fs.readFileSync(gitignorePath, 'utf8')
+          const gitignoreLines = gitignoreContent
+            .split(/\r?\n/)
+            .map(line => line.trim())
+            .filter(line => line && !line.startsWith('#'))
+
+          // Преобразуем строки .gitignore в glob-паттерны
+          const gitignorePatterns = gitignoreLines.map(line => {
+            // Если строка заканчивается на / — это директория
+            if (line.endsWith('/')) {
+              return `**/${line}**`
+            }
+            // Если строка начинается с / — путь от корня
+            if (line.startsWith('/')) {
+              return `**${line}`
+            }
+            // Если строка содержит * или другие glob-символы — оставляем как есть
+            if (line.includes('*') || line.includes('?') || line.includes('[')) {
+              return `**/${line}`
+            }
+            // Просто файл или папка
+            return `**/${line}`
+          })
+
+          excludePatterns = [...excludePatterns, ...gitignorePatterns]
+        }
+      }
+    } catch (err) {
+      this.extension.channel.appendLine(`[WARN] Не удалось прочитать .gitignore: ${err}`)
     }
 
     return excludePatterns
@@ -441,8 +484,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
         this.run()
       } catch (error) {
         this.extension.channel.appendLine(
-          `Failed to restart worker pool: ${
-            error instanceof Error ? error.stack : String(error)
+          `Failed to restart worker pool: ${error instanceof Error ? error.stack : String(error)
           }`
         )
       }
@@ -499,8 +541,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
     if (fileInPreviousResults) {
       this.refreshFileSourceInSearchResults(fileUri).catch((error) => {
         this.extension.channel.appendLine(
-          `Failed to update file in search results: ${
-            error instanceof Error ? error.stack : String(error)
+          `Failed to update file in search results: ${error instanceof Error ? error.stack : String(error)
           }`
         )
       })
@@ -559,7 +600,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
 
     try {
       // Если у нас есть общий индекс всех файлов, используем его
-      const allFilesCache = this.fileIndexCache.get('**/*')
+    const allFilesCache = this.fileIndexCache.get('**/*')
       if (allFilesCache && allFilesCache.size > 0) {
         fileUris = Array.from(allFilesCache).map((path) =>
           vscode.Uri.file(path)
@@ -815,8 +856,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       }
     } catch (error) {
       this.extension.channel.appendLine(
-        `Error in text search: ${
-          error instanceof Error ? error.stack : String(error)
+        `Error in text search: ${error instanceof Error ? error.stack : String(error)
         }`
       )
     } finally {
@@ -1038,8 +1078,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       }
     } catch (error) {
       this.extension.channel.appendLine(
-        `Error in search: ${
-          error instanceof Error ? error.stack : String(error)
+        `Error in search: ${error instanceof Error ? error.stack : String(error)
         }`
       )
     } finally {
@@ -1048,8 +1087,6 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       }
     }
   }
-
-  // Остальной код...
 
   // Добавим реализацию метода для обновления файла в результатах поиска
   private async refreshFileSourceInSearchResults(
