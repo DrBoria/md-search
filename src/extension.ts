@@ -214,13 +214,19 @@ export class AstxExtension {
           .then(() => {
             // После активации сайдбара, показываем наш view и фокусируем ввод
             this.searchReplaceViewProvider.showWithSearchFocus()
+
+            setTimeout(() => {
+              this.searchReplaceViewProvider.showWithSearchFocus()
+            }, 300)
           })
           .then(undefined, (error: Error) => {
             // В случае ошибки, пробуем прямой метод
             this.channel.appendLine(
               `Error activating sidebar: ${error.message}`
             )
-            this.searchReplaceViewProvider.showWithSearchFocus()
+            setTimeout(() => {
+              this.searchReplaceViewProvider.showWithSearchFocus()
+            }, 150)
           })
       })
     )
@@ -237,16 +243,19 @@ export class AstxExtension {
           .executeCommand('workbench.view.extension.mdSearch-mdSearch')
           .then(() => {
             // После активации сайдбара, показываем наш view и фокусируем ввод
+            this.searchReplaceViewProvider.showWithReplaceFocus()
             setTimeout(() => {
               this.searchReplaceViewProvider.showWithReplaceFocus()
-            }, 100)
+            }, 300)
           })
           .then(undefined, (error: Error) => {
             // В случае ошибки, пробуем прямой метод
             this.channel.appendLine(
               `Error activating sidebar: ${error.message}`
             )
-            this.searchReplaceViewProvider.showWithReplaceFocus()
+            setTimeout(() => {
+              this.searchReplaceViewProvider.showWithReplaceFocus()
+            }, 150)
           })
       })
     )
@@ -322,6 +331,13 @@ export class AstxExtension {
 
         // Затем уже показываем представление с фокусом
         this.searchReplaceViewProvider.showWithSearchFocus()
+
+        setTimeout(() => {
+          this.searchReplaceViewProvider.postMessage({
+            type: 'values',
+            values: newParams,
+          })
+        }, 150)
       }
     const findInPath = setIncludePaths({ useTransformFile: false })
     // const transformInPath = setIncludePaths({ useTransformFile: true })
@@ -329,7 +345,7 @@ export class AstxExtension {
     context.subscriptions.push(
       vscode.commands.registerCommand('mdSearch.findInFile', findInPath)
     )
-    // context.subscriptions.push(
+    // context.subscriptions. push(
     //   vscode.commands.registerCommand(
     //     'mdSearch.transformInFile',
     //     transformInPath
@@ -402,14 +418,14 @@ export class AstxExtension {
   }
 
   async deactivate(): Promise<void> {
-    // Clear workspaceState when VS Code is closed
     if (this.context.workspaceState) {
-      await this.context.workspaceState.update(
-        'searchReplaceViewState',
-        undefined
-      )
-      this.channel.appendLine('SearchReplaceView state cleared on deactivation')
+      for (const key of this.context.workspaceState.keys()) {
+        await this.context.workspaceState.update(key, undefined)
+      }
     }
+
+    // Очищаем кэш поиска при деактивации
+    this.runner.clearCache()
 
     // eslint-disable-next-line no-console
     await this.runner.shutdown().catch((error) => console.error(error))

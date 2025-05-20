@@ -209,7 +209,6 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     this._view = webviewView
 
     webviewView.webview.options = {
-      // Allow scripts in the webview
       enableScripts: true,
       // Разрешить доступ к расширению и его медиа-папке
       localResourceRoots: [
@@ -294,6 +293,18 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
               // Если список файлов не указан, выполняем обычную замену
               this.extension.replace()
             }
+            break
+          }
+          case 'abort': {
+            this.extension.channel.appendLine(
+              'Received stop command from webview, aborting search...'
+            )
+            this.runner.abort()
+
+            this._state.status.running = false
+            this._notifyWebviewIfActive('status', {
+              status: this._state.status,
+            })
             break
           }
           case 'stop': {
@@ -624,7 +635,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
   }
 
   postMessage(message: MessageToWebview): void {
-    if (this._view) {
+    if (this._view?.visible) {
       this._view.webview.postMessage(message)
     }
   }

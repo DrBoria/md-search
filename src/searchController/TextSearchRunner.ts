@@ -36,7 +36,7 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
   ) {
     super()
     this.concurrentWorkers = concurrentWorkers
-    this.searchCache = new SearchCache(this.extension.channel)
+    this.searchCache = new SearchCache()
   }
 
   // Новый метод для установки ссылки на файловый индекс из SearchRunner

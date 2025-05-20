@@ -3,10 +3,6 @@ import {
     VSCodeTextArea,
     VSCodeTextField,
     VSCodeButton,
-    VSCodeDropdown,
-    VSCodeOption,
-    VSCodeCheckbox,
-    VSCodeDivider,
 } from '@vscode/webview-ui-toolkit/react'
 import { css, keyframes } from '@emotion/css'
 import useEvent from '../react/useEvent'
@@ -198,8 +194,8 @@ function getHighlightedMatchContext(source: string | undefined, locOrPos: { star
                 <div className={css`
                     display: flex;
                     flex-direction: column;
-                    font-family: var(--vscode-editor-font-family);
-                    font-size: var(--vscode-editor-font-size);
+                    
+                    
                     white-space: pre;
                 `}>
                     {elements}
@@ -492,8 +488,8 @@ function getHighlightedMatchContextWithReplacement(
                 <div className={css`
                     display: flex;
                     flex-direction: column;
-                    font-family: var(--vscode-editor-font-family);
-                    font-size: var(--vscode-editor-font-size);
+                    
+                    
                     white-space: pre;
                 `}>
                     {elements}
@@ -988,8 +984,8 @@ const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                                         padding-top: 2px; /* Add vertical padding */
                                         padding-bottom: 2px; /* Add vertical padding */
                                         cursor: pointer;
-                                        font-family: var(--vscode-editor-font-family);
-                                        font-size: var(--vscode-editor-font-size);
+                                        
+                                        
                                         &:hover { background-color: var(--vscode-list-hoverBackground); }
                                         white-space: nowrap;
                                         overflow: hidden;
@@ -1501,23 +1497,41 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
 
     // --- Save State Effect ---
     useEffect(() => {
-        vscode.setState({
-            values, workspacePath, isReplaceVisible,
-            showSettings, viewMode,
-            // Convert Sets to Arrays for storage
-            expandedFiles: Array.from(expandedFiles),
-            expandedFolders: Array.from(expandedFolders),
-            // Save search levels stack
-            status,
-            resultsByFile,
-            searchLevels: searchLevels.map(level => ({
-                ...level,
+        const now = Date.now();
+        const SESSION_TIMEOUT = 5 * 60 * 1000; // 5 минут
+        if (initialState?.timestamp && now - initialState.timestamp > SESSION_TIMEOUT) {
+            vscode.setState({});
+            setResultsByFile({});
+            setValues({
+                find: '', replace: '', paused: false, include: '', exclude: '',
+                parser: 'babel', prettier: true, babelGeneratorHack: false, preferSimpleReplacement: false,
+                searchMode: 'text', matchCase: false, wholeWord: false,
+                searchInResults: 0
+            });
+            setStatus({
+                running: false, completed: 0, total: 0, numMatches: 0,
+                numFilesThatWillChange: 0, numFilesWithMatches: 0, numFilesWithErrors: 0,
+            })
+        } else {
+            vscode.setState({
+                values, workspacePath, isReplaceVisible,
+                showSettings, viewMode,
                 // Convert Sets to Arrays for storage
-                expandedFiles: Array.from(level.expandedFiles instanceof Set ? level.expandedFiles : new Set()),
-                expandedFolders: Array.from(level.expandedFolders instanceof Set ? level.expandedFolders : new Set())
-            })),
-            isNestedReplaceVisible
-        });
+                expandedFiles: Array.from(expandedFiles),
+                expandedFolders: Array.from(expandedFolders),
+                // Save search levels stack
+                status,
+                resultsByFile,
+                timestamp: now,
+                searchLevels: searchLevels.map(level => ({
+                    ...level,
+                    // Convert Sets to Arrays for storage
+                    expandedFiles: Array.from(level.expandedFiles instanceof Set ? level.expandedFiles : new Set()),
+                    expandedFolders: Array.from(level.expandedFolders instanceof Set ? level.expandedFolders : new Set())
+                })),
+                isNestedReplaceVisible
+            });
+        }
     }, [
         values, workspacePath, isReplaceVisible, resultsByFile, status,
         showSettings, viewMode, expandedFiles, expandedFolders,
@@ -1570,6 +1584,10 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                 case 'status':
                     setStatus(prev => ({ ...prev, ...message.status }));
                     break;
+
+                case 'values':
+                    setValues(prev => ({...prev,...message.values }));
+                    break;
                 case 'clearResults':
                     setStatus(prev => ({
                         ...prev,
@@ -1610,10 +1628,10 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                         setSearchLevels(prev => {
                             const newLevels = [...prev];
                             if (newLevels.length > 0 && newLevels[0]) { // Check if level 0 exists
-                                 newLevels[0] = {
-                                     ...newLevels[0],
-                                     resultsByFile: {} // Clear results for the base level in searchLevels
-                                 };
+                                newLevels[0] = {
+                                    ...newLevels[0],
+                                    resultsByFile: {} // Clear results for the base level in searchLevels
+                                };
                             }
                             return newLevels;
                         });
@@ -1889,10 +1907,10 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     const postValuesChange = debounce(useCallback((changed: Partial<SearchReplaceViewValues>) => {
         // Immediately update local state for responsiveness
         setValues(prev => {
-            const next = { 
-                ...prev, 
-                find: changed?.searchInResults !== undefined ? searchLevels[changed.searchInResults]?.values?.find ?? '' : prev.find, 
-                ...changed, 
+            const next = {
+                ...prev,
+                find: changed?.searchInResults !== undefined ? searchLevels[changed.searchInResults]?.values?.find ?? '' : prev.find,
+                ...changed,
                 isReplacement: false
             };
             // Update dependent local state right away
@@ -2619,8 +2637,8 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                                     key={`${resultIdx}-${matchIdx}`}
                                                     className={css`
                                                         padding: 2px 24px;
-                                                        font-family: var(--vscode-editor-font-family);
-                                                        font-size: var(--vscode-editor-font-size);
+                                                        /*  */
+                                                        
                                                         cursor: pointer;
                                                         &:hover { background-color: var(--vscode-list-hoverBackground); }
                                                     `}
@@ -2859,14 +2877,14 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                     `}>
                         <button
                             className={css`
-                                background-color: var(--vscode-button-background);
-                                color: var(--vscode-button-foreground);
-                                border: none;
+                               background-color: var(--input-background);
+                                border: 1px solid var(--panel-view-border);
+                                color: var(--panel-tab-active-border);
                                 padding: 6px 12px;
                                 border-radius: 2px;
                                 cursor: pointer;
                                 &:hover {
-                                    background-color: var(--vscode-button-hoverBackground);
+                                    border: 1px solid var(--panel-tab-active-border);
                                 }
                                 &:disabled {
                                     opacity: 0.5;
@@ -2900,6 +2918,8 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
             height: 100vh; /* Make main container fill viewport height */
             padding: 5px; /* Add some padding around the whole view */
             box-sizing: border-box; /* Include padding in height calculation */
+            --input-background: transparent;
+            --dropdown-border: #3c3c3c;
           `}
         >
             {/* Show Find in Found Search Interface when activated */}
@@ -3370,13 +3390,6 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                     <div className={css` display: flex; flex-direction: column; gap: 5px; padding: 5px; border-top: 1px solid var(--vscode-divider-background); margin-top: 4px;`}>
                         <VSCodeTextField name="filesToInclude" ref={includeInputRef} defaultValue={values.include || ''} onInput={handleIncludeChange}> files to include </VSCodeTextField>
                         <VSCodeTextField name="filesToExclude" ref={excludeInputRef} defaultValue={values.exclude || ''} onInput={handleExcludeChange}> files to exclude </VSCodeTextField>
-                        <VSCodeCheckbox
-                            checked={!values.paused}
-                            onChange={handleRerunAutomaticallyChange}
-                        >
-                            Rerun Automatically
-                        </VSCodeCheckbox>
-
                         {/* --- CONDITIONAL Parser and Other Advanced Settings --- */}
                         {/* {isAstxMode && (
                             <>
@@ -3592,8 +3605,8 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                                                     key={`${resultIdx}-${matchIdx}`}
                                                                     className={css`
                                                                         padding: 2px 24px;
-                                                                        font-family: var(--vscode-editor-font-family);
-                                                                        font-size: var(--vscode-editor-font-size);
+                                                                        
+                                                                        
                                                                         cursor: pointer;
                                                                         &:hover { background-color: var(--vscode-list-hoverBackground); }
                                                                     `}

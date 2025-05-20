@@ -1,6 +1,6 @@
 {
   "name": "md-search",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "displayName": "MD Search",
   "description": "Find and replace in search results",
   "publisher": "drboria",
@@ -210,12 +210,12 @@
     "codecov": "nyc report --reporter=text-lcov > coverage.lcov; codecov",
     "open:coverage": "open coverage/lcov-report/index.html",
     "semantic-release": "semantic-release",
-    "build:watch": "nodemon -e js,ts,json --watch src --exec \"(pnpm build)\"",
+    "build:watch": "nodemon -e js,ts,json --watch src --exec \"(npm build)\"",
     "pretest": "BABEL_ENV=coverage npm run build",
     "copy-icon-assets": "mkdir -p out/codicons && cp -r node_modules/@vscode/codicons/dist/* out/codicons/ && mkdir -p out/icons && cp -r node_modules/vscode-icons-js/dist/* out/icons/",
     "prepare-package": "npm run build && npm run copy-icon-assets",
     "package": "npm run prepare-package && vsce package",
-    "vscode:prepublish": "pnpm run clean && pnpm run prettier:check && pnpm run lint && pnpm run build"
+    "vscode:prepublish": "npm run clean && npm run prettier:check && npm run lint && npm run build"
   },
   "release": {
     "plugins": [
@@ -401,6 +401,7 @@
     "file-icons-js": "^1.1.0",
     "gitignore-fs": "^2.1.0",
     "lodash": "^4.17.21",
+    "micromatch": "^4.0.8",
     "minimatch": "^5.1.0",
     "p-event": "^4.0.0",
     "path-browserify": "^1.0.1",

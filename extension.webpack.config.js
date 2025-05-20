@@ -1,9 +1,7 @@
 /* eslint-disable */
 
 const path = require('path')
-const webpack = require('webpack')
 const isProduction = process.env.NODE_ENV === 'production'
-const port = 9098
 const CopyPlugin = require('copy-webpack-plugin')
 
 module.exports = {
@@ -46,23 +44,23 @@ module.exports = {
     conditionNames: ['import', 'require', 'node'],
   },
   plugins: [
-        new CopyPlugin({
-          patterns: [
-            {
-              from: 'node_modules/vscode-icons-js/dist',
-              to: 'icons/'
-            },
-            {
-              from: 'node_modules/vscode-material-icons/generated/icons',
-              to: 'material-icons/'
-            },
-            { from: 'media', to: 'media' },
-            {
-              from: 'node_modules/@vscode/codicons/dist/codicon.ttf',
-              to: 'fonts/',
-            },
-          ],
-        }),
+    new CopyPlugin({
+      patterns: [
+        {
+          from: 'node_modules/vscode-icons-js/dist',
+          to: 'icons/',
+        },
+        {
+          from: 'node_modules/vscode-material-icons/generated/icons',
+          to: 'material-icons/',
+        },
+        { from: 'media', to: 'media' },
+        {
+          from: 'node_modules/@vscode/codicons/dist/codicon.ttf',
+          to: 'fonts/',
+        },
+      ],
+    }),
   ],
   module: {
     parser: {
