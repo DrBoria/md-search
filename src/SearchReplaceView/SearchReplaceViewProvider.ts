@@ -45,10 +45,6 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
   // Таймер для батчинга результатов
   private _resultBatchTimer: NodeJS.Timeout | null = null
 
-  // --- ДОБАВЛЕНО: Очередь событий и флаг монтирования ---
-  private _eventQueue: any[] = []
-  private _isWebviewMounted = false
-
   constructor(
     private extension: AstxExtension,
     private readonly _extensionUri: vscode.Uri = extension.context.extensionUri,
@@ -234,15 +230,15 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.onDidReceiveMessage((_message: any) => {
       const message: MessageFromWebview = _message
 
-      // --- ДОБАВЛЕНО: Обработка события mount ---
-      if (message.type === 'mount') {
-        this._isWebviewMounted = true
-        this._flushEventQueue()
-      }
+      // // --- ДОБАВЛЕНО: Обработка события mount ---
+      // if (message.type === 'mount') {
+      //   this._isWebviewMounted = true
+      //   this._flushEventQueue()
+      // }
 
-      if (message.type === 'unmount') {
-        this._isWebviewMounted = false
-      }
+      // if (message.type === 'unmount') {
+      //   this._isWebviewMounted = false
+      // }
 
       // Make the message handler async to allow await for file operations
       const handleMessage = async (message: MessageFromWebview) => {
@@ -506,21 +502,19 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
   private _focusSearchInput(): void {
     // Отправляем несколько команд фокуса с разными задержками
     // для большей надежности срабатывания
-    setTimeout(() => {
-      // Get current params
-      const currentParams = this.extension.getParams()
+    // Get current params
+    const currentParams = this.extension.getParams()
 
-      // Send parameters to webview first
-      this.postMessage({
-        type: 'values',
-        values: currentParams,
-      })
+    // Send parameters to webview first
+    this.postMessage({
+      type: 'values',
+      values: currentParams,
+    })
 
-      // Focus on search input
-      this.postMessage({
-        type: 'focusSearchInput',
-      })
-    }, 0)
+    // Focus on search input
+    this.postMessage({
+      type: 'focusSearchInput',
+    })
   }
 
   // Updated method to show and focus the replace input
@@ -647,20 +641,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
   }
 
   postMessage(message: MessageToWebview): void {
-    if (this._isWebviewMounted && this._view?.visible) {
-      this._view.webview.postMessage(message)
-    } else {
-      this._eventQueue.push(message)
-    }
-  }
-
-  private _flushEventQueue(): void {
-    if (this._view?.visible) {
-      for (const msg of this._eventQueue) {
-        this._view.webview.postMessage(msg)
-      }
-      this._eventQueue = []
-    }
+    this._view?.webview.postMessage(message)
   }
 
   // Метод для отправки уведомления о завершении замены

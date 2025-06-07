@@ -268,24 +268,23 @@ function getAllFolderPaths(node: FileTreeNode | null): string[] {
 
 export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): React.ReactElement {
     // --- State Initialization using VS Code Webview API ---
-    const initialState = vscode.getState() || {};
-    const initialStateSearchLevelsLength = initialState.searchLevels?.length;
+    const initialState = {};
+    const initialStateSearchLevelsLength = 0;
     const [values, setValues] = useState<SearchReplaceViewValues>({
         // Default values first
         find: '', replace: '', paused: false, include: '', exclude: '',
         parser: 'babel', prettier: true, babelGeneratorHack: false, preferSimpleReplacement: false,
         searchMode: 'text', matchCase: false, wholeWord: false,
         // Then override with loaded state if available
-        ...(initialState.values || {}),
         searchInResults: Math.max(initialStateSearchLevelsLength - 1, 0)
     });
-    const [status, setStatus] = useState<SearchReplaceViewStatus>(initialState.status || {
+    const [status, setStatus] = useState<SearchReplaceViewStatus>({
         running: false, completed: 0, total: 0, numMatches: 0,
         numFilesThatWillChange: 0, numFilesWithMatches: 0, numFilesWithErrors: 0,
     });
     // Store results keyed by absolute path initially
-    const [resultsByFile, setResultsByFile] = useState<Record<string, SerializedTransformResultEvent[]>>(initialState.resultsByFile || {});
-    const [workspacePath, setWorkspacePath] = useState<string>(initialState.workspacePath || '');
+    const [resultsByFile, setResultsByFile] = useState<Record<string, SerializedTransformResultEvent[]>>({});
+    const [workspacePath, setWorkspacePath] = useState<string>('');
 
     // State to track when a search is requested but results haven't arrived yet
     const [isSearchRequested, setIsSearchRequested] = useState(false);
@@ -338,9 +337,9 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     });
 
     // --- UI State ---
-    const [isReplaceVisible, setIsReplaceVisible] = useState(initialState.isReplaceVisible ?? false);
-    const [showSettings, setShowSettings] = useState(initialState.showSettings ?? true);
-    const [viewMode, setViewMode] = useState<'list' | 'tree'>(initialState.viewMode || 'tree');
+    const [isReplaceVisible, setIsReplaceVisible] = useState(false);
+    const [showSettings, setShowSettings] = useState(true);
+    const [viewMode, setViewMode] = useState<'list' | 'tree'>('tree');
     // Store expanded paths (relative paths) as Sets
     const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set([]));
     const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set([]));
@@ -403,7 +402,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     // Initializing searchLevels as an array of search levels, with the base search as the first level
     const [searchLevels, setSearchLevels] = useState<SearchLevel[]>(() => {
         // Check if we have saved search levels in state
-        const savedLevels: any[] = initialState.searchLevels || [];
+        const savedLevels: any[] = [];
 
         if (savedLevels.length === 0) {
             // Initialize with the base search level only
@@ -597,48 +596,6 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
         }
     }, [workspacePath, values.searchInResults, isInNestedSearch]);
 
-    // --- Save State Effect ---
-    useEffect(() => {
-        const now = Date.now();
-        const SESSION_TIMEOUT = 5 * 60 * 1000; // 5 минут
-        if (initialState?.timestamp && now - initialState.timestamp > SESSION_TIMEOUT) {
-            vscode.setState({});
-            setResultsByFile({});
-            setValues({
-                find: '', replace: '', paused: false, include: '', exclude: '',
-                parser: 'babel', prettier: true, babelGeneratorHack: false, preferSimpleReplacement: false,
-                searchMode: 'text', matchCase: false, wholeWord: false,
-                searchInResults: 0
-            });
-            setStatus({
-                running: false, completed: 0, total: 0, numMatches: 0,
-                numFilesThatWillChange: 0, numFilesWithMatches: 0, numFilesWithErrors: 0,
-            })
-        } else {
-            vscode.setState({
-                values, workspacePath, isReplaceVisible,
-                showSettings, viewMode,
-                // Convert Sets to Arrays for storage
-                expandedFiles: Array.from(expandedFiles),
-                expandedFolders: Array.from(expandedFolders),
-                // Save search levels stack
-                status,
-                resultsByFile,
-                timestamp: now,
-                searchLevels: searchLevels.map(level => ({
-                    ...level,
-                    // Convert Sets to Arrays for storage
-                    expandedFiles: Array.from(level.expandedFiles instanceof Set ? level.expandedFiles : new Set()),
-                    expandedFolders: Array.from(level.expandedFolders instanceof Set ? level.expandedFolders : new Set())
-                })),
-                isNestedReplaceVisible
-            });
-        }
-    }, [
-        values, workspacePath, isReplaceVisible, resultsByFile, status,
-        showSettings, viewMode, expandedFiles, expandedFolders,
-        vscode, searchLevels, isNestedReplaceVisible
-    ]);
 
     // Очистка таймера throttling при размонтировании
     useEffect(() => {
@@ -847,72 +804,69 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                     break;
                 }
                 case 'focusSearchInput': {
-                    // Показываем и фокусируем соответствующее поле поиска в зависимости от режима
-                    setTimeout(() => {
-                        try {
-                            if (isInNestedSearch) {
-                                // Если мы во вложенном поиске, фокусируем поле вложенного поиска
-                                if (nestedSearchInputRef.current) {
-                                    nestedSearchInputRef.current.select()
-                                    vscode.postMessage({
-                                        type: 'log',
-                                        level: 'info',
-                                        message: 'Focused nested search input via ref'
-                                    })
-                                } else {
-                                    // Запасной вариант поиска элемента в DOM
-                                    const nestedInput = document.querySelector('textarea[name="nestedSearch"]')
-                                    if (nestedInput) {
-                                        (nestedInput as HTMLTextAreaElement).select()
-                                        vscode.postMessage({
-                                            type: 'log',
-                                            level: 'info',
-                                            message: 'Focused nested search input via DOM'
-                                        })
-                                    } else {
-                                        vscode.postMessage({
-                                            type: 'log',
-                                            level: 'error',
-                                            message: 'Could not find nested search input'
-                                        })
-                                    }
-                                }
+                    try {
+                        if (isInNestedSearch) {
+                            // Если мы во вложенном поиске, фокусируем поле вложенного поиска
+                            if (nestedSearchInputRef.current) {
+                                nestedSearchInputRef.current.select()
+                                vscode.postMessage({
+                                    type: 'log',
+                                    level: 'info',
+                                    message: 'Focused nested search input via ref'
+                                })
                             } else {
-                                // Используем основное поле поиска
-                                if (searchInputRef.current) {
-                                    searchInputRef.current.select()
+                                // Запасной вариант поиска элемента в DOM
+                                const nestedInput = document.querySelector('textarea[name="nestedSearch"]')
+                                if (nestedInput) {
+                                    (nestedInput as HTMLTextAreaElement).select()
                                     vscode.postMessage({
                                         type: 'log',
                                         level: 'info',
-                                        message: 'Focused main search input via ref'
+                                        message: 'Focused nested search input via DOM'
                                     })
                                 } else {
-                                    // Запасной вариант поиска элемента в DOM
-                                    const mainInput = document.querySelector('textarea[name="search"]')
-                                    if (mainInput) {
-                                        (mainInput as HTMLTextAreaElement).select()
-                                        vscode.postMessage({
-                                            type: 'log',
-                                            level: 'info',
-                                            message: 'Focused main search input via DOM'
-                                        })
-                                    } else {
-                                        vscode.postMessage({
-                                            type: 'log',
-                                            level: 'error',
-                                            message: 'Could not find main search input'
-                                        })
-                                    }
+                                    vscode.postMessage({
+                                        type: 'log',
+                                        level: 'error',
+                                        message: 'Could not find nested search input'
+                                    })
                                 }
                             }
-                        } catch (e) {
-                            vscode.postMessage({
-                                type: 'log',
-                                level: 'error',
-                                message: `Error focusing search input: ${e}`
-                            })
+                        } else {
+                            // Используем основное поле поиска
+                            if (searchInputRef.current) {
+                                searchInputRef.current.select()
+                                vscode.postMessage({
+                                    type: 'log',
+                                    level: 'info',
+                                    message: 'Focused main search input via ref'
+                                })
+                            } else {
+                                // Запасной вариант поиска элемента в DOM
+                                const mainInput = document.querySelector('textarea[name="search"]')
+                                if (mainInput) {
+                                    (mainInput as HTMLTextAreaElement).select()
+                                    vscode.postMessage({
+                                        type: 'log',
+                                        level: 'info',
+                                        message: 'Focused main search input via DOM'
+                                    })
+                                } else {
+                                    vscode.postMessage({
+                                        type: 'log',
+                                        level: 'error',
+                                        message: 'Could not find main search input'
+                                    })
+                                }
+                            }
                         }
-                    }, 10)
+                    } catch (e) {
+                        vscode.postMessage({
+                            type: 'log',
+                            level: 'error',
+                            message: `Error focusing search input: ${e}`
+                        })
+                    }
                     break
                 }
                 case 'focusReplaceInput': {
@@ -997,7 +951,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
         };
 
         window.addEventListener('message', handleMessage);
-        
+
         // Request initial data on mount
         vscode.postMessage({ type: 'mount' });
 

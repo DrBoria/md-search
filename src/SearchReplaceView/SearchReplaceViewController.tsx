@@ -83,7 +83,7 @@ export default function SearchReplaceViewController({ vscode }: Props): React.Re
           
           // Если нашли поле, фокусируем его
           if (searchInput) {
-            searchInput.focus()
+            searchInput.select()
           }
         } catch (e) {
           vscode.postMessage({ type: 'log', level: 'error', message: `Error focusing search input: ${e}` })

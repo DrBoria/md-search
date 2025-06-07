@@ -298,34 +298,14 @@ export class AstxExtension {
     context.subscriptions.push(
       vscode.commands.registerCommand('mdSearch.findInFolder', findInPath)
     )
-    // context.subscriptions.push(
-    //   vscode.commands.registerCommand(
-    //     'mdSearch.transformInFolder',
-    //     transformInPath
-    //   )
-    // )
-
-    // context.subscriptions.push(
-    //   vscode.workspace.registerTextDocumentContentProvider(
-    //     ASTX_RESULT_SCHEME,
-    //     this.transformResultProvider
-    //   ),
-    //   vscode.workspace.registerTextDocumentContentProvider(
-    //     ASTX_REPORTS_SCHEME,
-    //     this.transformResultProvider
-    //   )
-    // )
-
-    // context.subscriptions.push(
-    //   vscode.window.registerFileDecorationProvider(this.transformResultProvider)
-    // )
 
     // После регистрации WebView провайдера, добавляем логику инициализации фоновых задач
     // для ускорения первого поиска
     context.subscriptions.push(
       vscode.window.registerWebviewViewProvider(
         SearchReplaceViewProvider.viewType,
-        this.searchReplaceViewProvider
+        this.searchReplaceViewProvider,
+        { webviewOptions: { retainContextWhenHidden: true } }
       )
     )
 

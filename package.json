@@ -16,13 +16,7 @@
     "workspace"
   ],
   "activationEvents": [
-    "onView:mdSearch.SearchReplaceView",
-    "onCommand:mdSearch.replace",
-    "onCommand:mdSearch.findInFolder",
-    "onCommand:mdSearch.findInFile",
-    "onCommand:mdSearch.search",
-    "onCommand:mdSearch.clearAllState",
-    "workbenchLoad"
+    "*"
   ],
   "main": "./out/extension.js",
   "contributes": {
