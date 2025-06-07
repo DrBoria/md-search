@@ -59,8 +59,6 @@ export class AstxExtension {
   private externalFsWatcher: vscode.FileSystemWatcher | undefined
   // Store cut/copied matches
   private matchesBuffer: string[] = []
-  // New flag to track the first search run
-  private firstSearchExecuted = false
 
   constructor(public context: vscode.ExtensionContext) {
     // const config = vscode.workspace.getConfiguration('astx')
@@ -284,17 +282,11 @@ export class AstxExtension {
         })
       }
     const findInPath = setIncludePaths({ useTransformFile: false })
-    // const transformInPath = setIncludePaths({ useTransformFile: true })
 
     context.subscriptions.push(
       vscode.commands.registerCommand('mdSearch.findInFile', findInPath)
     )
-    // context.subscriptions. push(
-    //   vscode.commands.registerCommand(
-    //     'mdSearch.transformInFile',
-    //     transformInPath
-    //   )
-    // )
+
     context.subscriptions.push(
       vscode.commands.registerCommand('mdSearch.findInFolder', findInPath)
     )
