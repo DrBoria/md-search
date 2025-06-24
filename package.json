@@ -382,6 +382,7 @@
   "dependencies": {
     "@emotion/css": "^11.10.0",
     "@emotion/styled": "^11.10.4",
+    "@microsoft/fast-web-utilities": "^6.0.0",
     "@repeaterjs/repeater": "^3.0.4",
     "@types/babel__generator": "^7.27.0",
     "@types/debug": "^4.1.12",

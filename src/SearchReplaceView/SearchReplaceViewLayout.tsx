@@ -23,6 +23,7 @@ import { getHighlightedMatchContext } from './TreeView/highligtedContext';
 import { TreeViewNode } from './TreeView';
 import { SearchNestedView } from './SearchNestedView';
 import { getLineFromSource } from './utils';
+import { getFileIcon } from '../components/icons'
 // Объявление типа для глобальной переменной
 declare global {
     interface Window {
@@ -1401,15 +1402,15 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                     className={css`
                                         display: flex;
                                         align-items: center;
-                                        background-color: var(--vscode-list-dropBackground);
-                                        padding: 4px 8px;
+                                        padding: 2px 2px;
                                         gap: 8px;
                                         cursor: pointer;
                                         &:hover { background-color: var(--vscode-list-hoverBackground); }
                                     `}
                                     onClick={() => toggleFileExpansion(displayPath)}
-                                >
+                                >   
                                     <span className={`codicon codicon-chevron-${isExpanded ? 'down' : 'right'}`} />
+                                    {getFileIcon(filePath)}
                                     <span
                                         className={css`font-weight: bold; cursor: pointer;`}
                                         onClick={(e) => {
