@@ -1179,8 +1179,27 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
    * Полностью очищает кеш поиска
    */
   clearCache(): void {
-    // Очищаем кеш в TextSearchRunner
     this.textSearchRunner.clearCache()
+    this.astxSearchRunner.clearCache()
+  }
+
+  /**
+   * Исключает файл из кэша поиска
+   */
+  excludeFileFromCache(fileUri: vscode.Uri): void {
+    this.textSearchRunner.excludeFileFromCache(fileUri)
+    this.astxSearchRunner.excludeFileFromCache(fileUri)
+    
+    // Также удаляем файл из previousSearchFiles на всех уровнях
+    const filePath = fileUri.fsPath
+    
+    for (let i = 0; i < this.previousSearchFiles.length; i++) {
+      this.previousSearchFiles[i].delete(filePath)
+    }
+    
+    this.extension.channel.appendLine(
+      `File excluded from previousSearchFiles: ${filePath}`
+    )
   }
 
   // Проверяем изменения include и exclude для сброса кеша

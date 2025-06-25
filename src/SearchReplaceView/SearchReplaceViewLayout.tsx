@@ -1376,6 +1376,38 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
         });
     };
 
+    // Функция-обработчик для исключения файла из поиска
+    const handleExcludeFile = useCallback((filePath: string) => {
+        // Отправляем сообщение в расширение для исключения файла из кэша
+        vscode.postMessage({
+            type: 'excludeFile',
+            filePath
+        });
+
+        // Удаляем файл из локального состояния results
+        if (isInNestedSearch && values.searchInResults > 0) {
+            setSearchLevels(prev => {
+                const newLevels = [...prev];
+                const currentLevel = newLevels[values.searchInResults];
+                if (currentLevel && currentLevel.resultsByFile[filePath]) {
+                    const updatedResultsByFile = { ...currentLevel.resultsByFile };
+                    delete updatedResultsByFile[filePath];
+                    newLevels[values.searchInResults] = {
+                        ...currentLevel,
+                        resultsByFile: updatedResultsByFile
+                    };
+                }
+                return newLevels;
+            });
+        } else {
+            setResultsByFile(prev => {
+                const newResults = { ...prev };
+                delete newResults[filePath];
+                return newResults;
+            });
+        }
+    }, [vscode, isInNestedSearch, values.searchInResults]);
+
     // Модифицированное отображение результатов в режиме списка
     const renderListViewResults = () => {
         const resultEntries = Object.entries(paginatedResults);
@@ -1427,9 +1459,34 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                     <span className={css`
                                         margin-left: auto;
                                         color: var(--vscode-descriptionForeground);
+                                        margin-right: 8px;
                                     `}>
                                         {totalMatches} matches
                                     </span>
+                                    {/* Exclude button for file */}
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleExcludeFile(filePath);
+                                        }}
+                                        title={`Exclude ${displayPath} from search`}
+                                        className={css`
+                                            background: transparent;
+                                            border: none;
+                                            padding: 2px;
+                                            cursor: pointer;
+                                            display: flex;
+                                            align-items: center;
+                                            color: #bcbbbc;
+                                            border-radius: 3px;
+                                            &:hover {
+                                                background-color: rgba(128, 128, 128, 0.2);
+                                                color: var(--vscode-errorForeground);
+                                            }
+                                        `}
+                                    >
+                                        <span className="codicon codicon-close" />
+                                    </button>
                                 </div>
 
                                 {/* Expanded Matches */}
@@ -1642,6 +1699,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                             handleResultItemClick={handleResultItemClick}
                             handleReplace={handleReplaceSelectedFiles}
                             currentSearchValues={values}
+                            handleExcludeFile={handleExcludeFile}
                         />
                     ))
                 ) : status.running ? (
@@ -2084,6 +2142,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                                 handleResultItemClick={handleResultItemClick}
                                                 handleReplace={handleReplaceSelectedFiles}
                                                 currentSearchValues={searchLevels[values.searchInResults].values}
+                                                handleExcludeFile={handleExcludeFile}
                                             />
                                         ))
                                     ) : !status.running ? (
@@ -2147,6 +2206,31 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                                     `}>
                                                         {totalMatches} matches
                                                     </span>
+                                                    {/* Exclude button for file in nested search */}
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleExcludeFile(filePath);
+                                                        }}
+                                                        title={`Exclude ${displayPath} from search`}
+                                                        className={css`
+                                                            background: transparent;
+                                                            border: none;
+                                                            padding: 2px;
+                                                            cursor: pointer;
+                                                            display: flex;
+                                                            align-items: center;
+                                                            color: #bcbbbc;
+                                                            border-radius: 3px;
+                                                            margin-left: 8px;
+                                                            &:hover {
+                                                                background-color: rgba(128, 128, 128, 0.2);
+                                                                color: var(--vscode-errorForeground);
+                                                            }
+                                                        `}
+                                                    >
+                                                        <span className="codicon codicon-close" />
+                                                    </button>
                                                 </div>
 
                                                 {/* Expanded Matches */}

@@ -41,6 +41,7 @@ interface TreeViewNodeProps {
     handleResultItemClick: (filePath: string, range?: { start: number; end: number }) => void;
     handleReplace: (paths: string[]) => void; // Добавляем обработчик для замены
     currentSearchValues: SearchReplaceViewValues; // Добавляем текущие значения поиска как проп
+    handleExcludeFile?: (filePath: string) => void; // Добавляем обработчик для исключения файла
 }
 
 // Функция для папок (используем codicons, так как material icons не имеет специальных иконок для папок)
@@ -69,7 +70,8 @@ export const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
     handleFileClick,
     handleResultItemClick,
     handleReplace,
-    currentSearchValues // Получаем значения через пропсы
+    currentSearchValues, // Получаем значения через пропсы
+    handleExcludeFile
 }) => {
     const indent = level * 15 // Indentation level
     const [isHovered, setIsHovered] = React.useState(false);
@@ -163,6 +165,38 @@ export const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                                 <span className="codicon codicon-replace-all" />
                             </button>
                         )}
+
+                        {/* Exclude button shown on hover */}
+                        {isHovered && handleExcludeFile && (
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation(); // Prevent folder expansion
+                                    // Исключаем все файлы в папке
+                                    getAllFilePathsInFolder().forEach(filePath => {
+                                        handleExcludeFile(filePath);
+                                    });
+                                }}
+                                title={`Exclude ${node.name} folder from search`}
+                                className={css`
+                                    background: transparent;
+                                    border: none;
+                                    padding: 0px 2px;
+                                    cursor: pointer;
+                                    display: flex;
+                                    align-items: center;
+                                    color: #bcbbbc;
+                                    justify-content: center;
+                                    min-width: auto;
+                                    border-radius: 3px;
+                                    &:hover {
+                                        background-color: rgba(128, 128, 128, 0.2);
+                                        color: var(--vscode-errorForeground);
+                                    }
+                                `}
+                            >
+                                <span className="codicon codicon-close" />
+                            </button>
+                        )}
                     </div>
                 </div>
                 {isExpanded && (
@@ -180,6 +214,7 @@ export const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                                 handleResultItemClick={handleResultItemClick}
                                 handleReplace={handleReplace}
                                 currentSearchValues={currentSearchValues}
+                                handleExcludeFile={handleExcludeFile}
                             />
                         ))}
                     </div>
@@ -272,6 +307,35 @@ export const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                                 `}
                             >
                                 <span className="codicon codicon-replace-all" />
+                            </button>
+                        )}
+
+                        {/* Exclude button shown on hover */}
+                        {isHovered && handleExcludeFile && (
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleExcludeFile(node.absolutePath);
+                                }}
+                                title={`Exclude ${node.name} from search`}
+                                className={css`
+                                    background: transparent;
+                                    border: none;
+                                    padding: 0px 2px;
+                                    cursor: pointer;
+                                    display: flex;
+                                    align-items: center;
+                                    color: #bcbbbc;
+                                    justify-content: center;
+                                    min-width: auto;
+                                    border-radius: 3px;
+                                    &:hover {
+                                        background-color: rgba(128, 128, 128, 0.2);
+                                        color: var(--vscode-errorForeground);
+                                    }
+                                `}
+                            >
+                                <span className="codicon codicon-close" />
                             </button>
                         )}
                     </div>

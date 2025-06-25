@@ -176,7 +176,8 @@ export type MessageFromWebview =
   | { type: 'cutMatches' }
   | { type: 'pasteToMatches' }
   | { type: 'copyFileNames' }
-| { type: 'saveViewMode'; viewMode: 'list' | 'tree' }
+  | { type: 'excludeFile'; filePath: string }
+  | { type: 'saveViewMode'; viewMode: 'list' | 'tree' }
 
 // === Combined Message Type (for use in component) ===
 export type Message = MessageFromWebview | MessageToWebview

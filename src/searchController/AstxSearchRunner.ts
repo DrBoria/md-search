@@ -237,4 +237,18 @@ export class AstxSearchRunner extends TypedEmitter<AstxRunnerEvents> {
   setAbortController(controller: AbortController): void {
     this.abortController = controller
   }
+
+  /**
+   * Очищает кэш поиска (заглушка для совместимости)
+   */
+  clearCache(): void {
+    // AstxSearchRunner не использует кэш, поэтому это заглушка
+  }
+
+  /**
+   * Исключает файл из кэша поиска (заглушка для совместимости)
+   */
+  excludeFileFromCache(fileUri: vscode.Uri): void {
+    // AstxSearchRunner не использует кэш, поэтому это заглушка
+  }
 }

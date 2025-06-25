@@ -466,6 +466,45 @@ export class SearchCache {
   isCurrentSearchComplete(): boolean {
     return this.currentNode ? this.currentNode.isComplete : false
   }
+
+  /**
+   * Исключает файл из кэша полностью - удаляет его из всех уровней поиска
+   */
+  excludeFileFromCache(fileUri: vscode.Uri): void {
+    if (!this.root) {
+      return
+    }
+
+    const filePath = fileUri.toString()
+
+    // Рекурсивно удаляем файл из всех узлов кэша
+    const excludeRecursive = (node: SearchCacheNode) => {
+      // Удаляем файл из результатов
+      node.results.delete(filePath)
+      node.processedFiles.delete(filePath)
+      node.excludedFiles.delete(filePath)
+
+      // Удаляем из всех дочерних узлов
+      for (const childNode of node.children.values()) {
+        excludeRecursive(childNode)
+      }
+    }
+
+    excludeRecursive(this.root)
+  }
+
+  /**
+   * Проверяет, исключен ли файл из кэша
+   */
+  isFileExcluded(filePath: string): boolean {
+    if (!this.currentNode) {
+      return false
+    }
+
+    // Проверяем, есть ли файл в результатах текущего узла
+    // Если файла нет в processedFiles, значит он был исключен
+    return !this.currentNode.processedFiles.has(filePath) && !this.currentNode.results.has(filePath)
+  }
 }
 
 /**

@@ -397,6 +397,33 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
             }
             break
           }
+          case 'excludeFile': {
+            // Исключаем файл из кэша поиска
+            try {
+              const fileUri = vscode.Uri.parse(message.filePath)
+              this.extension.runner.excludeFileFromCache(fileUri)
+              
+              // Также удаляем файл из TransformResultProvider
+              this.extension.transformResultProvider.results.delete(message.filePath)
+              
+              // Уведомляем webview об обновлении результатов
+              this._notifyWebviewIfActive('fileUpdated', {
+                filePath: message.filePath,
+                newSource: null // null означает удаление
+              })
+
+              this.extension.channel.appendLine(
+                `File excluded from search: ${message.filePath}`
+              )
+            } catch (error) {
+              this.extension.logError(
+                error instanceof Error
+                  ? error
+                  : new Error(`Failed to exclude file: ${error}`)
+              )
+            }
+            break
+          }
           case 'openFile': {
             const uri = vscode.Uri.parse(message.filePath)
 

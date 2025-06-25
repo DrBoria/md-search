@@ -895,6 +895,13 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
     this.searchCache.clearCache()
   }
 
+  /**
+   * Исключает файл из кэша поиска
+   */
+  excludeFileFromCache(fileUri: vscode.Uri): void {
+    this.searchCache.excludeFileFromCache(fileUri)
+  }
+
   // Новый метод для выполнения текстового поиска без использования кеша
   async performTextSearchWithoutCache(
     params: any,
