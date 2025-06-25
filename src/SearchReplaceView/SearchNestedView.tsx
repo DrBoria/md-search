@@ -28,6 +28,11 @@ export const SearchNestedView = ({
 
     const breadcrumbsContainerRef = useRef<HTMLDivElement>(null);
 
+    // Add copy file names handler for nested search
+    const handleCopyFileNames = useCallback(() => {
+        vscode.postMessage({ type: 'copyFileNames' });
+    }, [vscode]);
+
     const toggleNestedMatchCase = useCallback(() => {
         setSearchLevels((prev: SearchLevel[]) => {
             // Создаем копию массива
@@ -395,27 +400,27 @@ export const SearchNestedView = ({
                         <span className="codicon codicon-filter-filled"></span>
                     </VSCodeButton>
 
-                    {/* View Mode Toggle Buttons for nested search */}
-                    <div className={css` display: flex; align-items: center; gap: 4px; `}>
-                        {/* Show only one button based on current view mode */}
-                        {viewMode === 'list' ? (
-                            <VSCodeButton
-                                appearance="secondary"
-                                onClick={() => setViewMode('tree')}
-                                title="View as tree"
-                            >
-                                <span className="codicon codicon-list-tree"></span>
-                            </VSCodeButton>
-                        ) : (
-                            <VSCodeButton
-                                appearance="secondary"
-                                onClick={() => setViewMode('list')}
-                                title="View as list"
-                            >
-                                <span className="codicon codicon-list-flat"></span>
-                            </VSCodeButton>
-                        )}
-                    </div>
+                    {/* Copy File Names Button */}
+                    <VSCodeButton
+                        appearance="icon"
+                        onClick={handleCopyFileNames}
+                        title="Copy file names with # prefix"
+                        className={css` margin-right: 5px; `}
+                    >
+                        <span className="codicon codicon-files"></span>
+                    </VSCodeButton>
+
+                    {/* View Mode Toggle Button */}
+                    <VSCodeButton
+                        appearance="icon"
+                        onClick={() => setViewMode(viewMode === 'tree' ? 'list' : 'tree')}
+                        title={viewMode === 'tree' ? 'Switch to list view' : 'Switch to tree view'}
+                        className={css`
+                            margin-left: 4px;
+                        `}
+                    >
+                        <span className={`codicon ${viewMode === 'tree' ? 'codicon-list-flat' : 'codicon-list-tree'}`}></span>
+                    </VSCodeButton>
                 </div>
             )}
         </div>

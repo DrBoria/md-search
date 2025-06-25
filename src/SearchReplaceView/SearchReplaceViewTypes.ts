@@ -62,6 +62,7 @@ export interface SearchLevel {
   wholeWord: boolean
   searchMode: SearchReplaceViewValues['searchMode']
   isReplaceVisible: boolean
+  viewMode: 'list' | 'tree' // Добавляем viewMode
   // Navigation state within results
   expandedFiles: Set<string> | string[]
   expandedFolders: Set<string> | string[]
@@ -139,6 +140,10 @@ export type MessageToWebview =
       type: 'pasteToMatchesComplete'
       count: number
     }
+  | {
+      type: 'copyFileNamesComplete'
+      count: number
+    }
 
 export type MessageFromWebview =
   | { type: 'mount' }
@@ -170,6 +175,16 @@ export type MessageFromWebview =
   | { type: 'copyMatches' }
   | { type: 'cutMatches' }
   | { type: 'pasteToMatches' }
+  | { type: 'copyFileNames' }
+| { type: 'saveViewMode'; viewMode: 'list' | 'tree' }
 
 // === Combined Message Type (for use in component) ===
 export type Message = MessageFromWebview | MessageToWebview
+
+export type SearchReplaceViewInitialData = {
+  type: 'initialData'
+  values: SearchReplaceViewValues
+  status: SearchReplaceViewStatus
+  results: SerializedTransformResultEvent[]
+  viewMode?: 'list' | 'tree' // Добавляем viewMode
+}

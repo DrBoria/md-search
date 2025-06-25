@@ -49,6 +49,10 @@ export default function SearchReplaceViewController({ vscode }: Props): React.Re
             vscode.postMessage({ type: 'pasteToMatches' })
             event.preventDefault()
             break
+          case 'n':
+            vscode.postMessage({ type: 'copyFileNames' })
+            event.preventDefault()
+            break
         }
       }
     }

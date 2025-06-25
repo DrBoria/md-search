@@ -118,6 +118,10 @@
         "title": "MD: Paste to All Matches"
       },
       {
+        "command": "mdSearch.copyFileNames",
+        "title": "MD: Copy File Names"
+      },
+      {
         "command": "mdSearch.clearAllState",
         "title": "MD: Clear All Extension State"
       }
@@ -149,6 +153,12 @@
         "command": "mdSearch.pasteToMatches",
         "key": "ctrl+shift+v",
         "mac": "cmd+shift+v",
+        "when": "focusedView == mdSearch.SearchReplaceView"
+      },
+      {
+        "command": "mdSearch.copyFileNames",
+        "key": "ctrl+shift+n",
+        "mac": "cmd+shift+n",
         "when": "focusedView == mdSearch.SearchReplaceView"
       }
     ],

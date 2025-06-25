@@ -992,7 +992,9 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
     // execute after postValuesChange
     const updateSearchLevelsLength = debounce(useCallback((searchLevelsLength: number) => {
         setSearchLevels(prev => prev.slice(0, searchLevelsLength + 1));
-        nestedSearchInputRef.current.value = searchLevels[searchLevelsLength].values?.find;
+        if (nestedSearchInputRef.current && searchLevels[searchLevelsLength]) {
+            nestedSearchInputRef.current.value = searchLevels[searchLevelsLength].values?.find || '';
+        }
     }, [vscode]), 301);
 
     // Cleanup debounce timer on unmount
@@ -1231,6 +1233,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                     find: '', // Start with empty search
                     replace: '' // Always start with empty replace
                 },
+                viewMode,
                 resultsByFile: {},
                 matchCase: values?.matchCase,
                 wholeWord: values?.wholeWord,
@@ -1937,6 +1940,16 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                 <span className="codicon codicon-filter-filled"></span>
                             </VSCodeButton>
 
+                            {/* Copy File Names Button */}
+                            <VSCodeButton
+                                appearance="icon"
+                                onClick={() => vscode.postMessage({ type: 'copyFileNames' })}
+                                title="Copy file names"
+                                className={css` margin-right: 5px; `}
+                            >
+                                <span className="codicon codicon-files"></span>
+                            </VSCodeButton>
+
                             {/* View Mode Toggle Buttons for nested search */}
                             <div className={css` display: flex; align-items: center; gap: 4px; `}>
                                 {/* Show only one button based on current view mode */}
@@ -2109,8 +2122,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                                     className={css`
                                                         display: flex;
                                                         align-items: center;
-                                                        background-color: var(--vscode-list-dropBackground);
-                                                        padding: 4px 8px;
+                                                        padding: 2px 2px;
                                                         gap: 8px;
                                                         cursor: pointer;
                                                         &:hover { background-color: var(--vscode-list-hoverBackground); }
@@ -2118,6 +2130,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                                     onClick={() => toggleFileExpansion(displayPath)}
                                                 >
                                                     <span className={`codicon codicon-chevron-${isExpanded ? 'down' : 'right'}`} />
+                                                    {getFileIcon(filePath)}
                                                     <span
                                                         className={css`font-weight: bold; cursor: pointer;`}
                                                         onClick={(e) => {

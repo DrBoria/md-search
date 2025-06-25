@@ -323,7 +323,12 @@ export class AstxExtension {
       vscode.commands.registerCommand('mdSearch.pasteToMatches', async () => {
         const count = await this.pasteToMatches()
         this.searchReplaceViewProvider.notifyPasteToMatchesComplete(count)
-      })
+      }),
+
+      vscode.commands.registerCommand('mdSearch.copyFileNames', async () => {
+        const count = await this.copyFileNames()
+        this.searchReplaceViewProvider.notifyCopyFileNamesComplete(count)
+      }),
     )
 
     context.subscriptions.push({
@@ -567,6 +572,33 @@ export class AstxExtension {
 
     this.channel.appendLine(`Copied ${count} matches to buffer.`)
     return count
+  }
+
+  // Method for copying all found file names with # prefix
+  async copyFileNames(): Promise<number> {
+    this.channel.appendLine('Copying all file names to clipboard...')
+    const resultsMap = this.transformResultProvider.results
+    const fileNames: string[] = []
+
+    for (const [uriString, result] of resultsMap.entries()) {
+      if (result.matches && result.matches.length > 0) {
+        const uri = vscode.Uri.parse(uriString)
+        const fileName = path.basename(uri.fsPath)
+        fileNames.push(`#${fileName}`)
+      }
+    }
+
+    // Remove duplicates and sort
+    const uniqueFileNames = [...new Set(fileNames)].sort()
+    
+    // Copy to system clipboard, separated by new lines
+    if (uniqueFileNames.length > 0) {
+      const clipboardText = uniqueFileNames.join('\n')
+      await vscode.env.clipboard.writeText(clipboardText)
+    }
+
+    this.channel.appendLine(`Copied ${uniqueFileNames.length} file names to clipboard.`)
+    return uniqueFileNames.length
   }
 
   // Method for cutting all found matches to buffer

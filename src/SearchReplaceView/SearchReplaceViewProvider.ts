@@ -383,6 +383,20 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
             }
             break
           }
+          case 'copyFileNames': {
+            // Выполняем копирование имен файлов
+            try {
+              const count = await this.extension.copyFileNames()
+              this.notifyCopyFileNamesComplete(count)
+            } catch (error) {
+              this.extension.logError(
+                error instanceof Error
+                  ? error
+                  : new Error(`Failed to copy file names: ${error}`)
+              )
+            }
+            break
+          }
           case 'openFile': {
             const uri = vscode.Uri.parse(message.filePath)
 
@@ -676,6 +690,13 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
   notifyPasteToMatchesComplete(count: number): void {
     this.postMessage({
       type: 'pasteToMatchesComplete',
+      count,
+    })
+  }
+
+  notifyCopyFileNamesComplete(count: number): void {
+    this.postMessage({
+      type: 'copyFileNamesComplete',
       count,
     })
   }
