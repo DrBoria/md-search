@@ -475,7 +475,10 @@ export class SearchCache {
       return
     }
 
-    const filePath = fileUri.toString()
+    let filePath = fileUri.toString();
+    if (filePath.startsWith('/file:///')) {
+      filePath = filePath.replace('/file://', '')
+    }
 
     // Рекурсивно удаляем файл из всех узлов кэша
     const excludeRecursive = (node: SearchCacheNode) => {
@@ -491,19 +494,6 @@ export class SearchCache {
     }
 
     excludeRecursive(this.root)
-  }
-
-  /**
-   * Проверяет, исключен ли файл из кэша
-   */
-  isFileExcluded(filePath: string): boolean {
-    if (!this.currentNode) {
-      return false
-    }
-
-    // Проверяем, есть ли файл в результатах текущего узла
-    // Если файла нет в processedFiles, значит он был исключен
-    return !this.currentNode.processedFiles.has(filePath) && !this.currentNode.results.has(filePath)
   }
 }
 

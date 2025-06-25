@@ -1194,7 +1194,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
     const filePath = fileUri.fsPath
     
     for (let i = 0; i < this.previousSearchFiles.length; i++) {
-      this.previousSearchFiles[i].delete(filePath)
+      this.previousSearchFiles[i].delete(filePath);
     }
     
     this.extension.channel.appendLine(
