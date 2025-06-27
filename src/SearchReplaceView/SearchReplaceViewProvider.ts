@@ -402,14 +402,16 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
             try {
               const fileUri = vscode.Uri.parse(message.filePath)
               this.extension.runner.excludeFileFromCache(fileUri)
-              
+
               // Также удаляем файл из TransformResultProvider
-              this.extension.transformResultProvider.results.delete(message.filePath)
-              
+              this.extension.transformResultProvider.results.delete(
+                message.filePath
+              )
+
               // Уведомляем webview об обновлении результатов
               this._notifyWebviewIfActive('fileUpdated', {
                 filePath: message.filePath,
-                newSource: null // null означает удаление
+                newSource: null, // null означает удаление
               })
 
               this.extension.channel.appendLine(

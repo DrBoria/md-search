@@ -1189,14 +1189,14 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
   excludeFileFromCache(fileUri: vscode.Uri): void {
     this.textSearchRunner.excludeFileFromCache(fileUri)
     this.astxSearchRunner.excludeFileFromCache(fileUri)
-    
+
     // Также удаляем файл из previousSearchFiles на всех уровнях
     const filePath = fileUri.fsPath
-    
+
     for (let i = 0; i < this.previousSearchFiles.length; i++) {
-      this.previousSearchFiles[i].delete(filePath);
+      this.previousSearchFiles[i].delete(filePath)
     }
-    
+
     this.extension.channel.appendLine(
       `File excluded from previousSearchFiles: ${filePath}`
     )

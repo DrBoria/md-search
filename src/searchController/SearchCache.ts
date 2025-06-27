@@ -475,7 +475,7 @@ export class SearchCache {
       return
     }
 
-    let filePath = fileUri.toString();
+    let filePath = fileUri.toString()
     if (filePath.startsWith('/file:///')) {
       filePath = filePath.replace('/file://', '')
     }
