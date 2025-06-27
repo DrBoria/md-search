@@ -59,6 +59,7 @@ The extension includes several helpful keyboard shortcuts to enhance your workfl
 | `Ctrl+Shift+C`           | `Cmd+Shift+C`    | Copy All Matches     | Copies all found matches to clipboard, separated by newlines |
 | `Ctrl+Shift+X`           | `Cmd+Shift+X`    | Cut All Matches      | Cuts all found matches and copies them to clipboard          |
 | `Ctrl+Shift+V`           | `Cmd+Shift+V`    | Paste to All Matches | Replaces all found matches with clipboard content            |
+| `Ctrl+Shift+Z`           | `Cmd+Shift+Z`    | Revert | Returns to previous state, buffer size is 1 step |
 
 The copy/cut/paste operations work with multiple matches at once, allowing you to:
 
