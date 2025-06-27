@@ -424,6 +424,21 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
             }
             break
           }
+          case 'undoLastOperation': {
+            // Выполняем отмену последней операции
+            try {
+              const restored = await this.extension.undoLastOperation()
+              this.notifyUndoComplete(restored)
+            } catch (error) {
+              this.extension.logError(
+                error instanceof Error
+                  ? error
+                  : new Error(`Failed to undo operation: ${error}`)
+              )
+              this.notifyUndoComplete(false)
+            }
+            break
+          }
           case 'openFile': {
             const uri = vscode.Uri.parse(message.filePath)
 
@@ -725,6 +740,14 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     this.postMessage({
       type: 'copyFileNamesComplete',
       count,
+    })
+  }
+
+  // Метод для отправки уведомления о завершении отката операции
+  notifyUndoComplete(restored: boolean): void {
+    this.postMessage({
+      type: 'undoComplete',
+      restored,
     })
   }
 

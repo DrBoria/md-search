@@ -51,6 +51,18 @@ export interface SearchReplaceViewValues {
   isReplacement?: boolean
 }
 
+// State that can be saved and restored for undo functionality
+export interface ViewUndoState {
+  searchLevels: SearchLevel[]
+  resultsByFile: Record<string, SerializedTransformResultEvent[]>
+  values: SearchReplaceViewValues
+  expandedFiles: string[]
+  expandedFolders: string[]
+  viewMode: 'list' | 'tree'
+  isReplaceVisible: boolean
+  isNestedReplaceVisible: boolean
+}
+
 // Represents a single level of search in the Find in Found stack
 export interface SearchLevel {
   // Values for this search level
@@ -144,6 +156,14 @@ export type MessageToWebview =
       type: 'copyFileNamesComplete'
       count: number
     }
+  | {
+      type: 'undoComplete'
+      restored: boolean
+    }
+  | {
+      type: 'restoreViewState'
+      viewState: ViewUndoState
+    }
 
 export type MessageFromWebview =
   | { type: 'mount' }
@@ -178,6 +198,7 @@ export type MessageFromWebview =
   | { type: 'copyFileNames' }
   | { type: 'excludeFile'; filePath: string }
   | { type: 'saveViewMode'; viewMode: 'list' | 'tree' }
+  | { type: 'undoLastOperation' }
 
 // === Combined Message Type (for use in component) ===
 export type Message = MessageFromWebview | MessageToWebview

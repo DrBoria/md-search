@@ -53,6 +53,10 @@ export default function SearchReplaceViewController({ vscode }: Props): React.Re
             vscode.postMessage({ type: 'copyFileNames' })
             event.preventDefault()
             break
+          case 'z':
+            vscode.postMessage({ type: 'undoLastOperation' })
+            event.preventDefault()
+            break
         }
       }
     }

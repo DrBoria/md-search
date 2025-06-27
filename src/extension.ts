@@ -59,6 +59,17 @@ export class AstxExtension {
   private externalFsWatcher: vscode.FileSystemWatcher | undefined
   // Store cut/copied matches
   private matchesBuffer: string[] = []
+  // Store undo state for operations
+  private undoState: {
+    // Store file contents and results before cut/paste operations
+    savedFileContents: Map<string, string>
+    savedResults: Map<string, any>
+    canUndo: boolean
+  } = {
+    savedFileContents: new Map(),
+    savedResults: new Map(),
+    canUndo: false
+  }
 
   constructor(public context: vscode.ExtensionContext) {
     // const config = vscode.workspace.getConfiguration('astx')
@@ -329,6 +340,11 @@ export class AstxExtension {
         const count = await this.copyFileNames()
         this.searchReplaceViewProvider.notifyCopyFileNamesComplete(count)
       }),
+
+      vscode.commands.registerCommand('mdSearch.undoLastOperation', async () => {
+        const restored = await this.undoLastOperation()
+        this.searchReplaceViewProvider.notifyUndoComplete(restored)
+      }),
     )
 
     context.subscriptions.push({
@@ -436,29 +452,57 @@ export class AstxExtension {
               try {
                 const uri = vscode.Uri.parse(uriString)
                 const contentBytes = await vscode.workspace.fs.readFile(uri)
-                const originalContent =
-                  Buffer.from(contentBytes).toString('utf8')
-                let newContent = originalContent
+                const originalContent = Buffer.from(contentBytes).toString('utf8')
 
-                // Construct the regex for replacement
-                let pattern = find
-                const flags = matchCase ? 'g' : 'gi' // Always global, add 'i' if case-insensitive
-
-                if (searchMode === 'text') {
-                  pattern = escapeRegExp(find) // Escape special characters for literal search
-                  if (wholeWord) {
-                    pattern = `\\b${pattern}\\b` // Add word boundaries
-                  }
+                // Use exact match positions from search results instead of re-searching
+                if (!result.matches || result.matches.length === 0) {
+                  return
                 }
 
-                const regex = new RegExp(pattern, flags)
-
-                // Perform the replacement
+                // Sort matches by start position in descending order to avoid position shifting
+                const sortedMatches = [...result.matches].sort((a, b) => b.start - a.start)
+                let newContent = originalContent
                 let replacementCount = 0
-                newContent = originalContent.replace(regex, (match) => {
+
+                // Replace each match using exact positions
+                for (const match of sortedMatches) {
+                  if (typeof match.start !== 'number' || typeof match.end !== 'number') {
+                    continue
+                  }
+
+                  // Get the matched text
+                  const matchedText = originalContent.substring(match.start, match.end)
+                  let replacementText = replace || ''
+
+                                     // For regex mode, handle group substitutions ($1, $2, etc.)
+                   if (searchMode === 'regex' && replacementText.includes('$')) {
+                     try {
+                       // Create regex to extract groups from the matched text
+                       const pattern = find
+                       const flags = matchCase ? 'g' : 'gi'
+                       const regex = new RegExp(pattern, flags)
+                      
+                      // Execute regex on matched text to get groups
+                      const regexMatch = regex.exec(matchedText)
+                      if (regexMatch) {
+                        // Replace $1, $2, etc. with corresponding groups
+                        replacementText = replacementText.replace(/\$(\d+)/g, (_, groupNum) => {
+                          const groupIndex = parseInt(groupNum, 10)
+                          return regexMatch[groupIndex] || ''
+                        })
+                      }
+                    } catch (error: any) {
+                      this.channel.appendLine(`Regex group substitution failed: ${error.message}`)
+                      // Fall back to literal replacement
+                    }
+                  }
+
+                  // Perform the replacement
+                  newContent = newContent.substring(0, match.start) + 
+                               replacementText + 
+                               newContent.substring(match.end)
                   replacementCount++
-                  return replace || ''
-                })
+                }
 
                 // Write back only if content changed
                 if (newContent !== originalContent) {
@@ -547,6 +591,76 @@ export class AstxExtension {
     this.runner.updateDocumentsForChangedFile(e.document.uri)
   }
 
+  // Method to save file contents before cut/paste operations
+  private async saveFileContentsForUndo(): Promise<void> {
+    const resultsMap = this.transformResultProvider.results
+    this.undoState.savedFileContents.clear()
+    this.undoState.savedResults.clear()
+
+    // Save original file contents for all files with matches
+    for (const [uriString, result] of resultsMap.entries()) {
+      if (result.matches && result.matches.length > 0) {
+        try {
+          const uri = vscode.Uri.parse(uriString)
+          const contentBytes = await vscode.workspace.fs.readFile(uri)
+          const originalContent = Buffer.from(contentBytes).toString('utf8')
+          this.undoState.savedFileContents.set(uriString, originalContent)
+          this.undoState.savedResults.set(uriString, result)
+        } catch (error: any) {
+          this.logError(new Error(`Failed to save file for undo: ${uriString}: ${error.message}`))
+        }
+      }
+    }
+    
+    this.undoState.canUndo = true
+    this.channel.appendLine(`Saved ${this.undoState.savedFileContents.size} files for undo`)
+  }
+
+  // Method to restore files from undo state
+  async undoLastOperation(): Promise<boolean> {
+    if (!this.undoState.canUndo || this.undoState.savedFileContents.size === 0) {
+      this.channel.appendLine('No operation to undo')
+      return false
+    }
+
+    try {
+      let restoredCount = 0
+      
+      // Restore file contents
+      for (const [uriString, originalContent] of this.undoState.savedFileContents.entries()) {
+        try {
+          const uri = vscode.Uri.parse(uriString)
+          const contentBytes = Buffer.from(originalContent, 'utf8')
+          await vscode.workspace.fs.writeFile(uri, contentBytes)
+          restoredCount++
+        } catch (error: any) {
+          this.logError(new Error(`Failed to restore file: ${uriString}: ${error.message}`))
+        }
+      }
+
+      // Restore results in TransformResultProvider
+      this.transformResultProvider.results.clear()
+      for (const [uriString, result] of this.undoState.savedResults.entries()) {
+        this.transformResultProvider.results.set(uriString, result)
+      }
+
+      // Clear undo state
+      this.undoState.savedFileContents.clear()
+      this.undoState.savedResults.clear()
+      this.undoState.canUndo = false
+
+      this.channel.appendLine(`Restored ${restoredCount} files from undo`)
+      
+      // Trigger search to refresh results
+      this.runner.runSoon()
+      
+      return true
+    } catch (error: any) {
+      this.logError(error)
+      return false
+    }
+  }
+
   // Method for copying all found matches to buffer
   async copyMatches(): Promise<number> {
     this.channel.appendLine('Copying all matches to buffer...')
@@ -564,9 +678,9 @@ export class AstxExtension {
       }
     }
 
-    // Copy ALL matches to system clipboard, separated by new line
+    // Copy ALL matches to system clipboard, separated by 2 empty lines
     if (this.matchesBuffer.length > 0) {
-      const clipboardText = this.matchesBuffer.join('\n\n')
+      const clipboardText = this.matchesBuffer.join('\n\n\n\n')
       await vscode.env.clipboard.writeText(clipboardText)
     }
 
@@ -604,6 +718,10 @@ export class AstxExtension {
   // Method for cutting all found matches to buffer
   async cutMatches(): Promise<number> {
     this.channel.appendLine('Cutting all matches to buffer...')
+    
+    // Save file contents before cut operation for undo
+    await this.saveFileContentsForUndo()
+    
     const resultsMap = this.transformResultProvider.results
     this.matchesBuffer = []
     let count = 0
@@ -619,9 +737,9 @@ export class AstxExtension {
       }
     }
 
-    // Copy ALL matches to system clipboard, separated by new line
+    // Copy ALL matches to system clipboard, separated by 2 empty lines
     if (this.matchesBuffer.length > 0) {
-      const clipboardText = this.matchesBuffer.join('\n\n')
+      const clipboardText = this.matchesBuffer.join('\n\n\n\n')
       await vscode.env.clipboard.writeText(clipboardText)
     }
 
@@ -668,19 +786,32 @@ export class AstxExtension {
         return 0
       }
 
+      // Save file contents before paste operation for undo
+      await this.saveFileContentsForUndo()
+
+      // Split clipboard text by 2 empty lines (4 newlines total)
+      const clipboardParts = clipboardText.split('\n\n\n\n')
+      const filesWithMatches = Array.from(resultsMap.entries()).filter(
+        ([_, result]) => result.matches && result.matches.length > 0
+      )
+      
+      // Determine if we should distribute parts or use full text
+      const shouldDistributeParts = clipboardParts.length === filesWithMatches.length
+      
+      this.channel.appendLine(
+        `Clipboard parts: ${clipboardParts.length}, Files with matches: ${filesWithMatches.length}, Distribute: ${shouldDistributeParts}`
+      )
+
       let totalReplacements = 0
       let totalFilesChanged = 0
 
       // Limit concurrent processing to avoid overloading the system
       const MAX_CONCURRENT = 5
-      const fileBatches = Array.from(resultsMap.entries()).filter(
-        ([_, result]) => result.matches && result.matches.length > 0
-      )
 
-      for (let i = 0; i < fileBatches.length; i += MAX_CONCURRENT) {
-        const batch = fileBatches.slice(i, i + MAX_CONCURRENT)
+      for (let i = 0; i < filesWithMatches.length; i += MAX_CONCURRENT) {
+        const batch = filesWithMatches.slice(i, i + MAX_CONCURRENT)
         await Promise.all(
-          batch.map(async ([uriString, result]) => {
+          batch.map(async ([uriString, result], batchIndex) => {
             try {
               if (!result.matches || result.matches.length === 0) {
                 return
@@ -691,6 +822,12 @@ export class AstxExtension {
               // Read file content directly
               const contentBytes = await vscode.workspace.fs.readFile(uri)
               const originalContent = Buffer.from(contentBytes).toString('utf8')
+
+              // Determine what text to use for replacement
+              const fileIndex = i + batchIndex
+              const replacementText = shouldDistributeParts 
+                ? clipboardParts[fileIndex] || ''
+                : clipboardText
 
               // Process matches in reverse order to avoid shifting indices
               const sortedMatches = [...result.matches].sort(
@@ -709,10 +846,10 @@ export class AstxExtension {
                   continue
                 }
 
-                // Make direct replacement without any modifications
+                // Make direct replacement
                 newContent =
                   newContent.substring(0, match.start) +
-                  clipboardText +
+                  replacementText +
                   newContent.substring(match.end)
 
                 replacementsInFile++

@@ -948,6 +948,26 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                     });
                     break;
                 }
+                case 'undoComplete': {
+                    // Обработка завершения операции отката
+                    if (message.restored) {
+                        // Если файлы были восстановлены, показываем уведомление через vscode
+                        vscode.postMessage({
+                            type: 'log',
+                            level: 'info',
+                            message: 'Undo operation completed successfully'
+                        });
+                        // Очищаем состояние замены, если оно отображается
+                        setReplacementResult({ totalReplacements: 0, totalFilesChanged: 0, show: false });
+                    } else {
+                        vscode.postMessage({
+                            type: 'log',
+                            level: 'warn',
+                            message: 'No operation to undo or undo failed'
+                        });
+                    }
+                    break;
+                }
             }
         };
 
@@ -1825,6 +1845,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                 aria-label="Search Pattern"
                                 name="search"
                                 rows={1}
+                                resize="vertical"
                                 ref={searchInputRef}
                                 defaultValue={values?.find}
                                 onInput={handleFindChange}
@@ -1953,6 +1974,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                     aria-label="Replace Pattern"
                                     name="replace"
                                     rows={1}
+                                    resize="vertical"
                                     ref={mainReplaceInputRef} // Assign ref
                                     defaultValue={values.replace}
                                     onInput={handleReplaceChange}

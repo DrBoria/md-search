@@ -122,6 +122,10 @@
         "title": "MD: Copy File Names"
       },
       {
+        "command": "mdSearch.undoLastOperation",
+        "title": "MD: Undo Last Operation"
+      },
+      {
         "command": "mdSearch.clearAllState",
         "title": "MD: Clear All Extension State"
       }
@@ -159,6 +163,12 @@
         "command": "mdSearch.copyFileNames",
         "key": "ctrl+shift+n",
         "mac": "cmd+shift+n",
+        "when": "focusedView == mdSearch.SearchReplaceView"
+      },
+      {
+        "command": "mdSearch.undoLastOperation",
+        "key": "ctrl+shift+z",
+        "mac": "cmd+shift+z",
         "when": "focusedView == mdSearch.SearchReplaceView"
       }
     ],
