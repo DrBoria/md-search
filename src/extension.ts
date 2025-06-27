@@ -700,7 +700,9 @@ export class AstxExtension {
 
   // Method for copying all found matches to buffer
   async copyMatches(fileOrder?: string[]): Promise<number> {
-    this.channel.appendLine(`Copying all matches to buffer... Using UI order: ${!!fileOrder}`)
+    this.channel.appendLine(
+      `Copying all matches to buffer... Using UI order: ${!!fileOrder}`
+    )
     const resultsMap = this.transformResultProvider.results
     const params = this.getParams()
     this.matchesBuffer = []
@@ -708,20 +710,22 @@ export class AstxExtension {
     let count = 0
 
     // Get files with matches, respecting the order from UI if provided
-    let filesWithMatches: [string, any][];
+    let filesWithMatches: [string, any][]
     if (fileOrder && fileOrder.length > 0) {
       // Use the order provided by UI
       filesWithMatches = fileOrder
-        .map(filePath => {
-          const result = resultsMap.get(filePath);
-          return [filePath, result] as [string, any];
+        .map((filePath) => {
+          const result = resultsMap.get(filePath)
+          return [filePath, result] as [string, any]
         })
-        .filter(([_, result]) => result && result.matches && result.matches.length > 0);
+        .filter(
+          ([_, result]) => result && result.matches && result.matches.length > 0
+        )
     } else {
       // Fallback to original method if no order provided
       filesWithMatches = Array.from(resultsMap.entries()).filter(
         ([_, result]) => result.matches && result.matches.length > 0
-      );
+      )
     }
 
     for (const [uriString, result] of filesWithMatches) {
@@ -808,7 +812,9 @@ export class AstxExtension {
 
   // Method for cutting all found matches to buffer
   async cutMatches(fileOrder?: string[]): Promise<number> {
-    this.channel.appendLine(`Cutting all matches to buffer... Using UI order: ${!!fileOrder}`)
+    this.channel.appendLine(
+      `Cutting all matches to buffer... Using UI order: ${!!fileOrder}`
+    )
 
     // Save file contents before cut operation for undo
     await this.saveFileContentsForUndo()
@@ -820,20 +826,22 @@ export class AstxExtension {
     let count = 0
 
     // Get files with matches, respecting the order from UI if provided
-    let filesWithMatches: [string, any][];
+    let filesWithMatches: [string, any][]
     if (fileOrder && fileOrder.length > 0) {
       // Use the order provided by UI
       filesWithMatches = fileOrder
-        .map(filePath => {
-          const result = resultsMap.get(filePath);
-          return [filePath, result] as [string, any];
+        .map((filePath) => {
+          const result = resultsMap.get(filePath)
+          return [filePath, result] as [string, any]
         })
-        .filter(([_, result]) => result && result.matches && result.matches.length > 0);
+        .filter(
+          ([_, result]) => result && result.matches && result.matches.length > 0
+        )
     } else {
       // Fallback to original method if no order provided
       filesWithMatches = Array.from(resultsMap.entries()).filter(
         ([_, result]) => result.matches && result.matches.length > 0
-      );
+      )
     }
 
     // First copy all matches to buffer and save their positions
@@ -955,22 +963,25 @@ export class AstxExtension {
 
       // Split clipboard text by 2 empty lines (4 newlines total)
       const clipboardParts = clipboardText.split('\n\n\n\n')
-      
+
       // Get files with matches, respecting the order from UI if provided
-      let filesWithMatches: [string, any][];
+      let filesWithMatches: [string, any][]
       if (fileOrder && fileOrder.length > 0) {
         // Use the order provided by UI
         filesWithMatches = fileOrder
-          .map(filePath => {
-            const result = resultsMap.get(filePath);
-            return [filePath, result] as [string, any];
+          .map((filePath) => {
+            const result = resultsMap.get(filePath)
+            return [filePath, result] as [string, any]
           })
-          .filter(([_, result]) => result && result.matches && result.matches.length > 0);
+          .filter(
+            ([_, result]) =>
+              result && result.matches && result.matches.length > 0
+          )
       } else {
         // Fallback to original method if no order provided
         filesWithMatches = Array.from(resultsMap.entries()).filter(
           ([_, result]) => result.matches && result.matches.length > 0
-        );
+        )
       }
 
       // Determine if we should distribute parts or use full text
@@ -978,7 +989,9 @@ export class AstxExtension {
         clipboardParts.length === filesWithMatches.length
 
       this.channel.appendLine(
-        `Clipboard parts: ${clipboardParts.length}, Files with matches: ${filesWithMatches.length}, Distribute: ${shouldDistributeParts}, Using UI order: ${!!fileOrder}`
+        `Clipboard parts: ${clipboardParts.length}, Files with matches: ${
+          filesWithMatches.length
+        }, Distribute: ${shouldDistributeParts}, Using UI order: ${!!fileOrder}`
       )
 
       let totalReplacements = 0
@@ -1066,7 +1079,10 @@ export class AstxExtension {
   }
 
   // Method to paste to exact positions where content was cut
-  private async pasteToSavedPositions(clipboardText: string, fileOrder?: string[]): Promise<number> {
+  private async pasteToSavedPositions(
+    clipboardText: string,
+    fileOrder?: string[]
+  ): Promise<number> {
     this.channel.appendLine('Pasting to saved cut positions...')
 
     // Save file contents before paste operation for undo
@@ -1074,20 +1090,20 @@ export class AstxExtension {
 
     // Split clipboard text by 2 empty lines (4 newlines total)
     const clipboardParts = clipboardText.split('\n\n\n\n')
-    
+
     // Get files with cut positions, respecting the order from UI if provided
-    let filesWithCutPositions: [string, any][];
+    let filesWithCutPositions: [string, any][]
     if (fileOrder && fileOrder.length > 0) {
       // Use the order provided by UI
       filesWithCutPositions = fileOrder
-        .map(filePath => {
-          const positions = this.cutPositions.get(filePath);
-          return positions ? [filePath, positions] as [string, any] : null;
+        .map((filePath) => {
+          const positions = this.cutPositions.get(filePath)
+          return positions ? ([filePath, positions] as [string, any]) : null
         })
-        .filter(Boolean) as [string, any][];
+        .filter(Boolean) as [string, any][]
     } else {
       // Fallback to original method if no order provided
-      filesWithCutPositions = Array.from(this.cutPositions.entries());
+      filesWithCutPositions = Array.from(this.cutPositions.entries())
     }
 
     // Determine if we should distribute parts or use full text
@@ -1095,7 +1111,9 @@ export class AstxExtension {
       clipboardParts.length === filesWithCutPositions.length
 
     this.channel.appendLine(
-      `Clipboard parts: ${clipboardParts.length}, Files with cut positions: ${filesWithCutPositions.length}, Distribute: ${shouldDistributeParts}, Using UI order: ${!!fileOrder}`
+      `Clipboard parts: ${clipboardParts.length}, Files with cut positions: ${
+        filesWithCutPositions.length
+      }, Distribute: ${shouldDistributeParts}, Using UI order: ${!!fileOrder}`
     )
 
     let totalReplacements = 0

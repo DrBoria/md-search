@@ -57,7 +57,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
 
     // Инициализация с параметрами расширения
     this._state.params = Object.assign({}, extension.getParams())
-    
+
     // _processedFiles используется для предотвращения дублирования результатов
     // когда один и тот же файл может поступить из кеша и из текущего поиска
   }
@@ -142,7 +142,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     }
 
     const fileUri = e.file.toString()
-    
+
     // Обновляем статус только для новых файлов, чтобы избежать дублирования счетчиков
     if (this._processedFiles.has(fileUri)) {
       return
@@ -168,7 +168,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     }
 
     const fileUri = e.file.toString()
-    
+
     // Проверяем, не обрабатывался ли уже этот файл
     if (this._processedFiles.has(fileUri)) {
       return
@@ -407,7 +407,9 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
           case 'pasteToMatches': {
             // Выполняем вставку из буфера
             try {
-              const count = await this.extension.pasteToMatches(message.fileOrder)
+              const count = await this.extension.pasteToMatches(
+                message.fileOrder
+              )
               this.notifyPasteToMatchesComplete(count)
             } catch (error) {
               this.extension.logError(
