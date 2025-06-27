@@ -59,6 +59,8 @@ export class AstxExtension {
   private externalFsWatcher: vscode.FileSystemWatcher | undefined
   // Store cut/copied matches
   private matchesBuffer: string[] = []
+  // Store cut positions for accurate paste
+  private cutPositions: Map<string, Array<{start: number, end: number, originalLength: number}>> = new Map()
   // Store undo state for operations
   private undoState: {
     // Store file contents and results before cut/paste operations
@@ -665,14 +667,40 @@ export class AstxExtension {
   async copyMatches(): Promise<number> {
     this.channel.appendLine('Copying all matches to buffer...')
     const resultsMap = this.transformResultProvider.results
+    const params = this.getParams()
     this.matchesBuffer = []
+    this.cutPositions.clear() // Clear cut positions since this is copy, not cut
     let count = 0
 
     for (const [uriString, result] of resultsMap.entries()) {
       if (result.matches && result.matches.length > 0 && result.source) {
         for (const match of result.matches) {
           const matchText = result.source.substring(match.start, match.end)
-          this.matchesBuffer.push(matchText)
+          let textToCopy = matchText
+
+          // If we have a replace pattern and we're in regex mode, apply the replacement pattern to get the transformed text
+          if (params.replace && params.searchMode === 'regex' && params.replace.includes('$')) {
+            try {
+              const pattern = params.find
+              const flags = params.matchCase ? 'g' : 'gi'
+              const regex = new RegExp(pattern, flags)
+              
+              // Execute regex on matched text to get groups
+              const regexMatch = regex.exec(matchText)
+              if (regexMatch) {
+                // Replace $1, $2, etc. with corresponding groups
+                textToCopy = params.replace.replace(/\$(\d+)/g, (_, groupNum) => {
+                  const groupIndex = parseInt(groupNum, 10)
+                  return regexMatch[groupIndex] || ''
+                })
+              }
+            } catch (error: any) {
+              this.channel.appendLine(`Regex group substitution in copy failed: ${error.message}`)
+              // Fall back to original matched text
+            }
+          }
+
+          this.matchesBuffer.push(textToCopy)
           count++
         }
       }
@@ -723,17 +751,55 @@ export class AstxExtension {
     await this.saveFileContentsForUndo()
     
     const resultsMap = this.transformResultProvider.results
+    const params = this.getParams()
     this.matchesBuffer = []
+    this.cutPositions.clear() // Clear previous cut positions
     let count = 0
 
-    // First copy all matches to buffer
+    // First copy all matches to buffer and save their positions
     for (const [uriString, result] of resultsMap.entries()) {
       if (result.matches && result.matches.length > 0 && result.source) {
+        const filePositions: Array<{start: number, end: number, originalLength: number}> = []
+        
         for (const match of result.matches) {
           const matchText = result.source.substring(match.start, match.end)
-          this.matchesBuffer.push(matchText)
+          let textToCopy = matchText
+
+          // If we have a replace pattern and we're in regex mode, apply the replacement pattern to get the transformed text
+          if (params.replace && params.searchMode === 'regex' && params.replace.includes('$')) {
+            try {
+              const pattern = params.find
+              const flags = params.matchCase ? 'g' : 'gi'
+              const regex = new RegExp(pattern, flags)
+              
+              // Execute regex on matched text to get groups
+              const regexMatch = regex.exec(matchText)
+              if (regexMatch) {
+                // Replace $1, $2, etc. with corresponding groups
+                textToCopy = params.replace.replace(/\$(\d+)/g, (_, groupNum) => {
+                  const groupIndex = parseInt(groupNum, 10)
+                  return regexMatch[groupIndex] || ''
+                })
+              }
+            } catch (error: any) {
+              this.channel.appendLine(`Regex group substitution in cut failed: ${error.message}`)
+              // Fall back to original matched text
+            }
+          }
+
+          // Save position info for accurate paste later
+          filePositions.push({
+            start: match.start,
+            end: match.end,
+            originalLength: matchText.length
+          })
+
+          this.matchesBuffer.push(textToCopy)
           count++
         }
+        
+        // Store positions for this file
+        this.cutPositions.set(uriString, filePositions)
       }
     }
 
@@ -779,7 +845,12 @@ export class AstxExtension {
         return 0
       }
 
-      // Use current matches and direct replacement instead of regular expressions
+      // Check if we have cut positions saved (for accurate paste after cut)
+      if (this.cutPositions.size > 0) {
+        return await this.pasteToSavedPositions(clipboardText)
+      }
+
+      // Fallback to current search results if no cut positions saved
       const resultsMap = this.transformResultProvider.results
       if (!resultsMap || resultsMap.size === 0) {
         this.channel.appendLine('No matching results to paste to')
@@ -884,6 +955,89 @@ export class AstxExtension {
       this.logError(new Error(`pasteToMatches error: ${error.message}`))
       return 0
     }
+  }
+
+  // Method to paste to exact positions where content was cut
+  private async pasteToSavedPositions(clipboardText: string): Promise<number> {
+    this.channel.appendLine('Pasting to saved cut positions...')
+    
+    // Save file contents before paste operation for undo
+    await this.saveFileContentsForUndo()
+
+    // Split clipboard text by 2 empty lines (4 newlines total)
+    const clipboardParts = clipboardText.split('\n\n\n\n')
+    const filesWithCutPositions = Array.from(this.cutPositions.entries())
+    
+    // Determine if we should distribute parts or use full text
+    const shouldDistributeParts = clipboardParts.length === filesWithCutPositions.length
+    
+    this.channel.appendLine(
+      `Clipboard parts: ${clipboardParts.length}, Files with cut positions: ${filesWithCutPositions.length}, Distribute: ${shouldDistributeParts}`
+    )
+
+    let totalReplacements = 0
+    let totalFilesChanged = 0
+
+    // Process files with saved cut positions
+    for (let i = 0; i < filesWithCutPositions.length; i++) {
+      const [uriString, positions] = filesWithCutPositions[i]
+      
+      try {
+        const uri = vscode.Uri.parse(uriString)
+        const contentBytes = await vscode.workspace.fs.readFile(uri)
+        const originalContent = Buffer.from(contentBytes).toString('utf8')
+
+        // Determine what text to use for replacement
+        const replacementText = shouldDistributeParts 
+          ? clipboardParts[i] || ''
+          : clipboardText
+
+        // Calculate adjusted positions (after cuts have been made, positions shift)
+        let newContent = originalContent
+        let totalOffset = 0
+
+        // Process positions in forward order to calculate cumulative offset
+        const sortedPositions = [...positions].sort((a, b) => a.start - b.start)
+        
+        for (const position of sortedPositions) {
+          // Adjust position based on previous changes
+          const adjustedStart = position.start - totalOffset
+          
+          // Insert replacement text at the adjusted position
+          newContent = newContent.substring(0, adjustedStart) + 
+                       replacementText + 
+                       newContent.substring(adjustedStart)
+          
+          // Update offset: we added replacementText.length but removed position.originalLength
+          totalOffset += position.originalLength - replacementText.length
+          totalReplacements++
+        }
+
+        // Write changes only if content changed
+        if (newContent !== originalContent) {
+          totalFilesChanged++
+          const newContentBytes = Buffer.from(newContent, 'utf8')
+          await vscode.workspace.fs.writeFile(uri, newContentBytes)
+          this.channel.appendLine(`Pasted to ${positions.length} positions in: ${uri.fsPath}`)
+        }
+      } catch (error: any) {
+        this.logError(
+          new Error(`Failed to paste to saved positions in ${uriString}: ${error.message}`)
+        )
+      }
+    }
+
+    // Clear cut positions after successful paste
+    this.cutPositions.clear()
+
+    // Send message to webview with replacement results
+    this.searchReplaceViewProvider.notifyReplacementComplete(
+      totalReplacements,
+      totalFilesChanged
+    )
+
+    this.channel.appendLine(`Pasted to ${totalReplacements} saved positions in ${totalFilesChanged} files`)
+    return totalFilesChanged
   }
 }
 
