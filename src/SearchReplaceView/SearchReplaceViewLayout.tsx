@@ -28,6 +28,7 @@ import { getFileIcon } from '../components/icons'
 declare global {
     interface Window {
         activeSearchReplaceValues?: SearchReplaceViewValues;
+        getDisplayedFileOrder?: () => string[];
         iconsPath?: string;
         MaterialIcons?: {
             getIconForFilePath: (filePath: string) => string;
@@ -1377,10 +1378,59 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
         }
     }, [values, isReplaceVisible, isInNestedSearch]);
 
+    // Function to get file order as displayed in UI
+    const getDisplayedFileOrder = useCallback((): string[] => {
+        // Determine which results to use based on whether we're in nested search
+        const activeResults = isInNestedSearch && searchLevels.length > 0
+            ? searchLevels[searchLevels.length - 1].resultsByFile
+            : resultsByFile;
+
+        if (viewMode === 'tree') {
+            // For tree view, get files in tree traversal order
+            const fileOrder: string[] = [];
+            const traverseTree = (node: FileTreeNode) => {
+                if (node.type === 'file') {
+                    fileOrder.push(node.absolutePath);
+                } else if (node.type === 'folder') {
+                    // Sort children same way as in buildFileTree
+                    const sortedChildren = [...node.children].sort((a, b) => {
+                        if (a.type !== b.type) {
+                            return a.type === 'folder' ? -1 : 1;
+                        }
+                        return a.name.localeCompare(b.name);
+                    });
+                    sortedChildren.forEach(traverseTree);
+                }
+            };
+
+            // Build tree and traverse it
+            const tree = buildFileTree(activeResults, workspacePath);
+            const filteredTree = filterTreeForMatches(tree);
+            if (filteredTree && filteredTree.type === 'folder') {
+                filteredTree.children.forEach(traverseTree);
+            }
+            return fileOrder;
+        } else {
+            // For list view, sort files alphabetically by display path
+            const filesWithPaths = Object.keys(activeResults).map(filePath => {
+                const displayPath = workspacePath
+                    ? path.relative(uriToPath(workspacePath), uriToPath(filePath))
+                    : uriToPath(filePath);
+                return { filePath, displayPath };
+            });
+
+            // Sort by display path (same as in renderListViewResults)
+            filesWithPaths.sort((a, b) => a.displayPath.localeCompare(b.displayPath));
+            return filesWithPaths.map(item => item.filePath);
+        }
+    }, [viewMode, isInNestedSearch, searchLevels, resultsByFile, workspacePath]);
+
     // Хранение текущих значений поиска в глобальной переменной для доступа из разных компонентов
     useEffect(() => {
         window.activeSearchReplaceValues = values;
-    }, [values]);
+        // Also store the file order function
+        (window as any).getDisplayedFileOrder = getDisplayedFileOrder;
+    }, [values, getDisplayedFileOrder]);
 
     // Функция-обработчик для замены в выбранных файлах
     const handleReplaceSelectedFiles = (filePaths: string[]) => {

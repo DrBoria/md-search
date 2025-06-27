@@ -192,9 +192,9 @@ export type MessageFromWebview =
     }
   | { type: 'stop' }
   | { type: 'abort' }
-  | { type: 'copyMatches' }
-  | { type: 'cutMatches' }
-  | { type: 'pasteToMatches' }
+  | { type: 'copyMatches'; fileOrder?: string[] }
+  | { type: 'cutMatches'; fileOrder?: string[] }
+  | { type: 'pasteToMatches'; fileOrder?: string[] }
   | { type: 'copyFileNames' }
   | { type: 'excludeFile'; filePath: string }
   | { type: 'saveViewMode'; viewMode: 'list' | 'tree' }

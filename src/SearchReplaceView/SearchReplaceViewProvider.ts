@@ -44,6 +44,8 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
   private _resultBuffer: any[] = []
   // Таймер для батчинга результатов
   private _resultBatchTimer: NodeJS.Timeout | null = null
+  // Set для отслеживания уже обработанных файлов (избежание дублирования)
+  private _processedFiles: Set<string> = new Set()
 
   constructor(
     private extension: AstxExtension,
@@ -55,6 +57,9 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
 
     // Инициализация с параметрами расширения
     this._state.params = Object.assign({}, extension.getParams())
+    
+    // _processedFiles используется для предотвращения дублирования результатов
+    // когда один и тот же файл может поступить из кеша и из текущего поиска
   }
   private isSearchRunning = false
   private _registerGlobalEventListeners(): void {
@@ -76,6 +81,8 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
         this._state.status.completed = 0
         this._state.status.total = 0
         this._state.results = []
+        // Очищаем Set обработанных файлов при новом поиске
+        this._processedFiles.clear()
         this.isSearchRunning = true
       },
       stop: () => {
@@ -90,6 +97,8 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
         this._state.status.completed = 0
         this._state.status.total = 0
         this._state.results = []
+        // Очищаем Set обработанных файлов при остановке поиска
+        this._processedFiles.clear()
         this._notifyWebviewIfActive('status', {
           status: this._state.status,
         })
@@ -128,6 +137,17 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
   }
 
   private _updateStatus(e: TransformResultEvent): void {
+    if (!e.file) {
+      return
+    }
+
+    const fileUri = e.file.toString()
+    
+    // Обновляем статус только для новых файлов, чтобы избежать дублирования счетчиков
+    if (this._processedFiles.has(fileUri)) {
+      return
+    }
+
     const status = this._state.status
 
     if (e.transformed && e.transformed !== e.source) {
@@ -143,9 +163,23 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
   }
 
   private _addResult(e: TransformResultEvent): void {
+    if (!e.file) {
+      return
+    }
+
+    const fileUri = e.file.toString()
+    
+    // Проверяем, не обрабатывался ли уже этот файл
+    if (this._processedFiles.has(fileUri)) {
+      return
+    }
+
+    // Отмечаем файл как обработанный
+    this._processedFiles.add(fileUri)
+
     // Преобразуем результат в сериализуемый объект
     const stringifiedEvent = {
-      file: e.file.toString(),
+      file: fileUri,
       source: e.source,
       transformed: e.transformed,
       matches: e.matches || [],
@@ -190,6 +224,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     }
 
     // Отправляем весь буфер результатов в webview
+    // Каждый файл в буфере уже проверен на дублирование в _addResult
     this._notifyWebviewIfActive('addBatchResults', {
       data: this._resultBuffer,
       isSearchRunning: this.isSearchRunning,
@@ -344,7 +379,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
           case 'copyMatches': {
             // Выполняем копирование совпадений
             try {
-              const count = await this.extension.copyMatches()
+              const count = await this.extension.copyMatches(message.fileOrder)
               this.notifyCopyMatchesComplete(count)
             } catch (error) {
               this.extension.logError(
@@ -358,7 +393,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
           case 'cutMatches': {
             // Выполняем вырезание совпадений
             try {
-              const count = await this.extension.cutMatches()
+              const count = await this.extension.cutMatches(message.fileOrder)
               this.notifyCutMatchesComplete(count)
             } catch (error) {
               this.extension.logError(
@@ -372,7 +407,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
           case 'pasteToMatches': {
             // Выполняем вставку из буфера
             try {
-              const count = await this.extension.pasteToMatches()
+              const count = await this.extension.pasteToMatches(message.fileOrder)
               this.notifyPasteToMatchesComplete(count)
             } catch (error) {
               this.extension.logError(
@@ -407,6 +442,9 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
               this.extension.transformResultProvider.results.delete(
                 message.filePath
               )
+
+              // Удаляем файл из Set обработанных файлов
+              this._processedFiles.delete(message.filePath)
 
               // Уведомляем webview об обновлении результатов
               this._notifyWebviewIfActive('fileUpdated', {

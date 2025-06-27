@@ -37,18 +37,30 @@ export default function SearchReplaceViewController({ vscode }: Props): React.Re
       const isShift = event.shiftKey
       if (isCmdOrCtrl && isShift) {
         switch (event.key.toLowerCase()) {
-          case 'c':
-            vscode.postMessage({ type: 'copyMatches' })
+          case 'c': {
+            // Get file order for proper copy ordering
+            const getDisplayedFileOrder = (window as any).getDisplayedFileOrder;
+            const fileOrder = getDisplayedFileOrder ? getDisplayedFileOrder() : undefined;
+            vscode.postMessage({ type: 'copyMatches', fileOrder })
             event.preventDefault()
             break
-          case 'x':
-            vscode.postMessage({ type: 'cutMatches' })
+          }
+          case 'x': {
+            // Get file order for proper cut ordering
+            const getDisplayedFileOrder = (window as any).getDisplayedFileOrder;
+            const fileOrder = getDisplayedFileOrder ? getDisplayedFileOrder() : undefined;
+            vscode.postMessage({ type: 'cutMatches', fileOrder })
             event.preventDefault()
             break
-          case 'v':
-            vscode.postMessage({ type: 'pasteToMatches' })
+          }
+          case 'v': {
+            // Get file order for proper paste ordering
+            const getDisplayedFileOrder = (window as any).getDisplayedFileOrder;
+            const fileOrder = getDisplayedFileOrder ? getDisplayedFileOrder() : undefined;
+            vscode.postMessage({ type: 'pasteToMatches', fileOrder })
             event.preventDefault()
             break
+          }
           case 'n':
             vscode.postMessage({ type: 'copyFileNames' })
             event.preventDefault()
