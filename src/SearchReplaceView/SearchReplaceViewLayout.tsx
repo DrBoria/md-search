@@ -2187,7 +2187,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                                 }
                             }}
                         >
-                            New search
+                            OK
                         </VSCodeButton>
                     </div>
                 )}

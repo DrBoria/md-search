@@ -349,6 +349,12 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
     if (normalizedPath.startsWith('/file:///')) {
       normalizedPath = normalizedPath.replace('/file://', '')
     }
+    
+    try {
+      normalizedPath = decodeURIComponent(normalizedPath)
+    } catch (error) {
+      logMessage(`Failed to decode URI component for path: ${normalizedPath}`)
+    }
 
     try {
       source = await FsImpl.readFile(normalizedPath, 'utf8')
