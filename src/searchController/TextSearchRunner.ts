@@ -349,7 +349,7 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
     if (normalizedPath.startsWith('/file:///')) {
       normalizedPath = normalizedPath.replace('/file://', '')
     }
-    
+
     try {
       normalizedPath = decodeURIComponent(normalizedPath)
     } catch (error) {
