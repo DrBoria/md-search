@@ -553,6 +553,25 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
             }
             break
           }
+          case 'updateFileOrder': {
+            // Handle custom file order update from drag and drop
+            try {
+              this.extension.channel.appendLine(
+                `Received custom file order update: ${
+                  Object.keys(message.customOrder).length
+                } entries`
+              )
+              // Store the custom order for extension operations
+              this.extension.setCustomFileOrder(message.customOrder)
+            } catch (error) {
+              this.extension.logError(
+                error instanceof Error
+                  ? error
+                  : new Error(`Failed to update file order: ${error}`)
+              )
+            }
+            break
+          }
         }
       }
       // Execute the async handler

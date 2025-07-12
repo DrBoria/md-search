@@ -82,9 +82,11 @@ function uriToPath(uriString: string | undefined): string {
 function buildFileTree(
     resultsByFile: Record<string, SerializedTransformResultEvent[]>,
     workspacePathUri: string, // No longer undefined - it's a required parameter
+    customOrder?: { [key: string]: number }, // Add custom order parameter
 ): FolderNode {
     const root: FolderNode = { name: '', relativePath: '', type: 'folder', children: [], stats: { numMatches: 0, numFilesWithMatches: 0 } }
     const workspacePath = uriToPath(workspacePathUri); // Convert workspace URI to path
+    
     // Helper to find or create folder nodes
     const findOrCreateFolder = (
         parent: FolderNode,
@@ -105,13 +107,6 @@ function buildFileTree(
             stats: { numMatches: 0, numFilesWithMatches: 0 }
         }
         parent.children.push(newFolder)
-        // Sort children: folders first, then files, alphabetically
-        parent.children.sort((a, b) => {
-            if (a.type !== b.type) {
-                return a.type === 'folder' ? -1 : 1;
-            }
-            return a.name.localeCompare(b.name);
-        });
         return newFolder
     }
 
@@ -156,13 +151,6 @@ function buildFileTree(
                     results: fileResults
                 }
                 currentNode.children.push(fileNode)
-                // Sort children
-                currentNode.children.sort((a, b) => {
-                    if (a.type !== b.type) {
-                        return a.type === 'folder' ? -1 : 1;
-                    }
-                    return a.name.localeCompare(b.name);
-                });
             } else {
                 // It's a folder
                 currentNode = findOrCreateFolder(currentNode, segment, currentRelativePath);
@@ -175,6 +163,54 @@ function buildFileTree(
             }
         })
     })
+
+    // Apply custom sorting if provided
+    if (customOrder) {
+        const sortNodeChildren = (node: FolderNode) => {
+            node.children.sort((a, b) => {
+                const aOrder = customOrder[a.relativePath] ?? 999999;
+                const bOrder = customOrder[b.relativePath] ?? 999999;
+                
+                if (aOrder !== bOrder) {
+                    return aOrder - bOrder;
+                }
+                
+                // Fallback to type and name sorting
+                if (a.type !== b.type) {
+                    return a.type === 'folder' ? -1 : 1;
+                }
+                return a.name.localeCompare(b.name);
+            });
+            
+            // Recursively sort children of folder nodes
+            node.children.forEach(child => {
+                if (child.type === 'folder') {
+                    sortNodeChildren(child);
+                }
+            });
+        };
+        
+        sortNodeChildren(root);
+    } else {
+        // Default sorting: folders first, then files, alphabetically
+        const sortNodeChildren = (node: FolderNode) => {
+            node.children.sort((a, b) => {
+                if (a.type !== b.type) {
+                    return a.type === 'folder' ? -1 : 1;
+                }
+                return a.name.localeCompare(b.name);
+            });
+            
+            // Recursively sort children of folder nodes
+            node.children.forEach(child => {
+                if (child.type === 'folder') {
+                    sortNodeChildren(child);
+                }
+            });
+        };
+        
+        sortNodeChildren(root);
+    }
 
     return root
 }
@@ -442,6 +478,9 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
 
     // Debounce ref for postValuesChange
     const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+    // Add custom file order state for drag and drop
+    const [customFileOrder, setCustomFileOrder] = useState<{ [key: string]: number }>({});
 
     // Функция для применения накопленных результатов с адаптивным троттлингом
     const flushPendingResults = useCallback(() => {
@@ -1165,8 +1204,8 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
             ? searchLevels[searchLevels.length - 1].resultsByFile
             : resultsByFile;
 
-        return buildFileTree(activeResults, workspacePath);
-    }, [resultsByFile, searchLevels, isInNestedSearch, workspacePath]);
+        return buildFileTree(activeResults, workspacePath, customFileOrder);
+    }, [resultsByFile, searchLevels, isInNestedSearch, workspacePath, customFileOrder]);
 
     // Filter the tree for nodes with matches
     const filteredFileTree = useMemo(() => {
@@ -1393,25 +1432,43 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                     fileOrder.push(node.absolutePath);
                 } else if (node.type === 'folder') {
                     // Sort children same way as in buildFileTree
-                    const sortedChildren = [...node.children].sort((a, b) => {
-                        if (a.type !== b.type) {
-                            return a.type === 'folder' ? -1 : 1;
-                        }
-                        return a.name.localeCompare(b.name);
-                    });
+                    const sortedChildren = [...node.children];
+                    if (Object.keys(customFileOrder).length > 0) {
+                        sortedChildren.sort((a, b) => {
+                            const aOrder = customFileOrder[a.relativePath] ?? 999999;
+                            const bOrder = customFileOrder[b.relativePath] ?? 999999;
+                            
+                            if (aOrder !== bOrder) {
+                                return aOrder - bOrder;
+                            }
+                            
+                            // Fallback to type and name sorting
+                            if (a.type !== b.type) {
+                                return a.type === 'folder' ? -1 : 1;
+                            }
+                            return a.name.localeCompare(b.name);
+                        });
+                    } else {
+                        sortedChildren.sort((a, b) => {
+                            if (a.type !== b.type) {
+                                return a.type === 'folder' ? -1 : 1;
+                            }
+                            return a.name.localeCompare(b.name);
+                        });
+                    }
                     sortedChildren.forEach(traverseTree);
                 }
             };
 
             // Build tree and traverse it
-            const tree = buildFileTree(activeResults, workspacePath);
+            const tree = buildFileTree(activeResults, workspacePath, customFileOrder);
             const filteredTree = filterTreeForMatches(tree);
             if (filteredTree && filteredTree.type === 'folder') {
                 filteredTree.children.forEach(traverseTree);
             }
             return fileOrder;
         } else {
-            // For list view, sort files alphabetically by display path
+            // For list view, sort files by custom order or alphabetically
             const filesWithPaths = Object.keys(activeResults).map(filePath => {
                 const displayPath = workspacePath
                     ? path.relative(uriToPath(workspacePath), uriToPath(filePath))
@@ -1419,11 +1476,25 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                 return { filePath, displayPath };
             });
 
-            // Sort by display path (same as in renderListViewResults)
-            filesWithPaths.sort((a, b) => a.displayPath.localeCompare(b.displayPath));
+            // Sort by custom order if available, otherwise by display path
+            if (Object.keys(customFileOrder).length > 0) {
+                filesWithPaths.sort((a, b) => {
+                    const aOrder = customFileOrder[a.displayPath] ?? 999999;
+                    const bOrder = customFileOrder[b.displayPath] ?? 999999;
+                    
+                    if (aOrder !== bOrder) {
+                        return aOrder - bOrder;
+                    }
+                    
+                    return a.displayPath.localeCompare(b.displayPath);
+                });
+            } else {
+                filesWithPaths.sort((a, b) => a.displayPath.localeCompare(b.displayPath));
+            }
+            
             return filesWithPaths.map(item => item.filePath);
         }
-    }, [viewMode, isInNestedSearch, searchLevels, resultsByFile, workspacePath]);
+    }, [viewMode, isInNestedSearch, searchLevels, resultsByFile, workspacePath, customFileOrder]);
 
     // Хранение текущих значений поиска в глобальной переменной для доступа из разных компонентов
     useEffect(() => {
@@ -1751,7 +1822,7 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
         }
 
         // Создаем дерево только из видимых файлов для оптимизации производительности
-        const paginatedFileTree = buildFileTree(paginatedResults, workspacePath);
+        const paginatedFileTree = buildFileTree(paginatedResults, workspacePath, customFileOrder);
 
         return (
             <>
@@ -1770,6 +1841,9 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                             handleReplace={handleReplaceSelectedFiles}
                             currentSearchValues={values}
                             handleExcludeFile={handleExcludeFile}
+                            onDragStart={handleDragStart}
+                            onDragOver={handleDragOver}
+                            onDrop={handleDrop}
                         />
                     ))
                 ) : status.running ? (
@@ -1842,6 +1916,116 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
         vscode.postMessage({ type: 'abort' });
         setIsSearchRequested(false);
     }, [vscode]);
+
+    // Drag and drop handlers
+    const handleDragStart = useCallback((e: React.DragEvent, node: FileTreeNode) => {
+        e.dataTransfer.setData('text/plain', JSON.stringify({
+            relativePath: node.relativePath,
+            type: node.type,
+            parentPath: node.relativePath.includes('/') ? node.relativePath.substring(0, node.relativePath.lastIndexOf('/')) : ''
+        }));
+        e.dataTransfer.effectAllowed = 'move';
+    }, []);
+
+    const handleDragOver = useCallback((e: React.DragEvent, targetNode: FileTreeNode) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+    }, []);
+
+    const handleDrop = useCallback((e: React.DragEvent, targetNode: FileTreeNode) => {
+        e.preventDefault();
+        
+        try {
+            const dragData = JSON.parse(e.dataTransfer.getData('text/plain'));
+            const { relativePath: draggedPath, type: draggedType, parentPath: draggedParentPath } = dragData;
+            
+            // Don't drop on self
+            if (draggedPath === targetNode.relativePath) {
+                return;
+            }
+            
+            // Get target parent path
+            const targetParentPath = targetNode.relativePath.includes('/') 
+                ? targetNode.relativePath.substring(0, targetNode.relativePath.lastIndexOf('/'))
+                : '';
+            
+            // Only allow reordering within the same parent
+            if (draggedParentPath !== targetParentPath) {
+                return;
+            }
+            
+            // Only allow same type reordering (file with file, folder with folder)
+            if (draggedType !== targetNode.type) {
+                return;
+            }
+            
+            // Get all siblings in the same parent
+            const activeResults = isInNestedSearch && searchLevels.length > 0
+                ? searchLevels[searchLevels.length - 1].resultsByFile
+                : resultsByFile;
+            
+            const tree = buildFileTree(activeResults, workspacePath, customFileOrder);
+            const filteredTree = filterTreeForMatches(tree);
+            
+            // Find the parent node
+            const findParentNode = (node: FileTreeNode, parentPath: string): FolderNode | null => {
+                if (node.type === 'folder') {
+                    if (node.relativePath === parentPath) {
+                        return node;
+                    }
+                    for (const child of node.children) {
+                        const result = findParentNode(child, parentPath);
+                        if (result) return result;
+                    }
+                }
+                return null;
+            };
+            
+            const parentNode = targetParentPath 
+                ? findParentNode(filteredTree as FolderNode, targetParentPath)
+                : filteredTree as FolderNode;
+            
+            if (!parentNode) return;
+            
+            // Get siblings of the same type
+            const siblings = parentNode.children.filter(child => child.type === draggedType);
+            
+            // Create new order
+            const newOrder = { ...customFileOrder };
+            const baseOrder = siblings.length * 100; // Give some spacing
+            
+            // Find positions
+            const draggedIndex = siblings.findIndex(s => s.relativePath === draggedPath);
+            const targetIndex = siblings.findIndex(s => s.relativePath === targetNode.relativePath);
+            
+            if (draggedIndex === -1 || targetIndex === -1) return;
+            
+            // Reorder siblings
+            const reorderedSiblings = [...siblings];
+            const [draggedItem] = reorderedSiblings.splice(draggedIndex, 1);
+            reorderedSiblings.splice(targetIndex, 0, draggedItem);
+            
+            // Assign new order values
+            reorderedSiblings.forEach((sibling, index) => {
+                newOrder[sibling.relativePath] = baseOrder + index * 100;
+            });
+            
+            setCustomFileOrder(newOrder);
+            
+            // Send updated order to extension
+            vscode.postMessage({
+                type: 'updateFileOrder',
+                customOrder: newOrder
+            });
+            
+                 } catch (error) {
+            vscode.postMessage({
+                type: 'log',
+                level: 'error',
+                message: `Error handling drop: ${error}`
+            });
+         }
+    }, [customFileOrder, isInNestedSearch, searchLevels, resultsByFile, workspacePath, vscode]);
 
     // В секции где раньше отображались результаты в режиме списка
     return (

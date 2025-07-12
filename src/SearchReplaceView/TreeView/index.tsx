@@ -42,6 +42,9 @@ interface TreeViewNodeProps {
     handleReplace: (paths: string[]) => void; // Добавляем обработчик для замены
     currentSearchValues: SearchReplaceViewValues; // Добавляем текущие значения поиска как проп
     handleExcludeFile?: (filePath: string) => void; // Добавляем обработчик для исключения файла
+    onDragStart?: (e: React.DragEvent, node: FileTreeNode) => void; // Drag and drop handlers
+    onDragOver?: (e: React.DragEvent, node: FileTreeNode) => void;
+    onDrop?: (e: React.DragEvent, node: FileTreeNode) => void;
 }
 
 // Функция для папок (используем codicons, так как material icons не имеет специальных иконок для папок)
@@ -71,7 +74,10 @@ export const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
     handleResultItemClick,
     handleReplace,
     currentSearchValues, // Получаем значения через пропсы
-    handleExcludeFile
+    handleExcludeFile,
+    onDragStart,
+    onDragOver,
+    onDrop
 }) => {
     const indent = level * 15 // Indentation level
     const [isHovered, setIsHovered] = React.useState(false);
@@ -114,6 +120,10 @@ export const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                     title={`Click to ${isExpanded ? 'collapse' : 'expand'} ${node.name}`}
                     onMouseEnter={() => setIsHovered(true)}
                     onMouseLeave={() => setIsHovered(false)}
+                    draggable={true}
+                    onDragStart={(e) => onDragStart?.(e, node)}
+                    onDragOver={(e) => onDragOver?.(e, node)}
+                    onDrop={(e) => onDrop?.(e, node)}
                 >
                     <span className={`codicon codicon-chevron-${isExpanded ? 'down' : 'right'}`} />
                     {getFolderIcon(node.relativePath, isExpanded)}
@@ -215,6 +225,9 @@ export const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                                 handleReplace={handleReplace}
                                 currentSearchValues={currentSearchValues}
                                 handleExcludeFile={handleExcludeFile}
+                                onDragStart={onDragStart}
+                                onDragOver={onDragOver}
+                                onDrop={onDrop}
                             />
                         ))}
                     </div>
@@ -249,6 +262,10 @@ export const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                     title={canExpand ? `Click to ${isExpanded ? 'collapse' : 'expand'} matches in ${node.name}` : `Click to open ${node.name}`}
                     onMouseEnter={() => setIsHovered(true)}
                     onMouseLeave={() => setIsHovered(false)}
+                    draggable={true}
+                    onDragStart={(e) => onDragStart?.(e, node)}
+                    onDragOver={(e) => onDragOver?.(e, node)}
+                    onDrop={(e) => onDrop?.(e, node)}
                 >
                     {/* Chevron only visible if there are matches to expand */}
                     <span className={`codicon codicon-chevron-${isExpanded ? 'down' : 'right'}`}

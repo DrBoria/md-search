@@ -64,6 +64,8 @@ export class AstxExtension {
     string,
     Array<{ start: number; end: number; originalLength: number }>
   > = new Map()
+  // Store custom file order from drag and drop
+  private customFileOrder: { [key: string]: number } = {}
   // Store undo state for operations
   private undoState: {
     // Store file contents and results before cut/paste operations
@@ -199,6 +201,19 @@ export class AstxExtension {
         this.runner.setParams({ ...this.params })
       }
     }
+  }
+
+  getCustomFileOrder(): { [key: string]: number } {
+    return { ...this.customFileOrder }
+  }
+
+  setCustomFileOrder(customOrder: { [key: string]: number }): void {
+    this.customFileOrder = { ...customOrder }
+    this.channel.appendLine(
+      `Custom file order updated with ${
+        Object.keys(customOrder).length
+      } entries`
+    )
   }
 
   activate(context: vscode.ExtensionContext): void {

@@ -199,6 +199,10 @@ export type MessageFromWebview =
   | { type: 'excludeFile'; filePath: string }
   | { type: 'saveViewMode'; viewMode: 'list' | 'tree' }
   | { type: 'undoLastOperation' }
+  | {
+      type: 'updateFileOrder'
+      customOrder: { [key: string]: number }
+    }
 
 // === Combined Message Type (for use in component) ===
 export type Message = MessageFromWebview | MessageToWebview
