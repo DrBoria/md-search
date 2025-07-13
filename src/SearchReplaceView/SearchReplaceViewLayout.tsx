@@ -1990,18 +1990,31 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
             // Get siblings of the same type
             const siblings = parentNode.children.filter(child => child.type === draggedType);
             
+            // Sort siblings by current custom order to ensure correct positioning
+            const sortedSiblings = [...siblings].sort((a, b) => {
+                const aOrder = customFileOrder[a.relativePath] ?? 999999;
+                const bOrder = customFileOrder[b.relativePath] ?? 999999;
+                
+                if (aOrder !== bOrder) {
+                    return aOrder - bOrder;
+                }
+                
+                // Fallback to name sorting for items without custom order
+                return a.name.localeCompare(b.name);
+            });
+            
             // Create new order
             const newOrder = { ...customFileOrder };
-            const baseOrder = siblings.length * 100; // Give some spacing
+            const baseOrder = sortedSiblings.length * 100; // Give some spacing
             
-            // Find positions
-            const draggedIndex = siblings.findIndex(s => s.relativePath === draggedPath);
-            const targetIndex = siblings.findIndex(s => s.relativePath === targetNode.relativePath);
+            // Find positions in the sorted array
+            const draggedIndex = sortedSiblings.findIndex(s => s.relativePath === draggedPath);
+            const targetIndex = sortedSiblings.findIndex(s => s.relativePath === targetNode.relativePath);
             
             if (draggedIndex === -1 || targetIndex === -1) return;
             
             // Reorder siblings
-            const reorderedSiblings = [...siblings];
+            const reorderedSiblings = [...sortedSiblings];
             const [draggedItem] = reorderedSiblings.splice(draggedIndex, 1);
             reorderedSiblings.splice(targetIndex, 0, draggedItem);
             
