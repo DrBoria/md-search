@@ -10,19 +10,20 @@
       "args": ["run", "watch:extension"],
       "isBackground": true,
       "problemMatcher": {
-        "owner": "webpack",
-        "fileLocation": "relative",
+        "owner": "typescript",
+        "fileLocation": "absolute",
         "pattern": {
-          "regexp": "(ERROR|WARNING) in (.+) (\\d+:\\d+(-\\d+)?)\\n([^\\n]+)",
-          "severity": 1,
-          "file": 2,
-          "location": 3,
+          "regexp": "^([^\\s].*)\\((\\d+|\\d+,\\d+|\\d+,\\d+,\\d+,\\d+)\\):\\s+(error|warning|info)\\s+(TS\\d+)\\s*:\\s*(.*)$",
+          "file": 1,
+          "location": 2,
+          "severity": 3,
+          "code": 4,
           "message": 5
         },
         "background": {
           "activeOnStart": true,
-          "beginsPattern": "assets by status",
-          "endsPattern": "webpack (\\d+)\\.(\\d+)\\.(\\d+) compiled"
+          "beginsPattern": "vite .* building",
+          "endsPattern": "built in"
         }
       },
       "presentation": {
@@ -39,8 +40,8 @@
       "args": ["run", "watch:webviews"],
       "isBackground": true,
       "problemMatcher": {
-        "owner": "webpack",
-        "fileLocation": "relative",
+        "owner": "typescript",
+        "fileLocation": "absolute",
         "pattern": {
           "regexp": "^([^\\s].*)\\((\\d+|\\d+,\\d+|\\d+,\\d+,\\d+,\\d+)\\):\\s+(error|warning|info)\\s+(TS\\d+)\\s*:\\s*(.*)$",
           "file": 1,
@@ -51,8 +52,8 @@
         },
         "background": {
           "activeOnStart": true,
-          "beginsPattern": "assets by status",
-          "endsPattern": "webpack (\\d+)\\.(\\d+)\\.(\\d+) compiled"
+          "beginsPattern": "vite .* building",
+          "endsPattern": "built in"
         }
       },
       "presentation": {
@@ -69,8 +70,8 @@
       "args": ["run", "dev:webviews-debug"],
       "isBackground": true,
       "problemMatcher": {
-        "owner": "webpack",
-        "fileLocation": "relative",
+        "owner": "typescript",
+        "fileLocation": "absolute",
         "pattern": {
           "regexp": "^([^\\s].*)\\((\\d+|\\d+,\\d+|\\d+,\\d+,\\d+,\\d+)\\):\\s+(error|warning|info)\\s+(TS\\d+)\\s*:\\s*(.*)$",
           "file": 1,
@@ -81,8 +82,8 @@
         },
         "background": {
           "activeOnStart": true,
-          "beginsPattern": "^dev server running at:",
-          "endsPattern": "compiled"
+          "beginsPattern": "VITE v.* ready",
+          "endsPattern": "Local:"
         }
       },
       "presentation": {

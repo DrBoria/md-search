@@ -5,8 +5,8 @@ import {
   SerializedTransformResultEvent,
   SearchReplaceViewStatus,
   SearchReplaceViewValues,
-} from './SearchReplaceViewTypes'
-import useEventListener from '../react/useEventListener'
+} from '../../../model/SearchReplaceViewTypes'
+import useEventListener from '../../core/useEventListener'
 import SearchReplaceViewLayout from './SearchReplaceViewLayout'
 
 type SearchReplaceWebviewState = {
@@ -89,18 +89,18 @@ export default function SearchReplaceViewController({ vscode }: Props): React.Re
           // Сначала проверяем, есть ли вложенный поиск
           // В зависимости от наличия вложенного поиска меняется DOM-структура
           const isInNestedSearch = document.querySelector('.search-level-breadcrumbs')
-          
+
           let searchInput: HTMLTextAreaElement | null = null
-          
+
           if (isInNestedSearch) {
             // Если мы во вложенном поиске, ищем поле ввода вложенного поиска
             searchInput = document.querySelector('textarea[name="nestedSearch"]') as HTMLTextAreaElement
           } else {
             // Иначе ищем основное поле поиска
             searchInput = document.querySelector('textarea[name="search"]') as HTMLTextAreaElement
-        
+
           }
-          
+
           // Если нашли поле, фокусируем его
           if (searchInput) {
             searchInput.select()
@@ -114,9 +114,9 @@ export default function SearchReplaceViewController({ vscode }: Props): React.Re
           try {
             // Проверяем наличие вложенного поиска
             const isInNestedSearch = document.querySelector('.search-level-breadcrumbs')
-            
+
             let replaceInput: HTMLTextAreaElement | null = null
-            
+
             if (isInNestedSearch) {
               // Если мы во вложенном поиске, ищем поле замены вложенного поиска
               replaceInput = document.querySelector('textarea[name="nestedReplace"]') as HTMLTextAreaElement
@@ -124,19 +124,19 @@ export default function SearchReplaceViewController({ vscode }: Props): React.Re
               // Иначе ищем основное поле замены
               replaceInput = document.querySelector('textarea[name="replace"]') as HTMLTextAreaElement
             }
-            
+
             // Если нашли поле, фокусируем его
             if (replaceInput) {
               replaceInput.focus()
-              vscode.postMessage({ 
-                type: 'log', 
-                level: 'info', 
+              vscode.postMessage({
+                type: 'log',
+                level: 'info',
                 message: `Successfully focused on replace input: ${isInNestedSearch ? 'nested' : 'main'}`
               })
             } else {
-              vscode.postMessage({ 
-                type: 'log', 
-                level: 'error', 
+              vscode.postMessage({
+                type: 'log',
+                level: 'error',
                 message: 'Could not find any replace input field'
               })
             }

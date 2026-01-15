@@ -1,15 +1,15 @@
 import { CodeFrameError } from 'astx'
 import * as vscode from 'vscode'
-import { TransformResultEvent } from './searchController/SearchRunner'
-import { ASTX_REPORTS_SCHEME, ASTX_RESULT_SCHEME } from './constants'
-import { AstxExtension } from './extension'
+import { TransformResultEvent } from '../searchController/SearchRunner'
+import { ASTX_REPORTS_SCHEME, ASTX_RESULT_SCHEME } from '../../constants'
+import { IAstxExtension } from '../types'
 
 export default class TransformResultProvider
   implements vscode.TextDocumentContentProvider, vscode.FileDecorationProvider
 {
   results: Map<string, TransformResultEvent> = new Map()
 
-  constructor(private extension: AstxExtension) {
+  constructor(private extension: IAstxExtension) {
     const { runner } = extension
     runner.on('stop', () => {
       const uris = [...this.results.keys()].flatMap((raw) => [

@@ -3,16 +3,16 @@ import { TypedEmitter } from 'tiny-typed-emitter'
 import * as vscode from 'vscode'
 import { debounce, isEqual } from 'lodash'
 import { convertGlobPattern } from '../glob/convertGlobPattern'
-import { AstxExtension, Params } from '../extension'
+import { IAstxExtension, Params } from '../types'
 import { Fs } from 'astx/node/runTransformOnFile'
 import { TextDecoder } from 'util'
 import { TextSearchRunner } from './TextSearchRunner'
 import { AstxSearchRunner } from './AstxSearchRunner'
-import { AstxRunnerEvents } from './SearchRunnerTypes'
+import { AstxRunnerEvents } from '../../model/SearchRunnerTypes'
 import fs from 'fs'
 import path from 'path'
 
-export type { TransformResultEvent } from './SearchRunnerTypes'
+export type { TransformResultEvent } from '../../model/SearchRunnerTypes'
 
 // Константа с шаблонами игнорируемых файлов
 const DEFAULT_IGNORED_PATTERNS = [
@@ -92,9 +92,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
   private fileDocs: Map<string, vscode.TextDocument> = new Map()
   private fs: Fs | undefined
   private config: AstxConfig | undefined
-  private startupPromise: Promise<void> = Promise.reject(
-    new Error('Not initialized')
-  )
+  private startupPromise: Promise<void> = Promise.resolve()
   private textSearchRunner: TextSearchRunner
   private astxSearchRunner: AstxSearchRunner
   private fileIndexCache: Map<string, Set<string>> = new Map()
@@ -104,7 +102,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
   private previousInclude: string | undefined
   private previousExclude: string | undefined
 
-  constructor(private extension: AstxExtension) {
+  constructor(private extension: IAstxExtension) {
     super()
     this.params = extension.getParams()
 
@@ -353,7 +351,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       })
     })
 
-    let excludeGlob = null
+    let excludeGlob: string | null = null
     if (processedExcludePatterns.length > 0) {
       excludeGlob = `{${processedExcludePatterns.join(',')}}`
     }
@@ -997,7 +995,7 @@ export class SearchRunner extends TypedEmitter<AstxRunnerEvents> {
       const include = this.includeGlob || this.params.include || ''
 
       // Проверяем, не является ли include уже объектом RelativePattern
-      if (typeof include === 'object' && 'pattern' in include) {
+      if (include && typeof include === 'object' && 'pattern' in include) {
         includePattern = include
       } else {
         // Преобразуем строковый паттерн

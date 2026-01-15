@@ -1,6 +1,6 @@
 import React, { useCallback, useRef, useState } from 'react';
 import { css } from "@emotion/css";
-import { MessageToWebview, SearchLevel, SearchReplaceViewValues } from "./SearchReplaceViewTypes";
+import { MessageToWebview, SearchLevel, SearchReplaceViewValues } from "../../../model/SearchReplaceViewTypes";
 import { useEffect } from "react";
 import { VSCodeButton, VSCodeTextArea } from '@vscode/webview-ui-toolkit/react';
 

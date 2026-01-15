@@ -3,8 +3,8 @@
 import * as vscode from 'vscode'
 import os from 'os'
 import { SearchRunner } from './searchController/SearchRunner'
-import { SearchReplaceViewProvider } from './SearchReplaceView/SearchReplaceViewProvider'
-import TransformResultProvider from './TransformResultProvider'
+import { SearchReplaceViewProvider } from './SearchReplaceViewProvider'
+import TransformResultProvider from './providers/TransformResultProvider'
 import type * as AstxNodeTypes from 'astx/node'
 import fs from 'fs-extra'
 import path from 'path'
@@ -12,30 +12,7 @@ import { isEqual } from 'lodash'
 
 let extension: AstxExtension
 
-export type AstxParser =
-  | 'babel'
-  | 'babel/auto'
-  | 'recast/babel'
-  | 'recast/babel/auto'
-
-export type Params = {
-  find: string
-  replace?: string
-  useTransformFile?: boolean
-  transformFile?: string
-  paused?: boolean
-  include?: string
-  exclude?: string
-  parser?: AstxParser
-  prettier?: boolean
-  babelGeneratorHack?: boolean
-  preferSimpleReplacement?: boolean
-  searchMode: 'text' | 'regex' | 'astx'
-  matchCase: boolean
-  wholeWord: boolean
-  searchInResults?: number
-  isReplacement?: boolean
-}
+import { IAstxExtension, Params, AstxParser } from './types'
 
 const paramsInConfig: (keyof Params)[] = [
   'parser',
@@ -44,7 +21,7 @@ const paramsInConfig: (keyof Params)[] = [
   'preferSimpleReplacement',
 ]
 
-export class AstxExtension {
+export class AstxExtension implements IAstxExtension {
   isProduction: boolean
   replacing = false
 

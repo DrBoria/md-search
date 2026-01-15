@@ -1,10 +1,13 @@
 import * as vscode from 'vscode'
 import type { IpcMatch } from 'astx/node'
 import { TypedEmitter } from 'tiny-typed-emitter'
-import { AstxRunnerEvents, TransformResultEvent } from './SearchRunnerTypes'
+import {
+  AstxRunnerEvents,
+  TransformResultEvent,
+} from '../../model/SearchRunnerTypes'
 import { cpus } from 'os'
 import { SearchCache } from './SearchCache'
-import { Params } from '../extension'
+import { Params, IAstxExtension } from '../types'
 
 // Количество worker threads для параллельной обработки файлов
 const DEFAULT_CONCURRENT_WORKERS = Math.max(1, Math.min(cpus().length - 1, 4))
@@ -31,7 +34,7 @@ export class TextSearchRunner extends TypedEmitter<AstxRunnerEvents> {
   private searchCache: SearchCache
 
   constructor(
-    private extension: any,
+    private extension: IAstxExtension,
     concurrentWorkers = DEFAULT_CONCURRENT_WORKERS
   ) {
     super()

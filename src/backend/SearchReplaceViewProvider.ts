@@ -3,15 +3,15 @@ import {
   SearchRunner,
   ProgressEvent,
   TransformResultEvent,
-} from '../searchController/SearchRunner'
-import { AstxExtension, Params } from '../extension'
+} from './searchController/SearchRunner'
+import { IAstxExtension, Params } from './types'
 import { ASTX_RESULT_SCHEME } from '../constants'
 import {
   MessageFromWebview,
   SearchReplaceViewStatus,
   MessageToWebview,
-} from './SearchReplaceViewTypes'
-import { AstxRunnerEvents } from '../searchController/SearchRunnerTypes'
+} from '../model/SearchReplaceViewTypes'
+import { AstxRunnerEvents } from '../model/SearchRunnerTypes'
 import { randomUUID } from 'crypto'
 
 // Константа для времени буферизации результатов (мс)
@@ -48,7 +48,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
   private _processedFiles: Set<string> = new Set()
 
   constructor(
-    private extension: AstxExtension,
+    private extension: IAstxExtension,
     private readonly _extensionUri: vscode.Uri = extension.context.extensionUri,
     private readonly runner: SearchRunner = extension.runner
   ) {
@@ -685,14 +685,16 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
 
   private _getHtmlForWebview(webview: vscode.Webview): string {
     const isProduction = this.extension.isProduction
-    const port = 9099 // Тот же порт, что в webviews.webpack.config.js
+    const port = 9099 // Updated to match vite config
 
-    // Используем toWebviewUri для получения правильных URI ресурсов
+    const nonce = Buffer.from(randomUUID()).toString('base64')
+
+    // Generate URI for the entry point
     const scriptUri = isProduction
       ? webview.asWebviewUri(
           vscode.Uri.joinPath(this._extensionUri, 'out', 'SearchReplaceView.js')
         )
-      : `http://localhost:${port}/SearchReplaceView.js`
+      : `http://localhost:${port}/src/frontend/views/SearchReplace/SearchReplaceViewEntry.tsx`
 
     const stylesUri = isProduction
       ? webview.asWebviewUri(
@@ -702,9 +704,9 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
             'SearchReplaceView.css'
           )
         )
-      : `http://localhost:${port}/SearchReplaceView.css`
+      : `http://localhost:${port}/src/frontend/views/SearchReplace/SearchReplaceView.css`
 
-    // Обновляем путь к иконкам, используя скопированные в out файлы
+    // Icon paths
     const codiconsUri = isProduction
       ? webview.asWebviewUri(
           vscode.Uri.joinPath(this._extensionUri, 'out', 'codicons')
@@ -718,7 +720,6 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
           )
         )
 
-    // Добавляем URI для material-icons
     const materialIconsUri = isProduction
       ? webview.asWebviewUri(
           vscode.Uri.joinPath(this._extensionUri, 'out', 'material-icons')
@@ -733,16 +734,35 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
           )
         )
 
-    const nonce = Buffer.from(randomUUID()).toString('base64')
+    const scriptTag = isProduction
+      ? `<script nonce="${nonce}" src="${scriptUri}"></script>`
+      : `<script type="module" src="${scriptUri}"></script>`
 
-    // CSP полностью удален для разрешения загрузки любых ресурсов
+    // In Vite dev mode, we need to inject the vite client and react refresh preamble
+    const viteHead = !isProduction
+      ? `
+    <script type="module">
+      import RefreshRuntime from "http://localhost:${port}/@react-refresh"
+      RefreshRuntime.injectIntoGlobalHook(window)
+      window.$RefreshReg$ = () => {}
+      window.$RefreshSig$ = () => (type) => type
+      window.__vite_plugin_react_preamble_installed__ = true
+    </script>
+    <script type="module" src="http://localhost:${port}/@vite/client"></script>
+    `
+      : ''
 
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="stylesheet" type="text/css" href="${stylesUri}">
+  ${viteHead}
+  ${
+    isProduction
+      ? `<link rel="stylesheet" type="text/css" href="${stylesUri}">`
+      : ''
+  } 
   <link rel="stylesheet" type="text/css" href="${codiconsUri}/codicon.css">
   <title>Search & Replace</title>
 </head>
@@ -752,7 +772,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     window.codiconsPath = "${codiconsUri}";
     window.materialIconsPath = "${materialIconsUri}";
   </script>
-  <script ${isProduction ? `nonce="${nonce}"` : ''} src="${scriptUri}"></script>
+  ${scriptTag}
 </body>
 </html>`
   }

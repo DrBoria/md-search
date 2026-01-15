@@ -1,11 +1,12 @@
-import React from "react";
+import React, { memo } from "react";
 import path from 'path-browserify'
-import { SearchReplaceViewValues, SerializedTransformResultEvent } from "../SearchReplaceViewTypes";
+import { SerializedTransformResultEvent } from '../../../../model/SearchReplaceViewTypes';
 import { css } from '@emotion/css'
 import { getHighlightedMatchContextWithReplacement } from './highlightedContextWithReplacement';
 import { getHighlightedMatchContext } from './highligtedContext';
 import { getLineFromSource } from '../utils';
-import { getFileIcon } from "../../components/icons";
+import { getFileIcon } from "../../../components/icons";
+import { SearchReplaceViewValues } from "../../../../model/SearchReplaceViewTypes"; // Re-adding this as it was removed from the other import but is still used.
 
 interface FileTreeNodeBase {
     name: string

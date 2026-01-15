@@ -4,7 +4,10 @@ import type * as AstxNodeTypes from 'astx/node'
 import { AstxConfig, Transform } from 'astx'
 import { TypedEmitter } from 'tiny-typed-emitter'
 import Path from 'path'
-import { AstxRunnerEvents, TransformResultEvent } from './SearchRunnerTypes'
+import {
+  AstxRunnerEvents,
+  TransformResultEvent,
+} from '../../model/SearchRunnerTypes'
 
 export class AstxSearchRunner extends TypedEmitter<AstxRunnerEvents> {
   private processedFiles: Set<string> = new Set()

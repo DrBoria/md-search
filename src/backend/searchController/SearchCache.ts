@@ -1,5 +1,5 @@
 import * as vscode from 'vscode'
-import { TransformResultEvent } from './SearchRunnerTypes'
+import { TransformResultEvent } from '../../model/SearchRunnerTypes'
 
 // Search cache structure
 export interface SearchCacheNode {

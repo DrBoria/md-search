@@ -3,7 +3,8 @@ import ReactDOM from 'react-dom/client'
 import SearchReplaceViewController, { SearchReplaceWebviewApi } from './SearchReplaceViewController'
 
 // Import icon styles
-import '@vscode/codicons/dist/codicon.css'
+// Import icon styles
+// import '@vscode/codicons/dist/codicon.css' // Handled by backend injection
 // Import vscode-material-icons instead of file-icons-js
 import { getIconForFilePath, getIconUrlForFilePath } from 'vscode-material-icons'
 
@@ -27,8 +28,8 @@ document.body.appendChild(el)
 const root = ReactDOM.createRoot(el)
 root.render(<SearchReplaceViewController vscode={vscode as SearchReplaceWebviewApi} />)
 
-if (module.hot) {
-  module.hot.accept('./SearchReplaceViewController', () => {
+if ((module as any).hot) {
+  (module as any).hot.accept('./SearchReplaceViewController', () => {
     root.render(<SearchReplaceViewController vscode={vscode as SearchReplaceWebviewApi} />)
   })
 }
