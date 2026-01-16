@@ -31,6 +31,26 @@ export class Pipeline<T> {
     return new Pipeline(results)
   }
 
+  async processConcurrent(
+    concurrency: number,
+    processor: (item: T) => Promise<void>
+  ): Promise<void> {
+    const queue = []
+    const executing = new Set<Promise<void>>()
+
+    for (const item of this.input) {
+      const p = Promise.resolve().then(() => processor(item))
+      executing.add(p)
+      const clean = () => executing.delete(p)
+      p.then(clean).catch(clean)
+
+      if (executing.size >= concurrency) {
+        await Promise.race(executing)
+      }
+    }
+    await Promise.all(executing)
+  }
+
   execute(): T[] {
     return this.input
   }

@@ -2,13 +2,18 @@
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode'
 import os from 'os'
-import { SearchRunner } from './searchController/SearchRunner'
+import { SearchOrchestrator } from './searchController/SearchOrchestrator'
 import { SearchReplaceViewProvider } from './SearchReplaceViewProvider'
 import TransformResultProvider from './providers/TransformResultProvider'
 import type * as AstxNodeTypes from 'astx/node'
 import fs from 'fs-extra'
 import path from 'path'
 import { isEqual } from 'lodash'
+import { Container, SERVICE_KEYS } from './ioc/Container'
+import { FileService } from './search/services/FileService'
+import { TextSearchService } from './search/services/TextSearchService'
+import { SearchCache } from './search/services/CacheService'
+import { SearchWorkflow } from './search/workflow/SearchWorkflow'
 
 let extension: AstxExtension
 
@@ -26,7 +31,7 @@ export class AstxExtension implements IAstxExtension {
   replacing = false
 
   channel: vscode.OutputChannel = vscode.window.createOutputChannel('mdSearch')
-  runner: SearchRunner
+  runner: SearchOrchestrator
   transformResultProvider: TransformResultProvider
   searchReplaceViewProvider: SearchReplaceViewProvider
   fsWatcher: vscode.FileSystemWatcher | undefined
@@ -68,7 +73,27 @@ export class AstxExtension implements IAstxExtension {
     } as Params
     this.isProduction =
       context.extensionMode === vscode.ExtensionMode.Production
-    this.runner = new SearchRunner(this)
+
+    // Initialize Services & DI
+    const fileService = new FileService()
+    const textSearchService = new TextSearchService()
+    const cacheService = new SearchCache()
+
+    Container.register(SERVICE_KEYS.FileService, fileService)
+    Container.register(SERVICE_KEYS.TextSearchService, textSearchService)
+    Container.register(SERVICE_KEYS.CacheService, cacheService)
+
+    const workflow = new SearchWorkflow(
+      fileService,
+      textSearchService,
+      cacheService
+    )
+    Container.register(SERVICE_KEYS.SearchWorkflow, workflow)
+
+    // Create Orchestrator
+    this.runner = new SearchOrchestrator(this, workflow, cacheService)
+    Container.register(SERVICE_KEYS.SearchOrchestrator, this.runner)
+
     this.transformResultProvider = new TransformResultProvider(this)
     this.searchReplaceViewProvider = new SearchReplaceViewProvider(this)
   }
@@ -367,7 +392,7 @@ export class AstxExtension implements IAstxExtension {
     this.runner.clearCache()
 
     // eslint-disable-next-line no-console
-    await this.runner.shutdown().catch((error) => console.error(error))
+    await this.runner.shutdown().catch((error: any) => console.error(error))
   }
 
   private setExternalWatchPattern(
@@ -529,7 +554,10 @@ export class AstxExtension implements IAstxExtension {
                   totalReplacements += replacementCount
                   totalFilesChanged++
                   const newContentBytes = Buffer.from(newContent, 'utf8')
-                  await vscode.workspace.fs.writeFile(uri, newContentBytes)
+                  await vscode.workspace.fs.writeFile(
+                    uri,
+                    newContentBytes as any
+                  )
                 }
               } catch (error: any) {
                 this.logError(
@@ -660,7 +688,7 @@ export class AstxExtension implements IAstxExtension {
         try {
           const uri = vscode.Uri.parse(uriString)
           const contentBytes = Buffer.from(originalContent, 'utf8')
-          await vscode.workspace.fs.writeFile(uri, contentBytes)
+          await vscode.workspace.fs.writeFile(uri, contentBytes as any)
           restoredCount++
         } catch (error: any) {
           this.logError(
@@ -1048,7 +1076,7 @@ export class AstxExtension implements IAstxExtension {
 
                 // Write directly to file
                 const newContentBytes = Buffer.from(newContent, 'utf8')
-                await vscode.workspace.fs.writeFile(uri, newContentBytes)
+                await vscode.workspace.fs.writeFile(uri, newContentBytes as any)
               }
             } catch (error: any) {
               this.logError(
@@ -1153,7 +1181,7 @@ export class AstxExtension implements IAstxExtension {
         if (newContent !== originalContent) {
           totalFilesChanged++
           const newContentBytes = Buffer.from(newContent, 'utf8')
-          await vscode.workspace.fs.writeFile(uri, newContentBytes)
+          await vscode.workspace.fs.writeFile(uri, newContentBytes as any)
           this.channel.appendLine(
             `Pasted to ${positions.length} positions in: ${uri.fsPath}`
           )
