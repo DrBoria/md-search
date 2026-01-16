@@ -17,6 +17,7 @@ export interface AstxRunnerEvents {
   done: () => void
   error: (error: Error) => void
   replaceDone: () => void
+  match: (match: any) => void
   abort: () => void
 }
 

@@ -1,10 +1,10 @@
 import * as vscode from 'vscode'
 import {
   SearchRunner,
-  ProgressEvent,
   TransformResultEvent,
 } from './searchController/SearchRunner'
-import { IAstxExtension, Params } from './types'
+import type { IAstxExtension, ProgressEvent } from './types'
+import { Params } from './types'
 import { ASTX_RESULT_SCHEME } from '../constants'
 import {
   MessageFromWebview,

@@ -26,6 +26,24 @@ export type Params = {
   isReplacement?: boolean
 }
 
+export type IpcMatch = {
+  type: 'match'
+  start: number
+  end: number
+  file: string
+  source: string
+  captures: Record<string, string>
+  loc: {
+    start: { line: number; column: number }
+    end: { line: number; column: number }
+  }
+}
+
+export type ProgressEvent = {
+  completed: number
+  total: number
+}
+
 export interface IAstxExtension {
   isProduction: boolean
   context: vscode.ExtensionContext

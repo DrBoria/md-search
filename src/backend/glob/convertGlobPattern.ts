@@ -30,10 +30,14 @@ export function convertGlobPattern(
   // без глобальных символов (* ? [ ] { })
   if (/^[^*?[\]{}]+$/.test(patterns) && !path.extname(patterns)) {
     globLogger.appendLine(`Detected simple directory path: "${patterns}"`)
-    return new vscode.RelativePattern(
-      vscode.workspace.workspaceFolders![0],
-      `${patterns}/**/*`
-    )
+    const appWorkspaceFolders = vscode.workspace.workspaceFolders
+    if (appWorkspaceFolders && appWorkspaceFolders.length > 0) {
+      return new vscode.RelativePattern(
+        appWorkspaceFolders[0],
+        `${patterns}/**/*`
+      )
+    }
+    return patterns
   }
 
   const specificFolderPatterns: Map<string, string[]> = new Map()
@@ -56,20 +60,26 @@ export function convertGlobPattern(
         specificFolderPatterns.set(workspaceFolder, (forFolder = []))
       forFolder?.push(path.relative(basedir, pattern))
     } else {
+      // Don't add **/ prefix if the pattern already starts with it or is relative
+      const isRecursive = pattern.startsWith('**')
       generalPatterns.push(
-        pattern.startsWith('.') ? pattern : path.join('**', pattern)
+        pattern.startsWith('.') || isRecursive
+          ? pattern
+          : path.join('**', pattern)
       )
     }
   }
 
   for (const [workspaceFolder, patterns] of specificFolderPatterns.entries()) {
-    resultPatterns.push(path.join(workspaceFolder, joinPatterns(patterns)))
+    // Should ideally construct a relative pattern like "FolderName/pattern" if possible,
+    // but specific folder targeting via glob strings usually requires the folder name relative to workspace root?
+    // If we have map of Name -> Path, we can reconstruct Name.
+    const folderName = path.basename(workspaceFolder)
+    resultPatterns.push(path.join(folderName, joinPatterns(patterns)))
   }
 
   if (generalPatterns.length) {
-    resultPatterns.push(
-      path.join(joinPatterns(workspaceFolders), joinPatterns(generalPatterns))
-    )
+    resultPatterns.push(joinPatterns(generalPatterns))
   }
 
   // Если паттерн содержит только имя директории без глобальных шаблонов, добавим '**/*'

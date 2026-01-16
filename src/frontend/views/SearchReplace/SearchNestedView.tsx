@@ -35,47 +35,96 @@ export const SearchNestedView = ({
 
     const toggleNestedMatchCase = useCallback(() => {
         setSearchLevels((prev: SearchLevel[]) => {
-            // Создаем копию массива
             const newLevels = [...prev];
+            const currentLevel = newLevels[values.searchInResults];
 
-            // Обновляем активный уровень поиска
-            if (values.searchInResults < newLevels.length) {
-                newLevels[values.searchInResults] = {
-                    ...newLevels[values.searchInResults],
-                    values: {
-                        ...newLevels[values.searchInResults].values,
-                        matchCase: !newLevels[values.searchInResults].values?.matchCase
-                    }
+            if (currentLevel) {
+                const currentVals = currentLevel.values || {};
+                const nextMatchCase = !currentVals.matchCase;
+
+                const nextValues = {
+                    ...currentVals,
+                    matchCase: nextMatchCase
                 };
+
+                newLevels[values.searchInResults] = {
+                    ...currentLevel,
+                    values: nextValues
+                };
+
+                // Send immediately using the calculated nextValues
+                vscode.postMessage({
+                    type: 'log',
+                    level: 'info',
+                    message: `[SearchNestedView] Toggling matchCase to ${nextMatchCase} for level ${values.searchInResults}`
+                });
+
+                vscode.postMessage({
+                    type: 'values',
+                    values: {
+                        ...nextValues,
+                        searchInResults: values.searchInResults
+                    }
+                });
+
+                // Trigger search immediately
+                vscode.postMessage({
+                    type: 'search',
+                    ...nextValues,
+                    searchInResults: values.searchInResults
+                });
             }
 
             return newLevels;
         });
-    }, [values.searchInResults]);
+    }, [values.searchInResults, vscode]);
 
 
     const handleNestedModeChange = useCallback((newMode: SearchReplaceViewValues['searchMode']) => {
         setSearchLevels((prev: SearchLevel[]) => {
-            // Создаем копию массива
             const newLevels = [...prev];
+            const currentLevel = newLevels[values.searchInResults];
 
-            // Обновляем активный уровень поиска
-            if (values.searchInResults < newLevels.length) {
-                const currentMode = newLevels[values.searchInResults].values?.searchMode;
+            if (currentLevel) {
+                const currentVals = currentLevel.values || {};
+                const currentMode = currentVals.searchMode;
                 const modeToSet = (newMode === currentMode && newMode !== 'text') ? 'text' : newMode;
 
-                newLevels[values.searchInResults] = {
-                    ...newLevels[values.searchInResults],
-                    values: {
-                        ...newLevels[values.searchInResults].values,
-                        searchMode: modeToSet
-                    }
+                const nextValues = {
+                    ...currentVals,
+                    searchMode: modeToSet
                 };
+
+                newLevels[values.searchInResults] = {
+                    ...currentLevel,
+                    values: nextValues
+                };
+
+                vscode.postMessage({
+                    type: 'log',
+                    level: 'info',
+                    message: `[SearchNestedView] Setting searchMode to ${modeToSet}`
+                });
+
+                vscode.postMessage({
+                    type: 'values',
+                    values: {
+                        ...nextValues,
+                        searchInResults: values.searchInResults
+                    }
+                });
+
+                // Trigger search immediately
+                vscode.postMessage({
+                    type: 'search',
+                    ...nextValues,
+                    searchInResults: values.searchInResults
+                });
             }
 
             return newLevels;
         });
-    }, [values.searchInResults]);
+    }, [values.searchInResults, vscode]);
 
     const handleNestedReplaceAllClick = useCallback(() => {
         // First, update the main values with nested values temporarily
@@ -131,23 +180,48 @@ export const SearchNestedView = ({
 
     const toggleNestedWholeWord = useCallback(() => {
         setSearchLevels((prev: SearchLevel[]) => {
-            // Создаем копию массива
             const newLevels = [...prev];
+            const currentLevel = newLevels[values.searchInResults];
 
-            // Обновляем активный уровень поиска
-            if (values.searchInResults < newLevels.length) {
-                newLevels[values.searchInResults] = {
-                    ...newLevels[values.searchInResults],
-                    values: {
-                        ...newLevels[values.searchInResults].values,
-                        wholeWord: !newLevels[values.searchInResults].values?.wholeWord
-                    }
+            if (currentLevel) {
+                const currentVals = currentLevel.values || {};
+                const nextWholeWord = !currentVals.wholeWord;
+
+                const nextValues = {
+                    ...currentVals,
+                    wholeWord: nextWholeWord
                 };
+
+                newLevels[values.searchInResults] = {
+                    ...currentLevel,
+                    values: nextValues
+                };
+
+                vscode.postMessage({
+                    type: 'log',
+                    level: 'info',
+                    message: `[SearchNestedView] Toggling wholeWord to ${nextWholeWord}`
+                });
+
+                vscode.postMessage({
+                    type: 'values',
+                    values: {
+                        ...nextValues,
+                        searchInResults: values.searchInResults
+                    }
+                });
+
+                // Trigger search immediately
+                vscode.postMessage({
+                    type: 'search',
+                    ...nextValues,
+                    searchInResults: values.searchInResults
+                });
             }
 
             return newLevels;
         });
-    }, [values.searchInResults]);
+    }, [values.searchInResults, vscode]);
 
 
 

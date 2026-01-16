@@ -12,7 +12,7 @@ import { isEqual } from 'lodash'
 
 let extension: AstxExtension
 
-import { IAstxExtension, Params, AstxParser } from './types'
+import { IAstxExtension, Params } from './types'
 
 const paramsInConfig: (keyof Params)[] = [
   'parser',
@@ -25,7 +25,7 @@ export class AstxExtension implements IAstxExtension {
   isProduction: boolean
   replacing = false
 
-  channel: vscode.OutputChannel = vscode.window.createOutputChannel('MD Search')
+  channel: vscode.OutputChannel = vscode.window.createOutputChannel('mdSearch')
   runner: SearchRunner
   transformResultProvider: TransformResultProvider
   searchReplaceViewProvider: SearchReplaceViewProvider
@@ -74,7 +74,7 @@ export class AstxExtension implements IAstxExtension {
   }
 
   async importAstxNode(): Promise<typeof AstxNodeTypes> {
-    const config = vscode.workspace.getConfiguration('MD Search')
+    const config = vscode.workspace.getConfiguration('mdSearch')
     if (!config.astxPath) return await import('astx/node')
 
     const result = await (async () => {
@@ -111,7 +111,7 @@ export class AstxExtension implements IAstxExtension {
   logError = (error: Error): void => {
     const message = `ERROR: ${error.stack || error.message || String(error)}`
     this.channel.appendLine(message)
-    const config = vscode.workspace.getConfiguration('MD Search')
+    const config = vscode.workspace.getConfiguration('mdSearch')
     if (config.showErrorNotifications) {
       vscode.window.showErrorMessage(message)
     }
@@ -155,18 +155,20 @@ export class AstxExtension implements IAstxExtension {
           this.setExternalWatchPattern(undefined)
         }
       }
-      const config = vscode.workspace.getConfiguration('MD Search')
+      const config = vscode.workspace.getConfiguration('mdSearch')
       for (const key of paramsInConfig) {
         if (params[key] !== this.params[key]) {
           config.update(key, params[key], vscode.ConfigurationTarget.Workspace)
         }
       }
 
-      // Clear search cache when search parameters change (matchCase, wholeWord)
+      // Clear search cache when search parameters change (matchCase, wholeWord),
+      // UNLESS we are refining a search (searchInResults > 0), in which case we need the cache history.
       if (
-        params.matchCase !== this.params.matchCase ||
-        params.wholeWord !== this.params.wholeWord ||
-        params.exclude !== this.params.exclude
+        (params.matchCase !== this.params.matchCase ||
+          params.wholeWord !== this.params.wholeWord ||
+          params.exclude !== this.params.exclude) &&
+        (!params.searchInResults || params.searchInResults === 0)
       ) {
         this.runner.clearCache()
       }
@@ -245,7 +247,7 @@ export class AstxExtension implements IAstxExtension {
       vscode.workspace.onDidChangeConfiguration(
         (e: vscode.ConfigurationChangeEvent) => {
           if (!e.affectsConfiguration('MD Search')) return
-          const config = vscode.workspace.getConfiguration('MD Search')
+          const config = vscode.workspace.getConfiguration('mdSearch')
           if (paramsInConfig.some((p) => this.params[p] !== config[p])) {
             this.setParams({
               ...this.params,
@@ -426,7 +428,7 @@ export class AstxExtension implements IAstxExtension {
 
       if (params.searchMode !== 'astx') {
         const resultsMap = this.transformResultProvider.results
-        const { find, replace, matchCase, wholeWord, searchMode } = params
+        const { find, replace, matchCase, searchMode } = params
 
         if (!find || !resultsMap) {
           this.channel.appendLine(
@@ -720,7 +722,7 @@ export class AstxExtension implements IAstxExtension {
       )
     }
 
-    for (const [uriString, result] of filesWithMatches) {
+    for (const [, result] of filesWithMatches) {
       if (result.matches && result.matches.length > 0 && result.source) {
         for (const match of result.matches) {
           const matchText = result.source.substring(match.start, match.end)
@@ -1203,9 +1205,4 @@ function normalizeFsPath(uri: vscode.Uri): string {
           : ''
       }${path.relative(folder.uri.path, uri.path)}`
     : uri.fsPath
-}
-
-// Simple regex escaper
-function escapeRegExp(string: string): string {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') // $& means the whole matched string
 }

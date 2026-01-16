@@ -1,5 +1,5 @@
 import * as vscode from 'vscode'
-import { TransformResultEvent } from '../../model/SearchRunnerTypes'
+import { TransformResultEvent } from '../../../model/SearchRunnerTypes'
 
 // Search cache structure
 export interface SearchCacheNode {
@@ -13,17 +13,22 @@ export interface SearchCacheNode {
   children: Map<string, SearchCacheNode>
   // Search completion flag
   isComplete: boolean
+  // Flag indicating if this node represents a global search (full workspace)
+  isGlobal: boolean
   // Additional search parameters for compatibility checking
   params: {
     matchCase: boolean
     wholeWord: boolean
     exclude: string | undefined
     include: string | undefined
+    searchMode: 'text' | 'regex' | 'astx'
   }
   // Excluded files that don't need to be rechecked
   excludedFiles: Set<string>
   // List of processed files
   processedFiles: Set<string>
+  // Depth of the cache node
+  depth: number
 }
 
 export class SearchCache {
@@ -36,6 +41,10 @@ export class SearchCache {
   // Counter for tracking cache size
   private size = 0
 
+  constructor() {
+    // console.log('[CacheService] Constructor called. New instance created.')
+  }
+
   /**
    * Finds a suitable cache for a new search
    * @param query search string
@@ -43,6 +52,7 @@ export class SearchCache {
    * @param wholeWord search whole words
    * @param exclude file exclusion pattern
    * @param include file inclusion pattern
+   * @param isGlobal is this a global search
    * @returns suitable cache node or null
    */
   findSuitableCache(
@@ -50,7 +60,9 @@ export class SearchCache {
     matchCase: boolean,
     wholeWord: boolean,
     exclude: string | undefined,
-    include: string | undefined = undefined
+    include: string | undefined = undefined,
+    searchMode: 'text' | 'regex' | 'astx',
+    isGlobal = true
   ): SearchCacheNode | null {
     if (!this.root) {
       return null
@@ -65,11 +77,16 @@ export class SearchCache {
         matchCase,
         wholeWord,
         exclude,
-        include
+        include,
+        searchMode,
+        isGlobal
       )
     ) {
       // Check if current node has a child that matches the query
-      for (const [, childNode] of this.currentNode.children.entries()) {
+      for (const [
+        _childQuery,
+        childNode,
+      ] of this.currentNode.children.entries()) {
         if (
           this.isCacheCompatible(
             childNode,
@@ -77,7 +94,9 @@ export class SearchCache {
             matchCase,
             wholeWord,
             exclude,
-            include
+            include,
+            searchMode,
+            isGlobal
           )
         ) {
           this.currentNode = childNode
@@ -92,7 +111,15 @@ export class SearchCache {
     }
 
     // If current node is not suitable, search from the root
-    return this.findNodeFromRoot(query, matchCase, wholeWord, exclude, include)
+    return this.findNodeFromRoot(
+      query,
+      matchCase,
+      wholeWord,
+      exclude,
+      include,
+      searchMode,
+      isGlobal
+    )
   }
 
   /**
@@ -103,7 +130,9 @@ export class SearchCache {
     matchCase: boolean,
     wholeWord: boolean,
     exclude: string | undefined,
-    include: string | undefined = undefined
+    include: string | undefined = undefined,
+    searchMode: 'text' | 'regex' | 'astx',
+    isGlobal = true
   ): SearchCacheNode | null {
     if (!this.root) {
       return null
@@ -123,7 +152,9 @@ export class SearchCache {
           matchCase,
           wholeWord,
           exclude,
-          include
+          include,
+          searchMode,
+          isGlobal
         )
       ) {
         // If current node is a prefix of the query and longer than the previous best match
@@ -158,10 +189,17 @@ export class SearchCache {
     matchCase: boolean,
     wholeWord: boolean,
     exclude: string | undefined,
-    include: string | undefined = undefined
+    include: string | undefined = undefined,
+    searchMode: 'text' | 'regex' | 'astx',
+    isGlobal = true
   ): boolean {
     // Check if query starts with cache query
     if (!query.startsWith(node.query)) {
+      return false
+    }
+
+    // If we want a global search, the node MUST be global
+    if (isGlobal && !node.isGlobal) {
       return false
     }
 
@@ -171,8 +209,11 @@ export class SearchCache {
     const sameExclude = node.params.exclude === exclude
     // Check include pattern match
     const sameInclude = node.params.include === include
+    const sameSearchMode = node.params.searchMode === searchMode
     // Must check include match, as it is critical for search results
-    return sameCase && sameWholeWord && sameExclude && sameInclude
+    return (
+      sameCase && sameWholeWord && sameExclude && sameInclude && sameSearchMode
+    )
   }
 
   /**
@@ -183,16 +224,25 @@ export class SearchCache {
     matchCase: boolean,
     wholeWord: boolean,
     exclude: string | undefined,
-    include: string | undefined = undefined
+    include: string | undefined = undefined,
+    searchMode: 'text' | 'regex' | 'astx',
+    isGlobal = true,
+    explicitParent: SearchCacheNode | null = null
   ): SearchCacheNode {
     // Find the parent node
-    const parentNode = this.findSuitableCache(
-      query,
-      matchCase,
-      wholeWord,
-      exclude,
-      include
-    )
+    const parentNode =
+      explicitParent ||
+      this.findSuitableCache(
+        query,
+        matchCase,
+        wholeWord,
+        exclude,
+        include,
+        searchMode,
+        isGlobal
+      )
+
+    const depth = parentNode ? parentNode.depth + 1 : 0
 
     const newNode: SearchCacheNode = {
       query,
@@ -200,11 +250,14 @@ export class SearchCache {
       parent: parentNode,
       children: new Map<string, SearchCacheNode>(),
       isComplete: false,
+      isGlobal,
+      depth,
       params: {
         matchCase,
         wholeWord,
         exclude,
         include,
+        searchMode,
       },
       excludedFiles: new Set<string>(),
       processedFiles: new Set<string>(),
@@ -216,19 +269,34 @@ export class SearchCache {
 
       // If the parent node is complete, copy its results to the new node
       if (parentNode.isComplete) {
-        for (const [uri, result] of parentNode.results.entries()) {
-          if (this.resultMatchesQuery(result, query, matchCase, wholeWord)) {
-            newNode.results.set(uri, result)
-          } else {
-            newNode.excludedFiles.add(uri)
+        // Only attempt to filter results if the new query is related to the parent query.
+        // If it's a completely different query (e.g. searching 'con' in results of 'Data'),
+        // checking the *previous matches* (Data) for 'con' is incorrect.
+        // We must rescan the files.
+        const parentQ = parentNode.query.toLowerCase()
+        const newQ = query.toLowerCase()
+
+        // Check for strict refinement to allow result reuse
+        const isQueryRefinement = newQ.includes(parentQ)
+        const isCaseRefinement = !parentNode.params.matchCase || matchCase
+        const isWholeWordRefinement = !parentNode.params.wholeWord || wholeWord
+
+        const canOptimize =
+          isQueryRefinement && isCaseRefinement && isWholeWordRefinement
+
+        if (canOptimize) {
+          // Copy only files that match the new query
+          // let filteredFiles = 0
+          for (const [uri, result] of parentNode.results.entries()) {
+            if (this.resultMatchesQuery(result, query, matchCase, wholeWord)) {
+              newNode.results.set(uri, result)
+              newNode.processedFiles.add(uri) // Mark as processed so we don't rescan
+            } else {
+              newNode.excludedFiles.add(uri)
+            }
           }
         }
       }
-
-      // Copy the list of processed files
-      parentNode.processedFiles.forEach((file) => {
-        newNode.processedFiles.add(file)
-      })
     } else {
       // If no parent node found, this node becomes the root
       this.root = newNode
@@ -239,6 +307,10 @@ export class SearchCache {
 
     // Trim the cache if it's too large
     this.pruneCache()
+
+    // console.log(
+    //   `[CacheService] Created new cache node. Query: "${query}", Depth: ${depth}, IsGlobal: ${isGlobal}. CurrentNode updated.`
+    // )
     return newNode
   }
 
@@ -286,7 +358,7 @@ export class SearchCache {
     }
 
     // Check each match for exact match with the new query
-    const hasMatch = result.matches.some((match) => {
+    const hasMatch = result.matches.some((match: any) => {
       const queryLength = query.length
       const matchTextLength = match.end - match.start
       const newMatchStart = Math.min(
@@ -419,6 +491,58 @@ export class SearchCache {
 
       this.size--
     }
+  }
+
+  /**
+   * Gets results from a specific ancestor depth
+   */
+  getResultsFromDepth(
+    targetDepth: number,
+    startNode: SearchCacheNode | null = this.currentNode
+  ): Map<string, TransformResultEvent> | null {
+    if (!startNode) return null
+    if (targetDepth < 0) return null
+
+    let node: SearchCacheNode | null = startNode
+
+    // Walk up to find the node at the target depth
+    while (node && node.depth > targetDepth) {
+      node = node.parent
+    }
+
+    if (node && node.depth === targetDepth) {
+      // console.log(
+      //   `[CacheService] Found ancestor at depth ${targetDepth} for query scope.`
+      // )
+      return node.results
+    }
+
+    // console.log(
+    //   `[CacheService] Could not find ancestor at depth ${targetDepth}. Current depth: ${startNode.depth}`
+    // )
+    return null
+  }
+
+  /**
+   * Gets the ancestor node at a specific depth
+   */
+  getAncestorAtDepth(
+    targetDepth: number,
+    startNode: SearchCacheNode | null = this.currentNode
+  ): SearchCacheNode | null {
+    if (!startNode) return null
+    if (targetDepth < 0) return null
+
+    let node: SearchCacheNode | null = startNode
+
+    while (node && node.depth > targetDepth) {
+      node = node.parent
+    }
+
+    if (node && node.depth === targetDepth) {
+      return node
+    }
+    return null
   }
 
   /**

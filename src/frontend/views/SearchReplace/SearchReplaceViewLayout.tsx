@@ -1291,13 +1291,15 @@ export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): R
                 values: {
                     ...values,
                     find: '', // Start with empty search
-                    replace: '' // Always start with empty replace
+                    replace: '', // Always start with empty replace
+                    matchCase: false,
+                    wholeWord: false,
+                    searchMode: 'text' // Reset searchMode to text
                 },
                 viewMode,
                 resultsByFile: {},
-                matchCase: values?.matchCase,
-                wholeWord: values?.wholeWord,
-                searchMode: values?.searchMode,
+                matchCase: false,
+                wholeWord: false, searchMode: 'text',
                 isReplaceVisible,
                 expandedFiles: new Set<string>(),
                 expandedFolders: new Set<string>(),
