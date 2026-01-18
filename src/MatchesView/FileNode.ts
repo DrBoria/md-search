@@ -1,5 +1,4 @@
-import { CodeFrameError } from 'astx'
-import { IpcMatch } from 'astx/node'
+import { IpcMatch } from '../backend/types'
 import { Uri, TreeItem, TreeItemCollapsibleState } from 'vscode'
 import * as vscode from 'vscode'
 import { TreeNode } from './TreeNode'
@@ -8,7 +7,7 @@ import path from 'path'
 import lodash from 'lodash'
 const { once } = lodash
 import LeafTreeItemNode from './LeafTreeItemNode'
-import { ASTX_REPORTS_SCHEME, ASTX_RESULT_SCHEME } from '../constants'
+import { MD_SEARCH_REPORTS_SCHEME, MD_SEARCH_RESULT_SCHEME } from '../constants'
 
 export type FileNodeProps = {
   file: Uri
@@ -23,18 +22,12 @@ export default class FileNode extends TreeNode<FileNodeProps> {
   get errorMessage(): string | null {
     const { error } = this.props
     if (!error) return null
-    if (error instanceof CodeFrameError) {
-      return error.format({
-        highlightCode: true,
-        stack: true,
-      })
-    }
     return error.stack || error.message || String(error)
   }
   getTreeItem(): TreeItem {
     const { file, transformed, reports, matches } = this.props
     const item = new TreeItem(
-      file.with({ scheme: ASTX_RESULT_SCHEME }),
+      file.with({ scheme: MD_SEARCH_RESULT_SCHEME }),
       matches.length || reports?.length
         ? TreeItemCollapsibleState.Expanded
         : TreeItemCollapsibleState.None
@@ -48,11 +41,15 @@ export default class FileNode extends TreeNode<FileNodeProps> {
       item.command = {
         title: 'view error',
         command: 'vscode.open',
-        arguments: [file.with({ scheme: ASTX_RESULT_SCHEME })],
+        arguments: [file.with({ scheme: MD_SEARCH_RESULT_SCHEME })],
       }
     } else {
-      const nodes = matches[0]?.nodes
-      const { startLine, startColumn } = nodes?.[0]?.location || {}
+      const { startLine, startColumn } = matches[0]?.loc?.start
+        ? {
+            startLine: matches[0].loc.start.line,
+            startColumn: matches[0].loc.start.column,
+          }
+        : { startLine: undefined, startColumn: undefined }
       item.command = {
         title: transformed ? 'open diff' : 'open file',
         command: transformed ? 'vscode.diff' : 'vscode.open',
@@ -60,7 +57,7 @@ export default class FileNode extends TreeNode<FileNodeProps> {
           file,
           ...(transformed
             ? [
-                file.with({ scheme: ASTX_RESULT_SCHEME }),
+                file.with({ scheme: MD_SEARCH_RESULT_SCHEME }),
                 path.basename(file.path),
               ]
             : []),
@@ -98,7 +95,7 @@ export default class FileNode extends TreeNode<FileNodeProps> {
       reportsItem.command = {
         title: 'open reports',
         command: 'vscode.open',
-        arguments: [file.with({ scheme: ASTX_REPORTS_SCHEME })],
+        arguments: [file.with({ scheme: MD_SEARCH_REPORTS_SCHEME })],
       }
     }
     return [

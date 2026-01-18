@@ -21,7 +21,7 @@ export interface SearchCacheNode {
     wholeWord: boolean
     exclude: string | undefined
     include: string | undefined
-    searchMode: 'text' | 'regex' | 'astx'
+    searchMode: 'text' | 'regex'
   }
   // Excluded files that don't need to be rechecked
   excludedFiles: Set<string>
@@ -225,7 +225,7 @@ export class SearchCache {
     wholeWord: boolean,
     exclude: string | undefined,
     include: string | undefined = undefined,
-    searchMode: 'text' | 'regex' | 'astx',
+    searchMode: 'text' | 'regex',
     isGlobal = true,
     explicitParent: SearchCacheNode | null = null
   ): SearchCacheNode {

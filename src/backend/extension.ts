@@ -5,8 +5,7 @@ import os from 'os'
 import { SearchOrchestrator } from './searchController/SearchOrchestrator'
 import { SearchReplaceViewProvider } from './SearchReplaceViewProvider'
 import TransformResultProvider from './providers/TransformResultProvider'
-import type * as AstxNodeTypes from 'astx/node'
-import fs from 'fs-extra'
+
 import path from 'path'
 import { isEqual } from 'lodash'
 import { Container, SERVICE_KEYS } from './ioc/Container'
@@ -15,18 +14,13 @@ import { TextSearchService } from './search/services/TextSearchService'
 import { SearchCache } from './search/services/CacheService'
 import { SearchWorkflow } from './search/workflow/SearchWorkflow'
 
-let extension: AstxExtension
+let extension: MdSearchExtension
 
-import { IAstxExtension, Params } from './types'
+import { IMdSearchExtension, Params } from './types'
 
-const paramsInConfig: (keyof Params)[] = [
-  'parser',
-  'prettier',
-  'babelGeneratorHack',
-  'preferSimpleReplacement',
-]
+const paramsInConfig: (keyof Params)[] = ['prettier']
 
-export class AstxExtension implements IAstxExtension {
+export class MdSearchExtension implements IMdSearchExtension {
   isProduction: boolean
   replacing = false
 
@@ -96,41 +90,6 @@ export class AstxExtension implements IAstxExtension {
 
     this.transformResultProvider = new TransformResultProvider(this)
     this.searchReplaceViewProvider = new SearchReplaceViewProvider(this)
-  }
-
-  async importAstxNode(): Promise<typeof AstxNodeTypes> {
-    const config = vscode.workspace.getConfiguration('mdSearch')
-    if (!config.astxPath) return await import('astx/node')
-
-    const result = await (async () => {
-      const pkg = await fs.readJson(path.join(config.astxPath, 'package.json'))
-      let subpath
-      if (pkg.exports['./node']) {
-        subpath =
-          typeof pkg.exports['./node'] === 'string'
-            ? pkg.exports['./node']
-            : pkg.exports['./node'].require ?? pkg.exports['./node'].default
-      } else if (pkg.exports['./*']) {
-        subpath = (
-          typeof pkg.exports['./*'] === 'string'
-            ? pkg.exports['./*']
-            : pkg.exports['./*'].require ?? pkg.exports['./*'].default
-        )?.replace('*', 'node')
-      }
-      if (!subpath) {
-        throw new Error(
-          `failed to find export map entry for ./node or a matching pattern`
-        )
-      }
-      const resolvedPath = path.join(config.astxPath, subpath)
-      this.channel.appendLine(`resolved to ${resolvedPath}`)
-      return require(/* webpackIgnore: true */ resolvedPath)
-    })()
-
-    this.channel.appendLine(
-      `successfully imported astx/node from ${config.astxPath}`
-    )
-    return result
   }
 
   logError = (error: Error): void => {
@@ -310,7 +269,6 @@ export class AstxExtension implements IAstxExtension {
 
         // Затем уже показываем представление с фокусом
         this.searchReplaceViewProvider.showWithSearchFocus()
-
         this.searchReplaceViewProvider.postMessage({
           type: 'values',
           values: newParams,
@@ -451,143 +409,122 @@ export class AstxExtension implements IAstxExtension {
         return
       }
 
-      if (params.searchMode !== 'astx') {
-        const resultsMap = this.transformResultProvider.results
-        const { find, replace, matchCase, searchMode } = params
+      const resultsMap = this.transformResultProvider.results
+      const { find, replace, matchCase, searchMode } = params
 
-        if (!find || !resultsMap) {
-          this.channel.appendLine(
-            'Replace cancelled: Missing find pattern or no search results.'
-          )
-          return
-        }
-
-        let totalReplacements = 0
-        let totalFilesChanged = 0
-
-        // Обрабатываем файлы параллельно с ограничением количества одновременных операций
-        const MAX_CONCURRENT_WRITES = 10
-        const filesToProcess = Array.from(resultsMap.entries()).filter(
-          ([_, result]) => result.matches && result.matches.length > 0
-        )
-
-        // Создаем группы файлов для параллельной обработки
-        for (let i = 0; i < filesToProcess.length; i += MAX_CONCURRENT_WRITES) {
-          const batch = filesToProcess.slice(i, i + MAX_CONCURRENT_WRITES)
-          const batchPromises = batch.map(([uriString, result]) => {
-            return (async () => {
-              try {
-                const uri = vscode.Uri.parse(uriString)
-                const contentBytes = await vscode.workspace.fs.readFile(uri)
-                const originalContent =
-                  Buffer.from(contentBytes).toString('utf8')
-
-                // Use exact match positions from search results instead of re-searching
-                if (!result.matches || result.matches.length === 0) {
-                  return
-                }
-
-                // Sort matches by start position in descending order to avoid position shifting
-                const sortedMatches = [...result.matches].sort(
-                  (a, b) => b.start - a.start
-                )
-                let newContent = originalContent
-                let replacementCount = 0
-
-                // Replace each match using exact positions
-                for (const match of sortedMatches) {
-                  if (
-                    typeof match.start !== 'number' ||
-                    typeof match.end !== 'number'
-                  ) {
-                    continue
-                  }
-
-                  // Get the matched text
-                  const matchedText = originalContent.substring(
-                    match.start,
-                    match.end
-                  )
-                  let replacementText = replace || ''
-
-                  // For regex mode, handle group substitutions ($1, $2, etc.)
-                  if (searchMode === 'regex' && replacementText.includes('$')) {
-                    try {
-                      // Create regex to extract groups from the matched text
-                      const pattern = find
-                      const flags = matchCase ? 'g' : 'gi'
-                      const regex = new RegExp(pattern, flags)
-
-                      // Execute regex on matched text to get groups
-                      const regexMatch = regex.exec(matchedText)
-                      if (regexMatch) {
-                        // Replace $1, $2, etc. with corresponding groups
-                        replacementText = replacementText.replace(
-                          /\$(\d+)/g,
-                          (_, groupNum) => {
-                            const groupIndex = parseInt(groupNum, 10)
-                            return regexMatch[groupIndex] || ''
-                          }
-                        )
-                      }
-                    } catch (error: any) {
-                      this.channel.appendLine(
-                        `Regex group substitution failed: ${error.message}`
-                      )
-                      // Fall back to literal replacement
-                    }
-                  }
-
-                  // Perform the replacement
-                  newContent =
-                    newContent.substring(0, match.start) +
-                    replacementText +
-                    newContent.substring(match.end)
-                  replacementCount++
-                }
-
-                // Write back only if content changed
-                if (newContent !== originalContent) {
-                  this.channel.appendLine(
-                    `Replacing ${replacementCount} matches in: ${uri.fsPath}`
-                  )
-                  totalReplacements += replacementCount
-                  totalFilesChanged++
-                  const newContentBytes = Buffer.from(newContent, 'utf8')
-                  await vscode.workspace.fs.writeFile(
-                    uri,
-                    newContentBytes as any
-                  )
-                }
-              } catch (error: any) {
-                this.logError(
-                  new Error(
-                    `Failed to replace in ${uriString}: ${error.message}`
-                  )
-                )
-              }
-            })()
-          })
-
-          // Ждем завершения текущей группы перед обработкой следующей
-          await Promise.all(batchPromises)
-        }
-
-        // Отправляем сообщение в webview с результатами замены
-        this.searchReplaceViewProvider.notifyReplacementComplete(
-          totalReplacements,
-          totalFilesChanged
-        )
-
-        // Clear search results only if this is not a cut operation
-        if (!isReplacementOperation) {
-          this.transformResultProvider.clear()
-        }
-
+      if (!find || !resultsMap) {
         this.channel.appendLine(
-          `${params.searchMode} replace finished. Replaced ${totalReplacements} occurrences in ${totalFilesChanged} files.`
+          'Replace cancelled: Missing find pattern or no search results.'
         )
+        return
       }
+
+      let totalReplacements = 0
+      let totalFilesChanged = 0
+
+      // Process files in parallel with concurrency limit
+      const MAX_CONCURRENT_WRITES = 10
+      const filesToProcess = Array.from(resultsMap.entries()).filter(
+        ([, result]) => result.matches && result.matches.length > 0
+      )
+
+      for (let i = 0; i < filesToProcess.length; i += MAX_CONCURRENT_WRITES) {
+        const batch = filesToProcess.slice(i, i + MAX_CONCURRENT_WRITES)
+        const batchPromises = batch.map(([uriString, result]) => {
+          return (async () => {
+            try {
+              const uri = vscode.Uri.parse(uriString)
+              const contentBytes = await vscode.workspace.fs.readFile(uri)
+              const originalContent = Buffer.from(contentBytes).toString('utf8')
+
+              if (!result.matches || result.matches.length === 0) {
+                return
+              }
+
+              // Sort matches descending to avoid position shifting during replacement
+              const sortedMatches = [...result.matches].sort(
+                (a, b) => b.start - a.start
+              )
+              let newContent = originalContent
+              let replacementCount = 0
+
+              for (const match of sortedMatches) {
+                if (
+                  typeof match.start !== 'number' ||
+                  typeof match.end !== 'number'
+                ) {
+                  continue
+                }
+
+                const matchedText = originalContent.substring(
+                  match.start,
+                  match.end
+                )
+                let replacementText = replace || ''
+
+                // Handle regex group substitutions ($1, $2, etc.)
+                if (searchMode === 'regex' && replacementText.includes('$')) {
+                  try {
+                    const pattern = find
+                    const flags = matchCase ? 'g' : 'gi'
+                    const regex = new RegExp(pattern, flags)
+
+                    const regexMatch = regex.exec(matchedText)
+                    if (regexMatch) {
+                      replacementText = replacementText.replace(
+                        /\$(\d+)/g,
+                        (_, groupNum) => {
+                          const groupIndex = parseInt(groupNum, 10)
+                          return regexMatch[groupIndex] || ''
+                        }
+                      )
+                    }
+                  } catch (error: any) {
+                    this.channel.appendLine(
+                      `Regex group substitution failed: ${error.message}`
+                    )
+                  }
+                }
+
+                newContent =
+                  newContent.substring(0, match.start) +
+                  replacementText +
+                  newContent.substring(match.end)
+                replacementCount++
+              }
+
+              if (newContent !== originalContent) {
+                this.channel.appendLine(
+                  `Replacing ${replacementCount} matches in: ${uri.fsPath}`
+                )
+                totalReplacements += replacementCount
+                totalFilesChanged++
+                const newContentBytes = Buffer.from(newContent, 'utf8')
+                await vscode.workspace.fs.writeFile(uri, newContentBytes as any)
+              }
+            } catch (error: any) {
+              this.logError(
+                new Error(`Failed to replace in ${uriString}: ${error.message}`)
+              )
+            }
+          })()
+        })
+
+        await Promise.all(batchPromises)
+      }
+
+      this.searchReplaceViewProvider.notifyReplacementComplete(
+        totalReplacements,
+        totalFilesChanged
+      )
+
+      if (!isReplacementOperation) {
+        this.transformResultProvider.clear()
+      }
+
+      this.channel.appendLine(
+        `${params.searchMode} replace finished. Replaced ${totalReplacements} occurrences in ${totalFilesChanged} files.`
+      )
     } catch (error: any) {
       this.logError(error)
     } finally {
@@ -1212,7 +1149,7 @@ export class AstxExtension implements IAstxExtension {
 }
 
 export function activate(context: vscode.ExtensionContext): void {
-  extension = new AstxExtension(context)
+  extension = new MdSearchExtension(context)
   extension.activate(context)
 
   // Remove automatic activation to prevent unwanted focus

@@ -1,0 +1,672 @@
+
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { cn } from '../utils';
+import { SearchInputSection } from './SearchInputSection';
+import SearchNestedView from './SearchNestedView';
+import { FindInFoundButton } from './components/FindInFoundButton';
+import { SearchGlobalProvider, useSearchGlobal } from './context/SearchGlobalContext';
+import { SearchItemProvider, useSearchItemController } from './context/SearchItemContext';
+import { MessageFromWebview, MessageToWebview, SearchReplaceViewValues, SerializedTransformResultEvent, SearchLevel } from '../../model/SearchReplaceViewTypes';
+import { URI } from 'vscode-uri';
+import * as path from 'path-browserify';
+import { TreeViewNode, FileTreeNode, FileNode, FolderNode } from './TreeView';
+import { VirtualizedListView } from './VirtualizedListView';
+
+// --- Interfaces ---
+
+interface SearchReplaceViewProps {
+    vscode: {
+        postMessage(message: MessageFromWebview): void;
+        getState(): { [key: string]: any } | undefined;
+        setState(newState: { [key: string]: any }): void;
+    };
+}
+
+
+
+// --- Helper Functions ---
+
+function uriToPath(uriString: string | undefined): string {
+    if (!uriString) return '';
+    try {
+        const uri = URI.parse(uriString);
+        if (uri.scheme === 'file') {
+            return uri.fsPath;
+        }
+        return uriString;
+    } catch (e) {
+        return uriString;
+    }
+}
+
+function buildFileTree(
+    resultsByFile: Record<string, SerializedTransformResultEvent[]>,
+    workspacePathUri: string,
+    customOrder?: { [key: string]: number },
+): FolderNode {
+    const root: FolderNode = { name: '', relativePath: '', type: 'folder', children: [], stats: { numMatches: 0, numFilesWithMatches: 0 } };
+    const workspacePath = uriToPath(workspacePathUri);
+
+    const findOrCreateFolder = (
+        parent: FolderNode,
+        segment: string,
+        currentRelativePath: string
+    ): FolderNode => {
+        const existing = parent.children?.find(
+            (child) => child.type === 'folder' && child.name === segment
+        ) as FolderNode | undefined;
+        if (existing) {
+            return existing;
+        }
+        const newFolder: FolderNode = {
+            name: segment,
+            relativePath: currentRelativePath,
+            type: 'folder',
+            children: [],
+            stats: { numMatches: 0, numFilesWithMatches: 0 }
+        };
+        parent.children.push(newFolder);
+        return newFolder;
+    };
+
+    Object.entries(resultsByFile).forEach(([absoluteFilePathOrUri, fileResults]) => {
+        const absoluteFilePath = uriToPath(absoluteFilePathOrUri);
+        const displayPath = workspacePath
+            ? path.relative(workspacePath, absoluteFilePath)
+            : absoluteFilePath;
+
+        const posixDisplayPath = displayPath.replace(/\\/g, '/');
+        const segments = posixDisplayPath.split('/').filter(Boolean);
+        let currentNode = root;
+        let currentRelativePath = '';
+
+        const fileMatches = fileResults?.length > 0 && fileResults[0]?.matches
+            ? fileResults.reduce((sum, r) => sum + (r.matches?.length || 0), 0)
+            : 0;
+        const hasMatches = fileMatches > 0;
+
+        if (hasMatches) {
+            root.stats!.numMatches += fileMatches;
+            root.stats!.numFilesWithMatches += 1;
+        }
+
+        segments.forEach((segment, index) => {
+            currentRelativePath = currentRelativePath ? path.posix.join(currentRelativePath, segment) : segment;
+            if (index === segments.length - 1) {
+                const fileNode: FileNode = {
+                    name: path.basename(absoluteFilePath),
+                    relativePath: posixDisplayPath,
+                    absolutePath: absoluteFilePathOrUri,
+                    type: 'file',
+                    results: fileResults
+                };
+                currentNode.children.push(fileNode);
+            } else {
+                currentNode = findOrCreateFolder(currentNode, segment, currentRelativePath);
+                if (hasMatches) {
+                    currentNode.stats!.numMatches += fileMatches;
+                    currentNode.stats!.numFilesWithMatches += 1;
+                }
+            }
+        });
+    });
+
+    if (customOrder) {
+        const sortNodeChildren = (node: FolderNode) => {
+            node.children.sort((a, b) => {
+                const aOrder = customOrder[a.relativePath] ?? 999999;
+                const bOrder = customOrder[b.relativePath] ?? 999999;
+
+                if (aOrder !== bOrder) {
+                    return aOrder - bOrder;
+                }
+                if (a.type !== b.type) {
+                    return a.type === 'folder' ? -1 : 1;
+                }
+                return a.name.localeCompare(b.name);
+            });
+            node.children.forEach(child => {
+                if (child.type === 'folder') {
+                    sortNodeChildren(child);
+                }
+            });
+        };
+        sortNodeChildren(root);
+    } else {
+        const sortNodeChildren = (node: FolderNode) => {
+            node.children.sort((a, b) => {
+                if (a.type !== b.type) {
+                    return a.type === 'folder' ? -1 : 1;
+                }
+                return a.name.localeCompare(b.name);
+            });
+            node.children.forEach(child => {
+                if (child.type === 'folder') {
+                    sortNodeChildren(child);
+                }
+            });
+        };
+        sortNodeChildren(root);
+    }
+
+    return root;
+}
+
+function filterTreeForMatches(node: FileTreeNode): FileTreeNode | null {
+    if (node.type === 'file') {
+        const hasMatches = node.results.some(r => r.matches && r.matches.length > 0);
+        return hasMatches ? node : null;
+    } else {
+        const filteredChildren = node.children
+            .map(filterTreeForMatches)
+            .filter(Boolean) as FileTreeNode[];
+
+        if (filteredChildren.length > 0) {
+            const stats = {
+                numMatches: 0,
+                numFilesWithMatches: 0
+            };
+            filteredChildren.forEach(child => {
+                if (child.type === 'folder' && child.stats) {
+                    stats.numMatches += child.stats.numMatches;
+                    stats.numFilesWithMatches += child.stats.numFilesWithMatches;
+                } else if (child.type === 'file') {
+                    const fileMatches = child.results && child.results.length > 0
+                        ? child.results.reduce((sum, r) => sum + (r.matches?.length || 0), 0)
+                        : 0;
+                    stats.numMatches += fileMatches;
+                    if (fileMatches > 0) {
+                        stats.numFilesWithMatches += 1;
+                    }
+                }
+            });
+            filteredChildren.sort((a, b) => {
+                if (a.type !== b.type) {
+                    return a.type === 'folder' ? -1 : 1;
+                }
+                return a.name.localeCompare(b.name);
+            });
+            return { ...node, children: filteredChildren, stats };
+        } else {
+            return null;
+        }
+    }
+}
+
+// --- Tree View Component ---
+
+
+
+// --- Styles & Keyframes ---
+// Moved outside to avoid re-creation
+
+const RootSearchSection = () => {
+    const searchInputRef = useRef<HTMLTextAreaElement>(null);
+
+    const {
+        values,
+        setSearchLevels,
+        postValuesChange,
+        status,
+        vscode,
+        resultsByFile,
+        valuesRef
+    } = useSearchGlobal();
+
+    const handleFindInFound = useCallback(() => {
+        // Read from ref to get the LATEST values, not stale closure values
+        const currentValues = valuesRef.current;
+
+        console.log('=== handleFindInFound START ===');
+        console.log('Current values.searchInResults:', currentValues.searchInResults);
+        console.log('Current values.find:', currentValues.find);
+
+        // Create new level
+        setSearchLevels(prev => {
+            console.log('setSearchLevels called in handleFindInFound');
+            console.log('Previous searchLevels:', JSON.stringify(prev.map(l => ({ find: l.values?.find, label: l.label }))));
+
+            const currentLevel = prev[currentValues.searchInResults];
+            if (!currentLevel) {
+                console.log('ERROR: currentLevel is null/undefined');
+                return prev;
+            }
+
+            console.log('currentLevel before update:', JSON.stringify({ find: currentLevel.values?.find, label: currentLevel.label }));
+
+            // Sync the current global values.find into this level before transitioning
+            const currentLevelWithStats = {
+                ...currentLevel,
+                values: { ...currentLevel.values, find: currentValues.find },
+                stats: { numMatches: status.numMatches, numFilesWithMatches: status.numFilesWithMatches },
+                label: currentValues.find || currentLevel.label || 'Root'
+            };
+
+            console.log('currentLevelWithStats after update:', JSON.stringify({ find: currentLevelWithStats.values?.find, label: currentLevelWithStats.label }));
+
+            const updatedLevels = [...prev];
+            updatedLevels[currentValues.searchInResults] = currentLevelWithStats;
+
+
+            const newLevel: SearchLevel = {
+                values: { ...currentValues, find: '', replace: '', matchCase: false, wholeWord: false, searchMode: 'text' },
+                viewMode: 'tree',
+                resultsByFile: {},
+                matchCase: false, wholeWord: false, searchMode: 'text',
+                isReplaceVisible: false,
+                expandedFiles: new Set<string>(),
+                expandedFolders: new Set<string>(),
+                label: '' // Will be populated by user input
+            };
+
+            console.log('New level created with find:', newLevel.values.find, 'label:', newLevel.label);
+
+            if (updatedLevels.length <= currentValues.searchInResults + 1) updatedLevels.push(newLevel);
+            else updatedLevels[currentValues.searchInResults + 1] = newLevel;
+
+            console.log('Updated searchLevels:', JSON.stringify(updatedLevels.map(l => ({ find: l.values?.find, label: l.label }))));
+
+            setTimeout(() => {
+                console.log('setTimeout postValuesChange called with searchInResults:', currentValues.searchInResults + 1);
+                postValuesChange({
+                    searchInResults: currentValues.searchInResults + 1,
+                    find: '',
+                    replace: '',
+                    matchCase: false,
+                    wholeWord: false,
+                    searchMode: 'text'
+                });
+            }, 0);
+            return updatedLevels;
+        });
+
+        if (status.running) vscode.postMessage({ type: 'stop' });
+        console.log('=== handleFindInFound END ===');
+    }, [postValuesChange, status, setSearchLevels, vscode]);
+
+    const hasResults = Object.keys(resultsByFile || {}).length > 0;
+
+    const extraActions = (
+        <FindInFoundButton onClick={handleFindInFound} visible={hasResults} />
+    );
+
+    const controller = useSearchItemController({
+        levelIndex: 0,
+        extraActions,
+        inputRef: searchInputRef
+    });
+
+    return (
+        <SearchItemProvider value={controller}>
+            <SearchInputSection className="flex-grow" />
+        </SearchItemProvider>
+    );
+};
+
+// --- Styles & Keyframes ---
+const STYLES = `
+@keyframes slideInRight { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+@keyframes slideInLeft { from { transform: translateX(-100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+@keyframes slideOutRight { from { transform: translateX(0); opacity: 1; } to { transform: translateX(100%); opacity: 0; } }
+@keyframes slideOutLeft { from { transform: translateX(0); opacity: 1; } to { transform: translateX(-100%); opacity: 0; } }
+
+.animate-slide-in-right { animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.animate-slide-in-left { animation: slideInLeft 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.animate-slide-out-right { animation: slideOutRight 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.animate-slide-out-left { animation: slideOutLeft 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+`;
+
+const ViewSlideTransition = ({ showNested, children }: { showNested: boolean, children: [React.ReactNode, React.ReactNode] }) => {
+    // children[0] = Root, children[1] = Nested
+    const [animating, setAnimating] = useState(false);
+    const [wasNested, setWasNested] = useState(showNested);
+
+    if (showNested !== wasNested) {
+        setWasNested(showNested);
+        setAnimating(true);
+    }
+
+    useEffect(() => {
+        if (animating) {
+            const timer = setTimeout(() => setAnimating(false), 300);
+            return () => clearTimeout(timer);
+        }
+    }, [animating]);
+
+    // direction: if showing nested -> forward (Root slides out Left, Nested slides in Right)
+    // if hiding nested -> backward (Nested slides out Right, Root slides in Left)
+    const direction = showNested ? 'forward' : 'backward';
+
+    return (
+        <div className="relative w-full h-full overflow-hidden">
+            {/* Root View */}
+            <div className={cn(
+                "absolute inset-0 w-full h-full transition-none",
+                !showNested && !animating ? "block" : "", // Stable Root
+                showNested && !animating ? "hidden" : "", // Stable Nested
+                animating && direction === 'forward' ? "animate-slide-out-left" : "",
+                animating && direction === 'backward' ? "animate-slide-in-left" : "",
+                // If stable nested, hide root. If stable root, show root.
+            )} style={{ display: (showNested && !animating) ? 'none' : 'block' }}>
+                {children[0]}
+            </div>
+
+            {/* Nested View */}
+            <div className={cn(
+                "absolute inset-0 w-full h-full transition-none",
+                showNested && !animating ? "block" : "",
+                !showNested && !animating ? "hidden" : "",
+                animating && direction === 'forward' ? "animate-slide-in-right" : "",
+                animating && direction === 'backward' ? "animate-slide-out-right" : ""
+            )} style={{ display: (!showNested && !animating) ? 'none' : 'block' }}>
+                {children[1]}
+            </div>
+        </div>
+    );
+};
+
+// --- Main Inner Component ---
+
+function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
+    const {
+        values,
+        resultsByFile,
+        setResultsByFile,
+        setSearchLevels,
+        handleMessage,
+        isInNestedSearch,
+        viewMode,
+        searchLevels,
+        isSearchRequested, // From Global Context
+    } = useSearchGlobal();
+
+    // Local UI State
+    const [workspacePath, setWorkspacePath] = useState<string>('');
+    // REMOVED shadowed isSearchRequested
+    const [visibleResultsLimit, setVisibleResultsLimit] = useState(50);
+    const [isLoadingMore, setIsLoadingMore] = useState(false);
+    // Derived State for Pagination
+    const paginatedFilePaths = useMemo(() => {
+        return Object.keys(resultsByFile).slice(0, visibleResultsLimit);
+    }, [resultsByFile, visibleResultsLimit]);
+    const [customFileOrder, setCustomFileOrder] = useState<{ [key: string]: number }>({});
+
+    // Derived
+    const paginatedResults = useMemo(() => {
+        if (!resultsByFile || !paginatedFilePaths || paginatedFilePaths.length === 0) {
+            return {};
+        }
+        return paginatedFilePaths.reduce((acc, path) => {
+            if (resultsByFile[path]) {
+                acc[path] = resultsByFile[path];
+            }
+            return acc;
+        }, {} as Record<string, SerializedTransformResultEvent[]>);
+    }, [paginatedFilePaths, resultsByFile]);
+
+
+    useEffect(() => {
+        const onMessage = (event: MessageEvent) => {
+            const message = event.data as MessageToWebview;
+
+            if (['initialData', 'status', 'values', 'clearResults', 'addBatchResults', 'fileUpdated', 'replacementComplete'].includes(message.type)) {
+                handleMessage(message);
+            }
+
+            switch (message.type) {
+                case 'initialData':
+                    if (message.workspacePath) setWorkspacePath(message.workspacePath);
+                    break;
+            }
+        };
+
+        window.addEventListener('message', onMessage);
+        vscode.postMessage({ type: 'mount' });
+        const handleBlur = () => vscode.postMessage({ type: 'unmount' });
+        window.addEventListener('blur', handleBlur);
+        return () => {
+            window.removeEventListener('message', onMessage);
+            window.removeEventListener('blur', handleBlur);
+        };
+    }, [handleMessage, vscode]);
+
+    // Handlers
+    const loadMoreResults = useCallback(() => {
+        if (isLoadingMore) return;
+        setIsLoadingMore(true);
+        setTimeout(() => {
+            setVisibleResultsLimit(prev => prev + 50);
+            setIsLoadingMore(false);
+        }, 50);
+    }, [isLoadingMore]);
+
+    const handleFileClick = useCallback((absolutePathOrUri: string) => {
+        vscode.postMessage({ type: 'openFile', filePath: absolutePathOrUri });
+    }, [vscode]);
+
+    const handleResultItemClick = useCallback((absolutePathOrUri: string, range?: { start: number; end: number }) => {
+        vscode.postMessage({ type: 'openFile', filePath: absolutePathOrUri, ...(range && { range }) });
+    }, [vscode]);
+
+    const handleReplaceSelectedFiles = useCallback((filePaths: string[]) => {
+        if (!values?.find || !values.replace || filePaths.length === 0) return;
+        vscode.postMessage({ type: 'replace', filePaths });
+    }, [values.find, values.replace, vscode]);
+
+    const handleExcludeFile = useCallback((filePath: string) => {
+        vscode.postMessage({ type: 'excludeFile', filePath });
+        if (isInNestedSearch && values.searchInResults > 0) {
+            setSearchLevels(prev => {
+                const newLevels = [...prev];
+                const currentLevel = newLevels[values.searchInResults];
+                if (currentLevel && currentLevel.resultsByFile[filePath]) {
+                    const updatedResultsByFile = { ...currentLevel.resultsByFile };
+                    delete updatedResultsByFile[filePath];
+                    newLevels[values.searchInResults] = { ...currentLevel, resultsByFile: updatedResultsByFile };
+                }
+                return newLevels;
+            });
+        } else {
+            setResultsByFile(prev => {
+                const newResults = { ...prev };
+                delete newResults[filePath];
+                return newResults;
+            });
+        }
+    }, [vscode, isInNestedSearch, values.searchInResults, setSearchLevels, setResultsByFile]);
+
+    const toggleFileExpansion = useCallback((relativePath: string) => {
+        setSearchLevels(prev => {
+            const index = isInNestedSearch ? values.searchInResults : 0;
+            const newLevels = [...prev];
+            if (newLevels[index]) {
+                const newSet = new Set(newLevels[index].expandedFiles);
+                if (newSet.has(relativePath)) newSet.delete(relativePath);
+                else newSet.add(relativePath);
+                newLevels[index] = { ...newLevels[index], expandedFiles: newSet };
+            }
+            return newLevels;
+        });
+    }, [isInNestedSearch, values.searchInResults, setSearchLevels]);
+
+    const toggleFolderExpansion = useCallback((relativePath: string) => {
+        setSearchLevels(prev => {
+            const index = isInNestedSearch ? values.searchInResults : 0;
+            const newLevels = [...prev];
+            if (newLevels[index]) {
+                const newSet = new Set(newLevels[index].expandedFolders);
+                if (newSet.has(relativePath)) newSet.delete(relativePath);
+                else newSet.add(relativePath);
+                newLevels[index] = { ...newLevels[index], expandedFolders: newSet };
+            }
+            return newLevels;
+        });
+    }, [isInNestedSearch, values.searchInResults, setSearchLevels]);
+
+    const handleDragStart = useCallback((e: React.DragEvent, node: FileTreeNode) => {
+        e.dataTransfer.setData('text/plain', JSON.stringify({ relativePath: node.relativePath, type: node.type }));
+        e.dataTransfer.effectAllowed = 'move';
+    }, []);
+    const handleDragOver = useCallback((e: React.DragEvent, targetNode: FileTreeNode) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }, []);
+    const handleDrop = useCallback((e: React.DragEvent, targetNode: FileTreeNode) => { e.preventDefault(); }, []);
+
+    // Render Helpers
+    const currentExpandedFiles = useMemo((): Set<string> => {
+        const level = searchLevels[isInNestedSearch ? values.searchInResults : 0];
+        const files = level?.expandedFiles;
+        return files instanceof Set ? files : new Set<string>(files || []);
+    }, [searchLevels, isInNestedSearch, values.searchInResults]);
+
+    const currentExpandedFolders = useMemo((): Set<string> => {
+        const level = searchLevels[isInNestedSearch ? values.searchInResults : 0];
+        const folders = level?.expandedFolders;
+        return folders instanceof Set ? folders : new Set<string>(folders || []);
+    }, [searchLevels, isInNestedSearch, values.searchInResults]);
+
+    const renderListViewResults = () => {
+        const resultEntries = Object.entries(paginatedResults);
+        const hasResults = resultEntries.length > 0;
+
+        if (!hasResults) {
+            return isSearchRequested ? (
+                <div className="p-[10px] text-[var(--vscode-descriptionForeground)] text-center flex justify-center items-center gap-2">
+                    <span className="codicon codicon-loading codicon-modifier-spin"></span><span>Searching...</span>
+                </div>
+            ) : (
+                <div className="p-[10px] text-[var(--vscode-descriptionForeground)] text-center">No matches found.</div>
+            );
+        }
+
+        return (
+            <>
+                {resultEntries.map(([filePath, results]) => {
+                    let displayPath = uriToPath(filePath);
+                    const safeWorkspacePath = uriToPath(workspacePath);
+                    if (safeWorkspacePath && displayPath.startsWith(safeWorkspacePath)) {
+                        displayPath = displayPath.substring(safeWorkspacePath.length);
+                        if (displayPath.startsWith('/') || displayPath.startsWith('\\')) {
+                            displayPath = displayPath.substring(1);
+                        }
+                    }
+
+                    const node: FileNode = {
+                        type: 'file',
+                        name: displayPath,
+                        relativePath: displayPath, // Using display path as relative path for list view
+                        absolutePath: filePath,
+                        results: results
+                    };
+
+                    return (
+                        <TreeViewNode
+                            key={filePath}
+                            node={node}
+                            level={0}
+                            expandedFolders={currentExpandedFolders}
+                            toggleFolderExpansion={toggleFolderExpansion}
+                            expandedFiles={currentExpandedFiles}
+                            toggleFileExpansion={toggleFileExpansion}
+                            handleFileClick={handleFileClick}
+                            handleResultItemClick={handleResultItemClick}
+                            handleReplace={handleReplaceSelectedFiles}
+                            currentSearchValues={values}
+                            handleExcludeFile={handleExcludeFile}
+                            onDragStart={handleDragStart}
+                            onDragOver={handleDragOver}
+                            onDrop={handleDrop}
+                        />
+                    );
+                })}
+                {Object.keys(resultsByFile).length > visibleResultsLimit && (
+                    <div className="p-[10px] text-center">
+                        <button className="bg-[var(--input-background)] border border-[var(--panel-view-border)] text-[var(--panel-tab-active-border)] px-3 py-[6px] rounded-[2px] cursor-pointer hover:border-[var(--panel-tab-active-border)]" onClick={loadMoreResults} disabled={isLoadingMore}>
+                            {isLoadingMore ? 'Loading...' : `Load more results`}
+                        </button>
+                    </div>
+                )}
+            </>
+        );
+    };
+
+    const renderTreeViewResults = () => {
+        if (!paginatedResults || Object.keys(paginatedResults).length === 0) {
+            return isSearchRequested ? (
+                <div className="p-[10px] text-center flex gap-2 justify-center"><span className="codicon codicon-loading codicon-modifier-spin" /><span>Searching...</span></div>
+            ) : (
+                <div className="p-[10px] text-center text-[var(--vscode-descriptionForeground)]">No matches found.</div>
+            );
+        }
+
+        const paginatedFileTree = buildFileTree(paginatedResults, workspacePath, customFileOrder);
+
+        return (
+            <>
+                {paginatedFileTree.children.length > 0 ? (
+                    paginatedFileTree.children.map(node => (
+                        <TreeViewNode
+                            key={node.relativePath}
+                            node={node}
+                            level={0}
+                            expandedFolders={currentExpandedFolders}
+                            toggleFolderExpansion={toggleFolderExpansion}
+                            expandedFiles={currentExpandedFiles}
+                            toggleFileExpansion={toggleFileExpansion}
+                            handleFileClick={handleFileClick}
+                            handleResultItemClick={handleResultItemClick}
+                            handleReplace={handleReplaceSelectedFiles}
+                            currentSearchValues={values}
+                            handleExcludeFile={handleExcludeFile}
+                            onDragStart={handleDragStart}
+                            onDragOver={handleDragOver}
+                            onDrop={handleDrop}
+                        />
+                    ))
+                ) : null}
+                {/* Only show Load More button in TreeView because ListView is virtualized */}
+                {Object.keys(resultsByFile).length > visibleResultsLimit && (
+                    <div className="p-[10px] text-center">
+                        <button className="bg-[var(--input-background)] border border-[var(--panel-view-border)] text-[var(--panel-tab-active-border)] px-3 py-[6px] rounded-[2px] cursor-pointer hover:border-[var(--panel-tab-active-border)]" onClick={loadMoreResults} disabled={isLoadingMore}>
+                            {isLoadingMore ? 'Loading...' : `Load more results`}
+                        </button>
+                    </div>
+                )}
+            </>
+        );
+    };
+
+    // --- Styles & Keyframes ---
+    // Moved outside to avoid re-creation
+
+    const renderRootView = () => (
+        <div className="flex flex-col h-full">
+            <div className="flex flex-col gap-1.5 mb-2">
+                <div className="flex items-start gap-1">
+                    <RootSearchSection />
+                </div>
+            </div>
+            <div className="flex-grow overflow-auto relative">
+                {viewMode === 'list' ? renderListViewResults() : renderTreeViewResults()}
+            </div>
+        </div>
+    );
+
+    return (
+        <div className="flex flex-col h-screen p-[5px] box-border overflow-hidden relative">
+            <style>{STYLES}</style>
+
+            <ViewSlideTransition showNested={isInNestedSearch}>
+                {renderRootView()}
+                <SearchNestedView />
+            </ViewSlideTransition>
+        </div>
+    );
+}
+
+
+export default function SearchReplaceView({ vscode }: SearchReplaceViewProps): React.ReactElement {
+    return (
+        <SearchGlobalProvider vscode={vscode}>
+            <SearchReplaceViewInner vscode={vscode} />
+        </SearchGlobalProvider>
+    );
+}

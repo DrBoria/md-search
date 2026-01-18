@@ -1,11 +1,4 @@
 import * as vscode from 'vscode'
-import type * as AstxNodeTypes from 'astx/node'
-
-export type AstxParser =
-  | 'babel'
-  | 'babel/auto'
-  | 'recast/babel'
-  | 'recast/babel/auto'
 
 export type Params = {
   find: string
@@ -15,15 +8,13 @@ export type Params = {
   paused?: boolean
   include?: string
   exclude?: string
-  parser?: AstxParser
   prettier?: boolean
-  babelGeneratorHack?: boolean
-  preferSimpleReplacement?: boolean
-  searchMode: 'text' | 'regex' | 'astx'
+  searchMode: 'text' | 'regex'
   matchCase: boolean
   wholeWord: boolean
   searchInResults?: number
   isReplacement?: boolean
+  searchNonce?: string
 }
 
 export type IpcMatch = {
@@ -44,7 +35,7 @@ export type ProgressEvent = {
   total: number
 }
 
-export interface IAstxExtension {
+export interface IMdSearchExtension {
   isProduction: boolean
   context: vscode.ExtensionContext
   channel: vscode.OutputChannel
@@ -55,7 +46,6 @@ export interface IAstxExtension {
   setParams(params: Params): void
   logError(error: Error): void
   resolveFsPath(fsPath: string): vscode.Uri
-  importAstxNode(): Promise<typeof AstxNodeTypes>
   replace(): Promise<void>
   copyMatches(fileOrder?: string[]): Promise<number>
   cutMatches(fileOrder?: string[]): Promise<number>

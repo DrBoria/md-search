@@ -1,4 +1,5 @@
 import * as React from 'react'
+import '../index.css'
 import ReactDOM from 'react-dom/client'
 import SearchReplaceViewController, { SearchReplaceWebviewApi } from './SearchReplaceViewController'
 
@@ -28,8 +29,6 @@ document.body.appendChild(el)
 const root = ReactDOM.createRoot(el)
 root.render(<SearchReplaceViewController vscode={vscode as SearchReplaceWebviewApi} />)
 
-if ((module as any).hot) {
-  (module as any).hot.accept('./SearchReplaceViewController', () => {
-    root.render(<SearchReplaceViewController vscode={vscode as SearchReplaceWebviewApi} />)
-  })
+if (import.meta.hot) {
+  import.meta.hot.accept()
 }

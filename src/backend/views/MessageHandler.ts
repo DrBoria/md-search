@@ -1,0 +1,288 @@
+import * as vscode from 'vscode'
+import { IMdSearchExtension } from '../types'
+import {
+  MessageFromWebviewSchema,
+  MessageToWebview,
+  SearchReplaceViewValues,
+  SearchReplaceViewStatus,
+} from '../../model/SearchReplaceViewTypes'
+import { MD_SEARCH_RESULT_SCHEME } from '../../constants'
+
+export class MessageHandler {
+  constructor(
+    private extension: IMdSearchExtension,
+    private viewProvider: {
+      notifyReplacementComplete: (
+        totalReplacements: number,
+        totalFilesChanged: number
+      ) => void
+      notifyCopyMatchesComplete: (count: number) => void
+      notifyCutMatchesComplete: (count: number) => void
+      notifyPasteToMatchesComplete: (count: number) => void
+      notifyCopyFileNamesComplete: (count: number) => void
+      notifyUndoComplete: (restored: boolean) => void
+      postMessage: (message: MessageToWebview) => void
+      getStatus: () => SearchReplaceViewStatus
+    }
+  ) {}
+
+  public async handle(rawMessage: unknown): Promise<void> {
+    const validation = MessageFromWebviewSchema.safeParse(rawMessage)
+
+    if (!validation.success) {
+      this.extension.logError(
+        new Error(
+          `Invalid message received from webview: ${JSON.stringify(
+            validation.error.format()
+          )}`
+        )
+      )
+      return
+    }
+
+    const message = validation.data
+
+    try {
+      switch (message.type) {
+        case 'mount':
+          await this.handleMount()
+          break
+        case 'values':
+          this.handleValues(message.values)
+          break
+        case 'replace':
+          this.handleReplace(message.filePaths)
+          break
+        case 'abort':
+          this.handleAbort()
+          break
+        case 'stop':
+          this.handleStop()
+          break
+        case 'copyMatches':
+          await this.handleCopyMatches(message.fileOrder)
+          break
+        case 'cutMatches':
+          await this.handleCutMatches(message.fileOrder)
+          break
+        case 'pasteToMatches':
+          await this.handlePasteToMatches(message.fileOrder)
+          break
+        case 'copyFileNames':
+          await this.handleCopyFileNames()
+          break
+        case 'excludeFile':
+          this.handleExcludeFile(message.filePath)
+          break
+        case 'undoLastOperation':
+          await this.handleUndoLastOperation()
+          break
+        case 'openFile':
+          await this.handleOpenFile(message.filePath, message.range)
+          break
+        case 'log':
+          this.handleLog(message.level, message.message, message.data)
+          break
+        case 'updateFileOrder':
+          this.handleUpdateFileOrder(message.customOrder)
+          break
+      }
+    } catch (error) {
+      this.extension.logError(
+        error instanceof Error
+          ? error
+          : new Error(`Error handling webview message: ${error}`)
+      )
+    }
+  }
+
+  private async handleMount(): Promise<void> {
+    const workspaceFolders = vscode.workspace.workspaceFolders || []
+    const workspacePath =
+      workspaceFolders.length > 0 ? workspaceFolders[0].uri.toString() : ''
+
+    const currentParams = this.extension.getParams()
+
+    const values: any = {
+      ...currentParams,
+      // Defaults for missing properties to satisfy SearchReplaceViewValues
+      parser: (currentParams as any).parser || 'babel',
+      babelGeneratorHack: (currentParams as any).babelGeneratorHack || false,
+      preferSimpleReplacement:
+        (currentParams as any).preferSimpleReplacement || false,
+      include: (currentParams as any).include || '',
+      exclude: (currentParams as any).exclude || '',
+      replace: currentParams.replace || '',
+      paused: (currentParams as any).paused || false,
+      prettier: (currentParams as any).prettier || false,
+      searchInResults: (currentParams as any).searchInResults || 0,
+    }
+
+    const status = this.viewProvider.getStatus()
+
+    this.viewProvider.postMessage({
+      type: 'initialData',
+      workspacePath,
+      values: values as SearchReplaceViewValues,
+      status,
+    })
+  }
+
+  private handleValues(values: any): void {
+    const newParams = values
+    this.extension.setParams(newParams)
+  }
+
+  private handleReplace(filePaths?: string[]): void {
+    filePaths = filePaths || []
+    this.extension.channel.appendLine(
+      `Replace request received with ${filePaths.length} files`
+    )
+
+    if (filePaths.length > 0) {
+      const originalResults = this.extension.transformResultProvider.results
+      const filteredResults = new Map()
+
+      for (const filePath of filePaths) {
+        if (originalResults.has(filePath)) {
+          filteredResults.set(filePath, originalResults.get(filePath))
+        }
+      }
+
+      const tempResults = this.extension.transformResultProvider.results
+      this.extension.transformResultProvider.results = filteredResults
+
+      this.extension.replace()
+
+      this.extension.transformResultProvider.results = tempResults
+    } else {
+      this.extension.replace()
+    }
+  }
+
+  private handleAbort(): void {
+    this.extension.channel.appendLine(
+      'Received stop command from webview, aborting search...'
+    )
+    this.extension.runner.abort()
+  }
+
+  private handleStop(): void {
+    this.extension.channel.appendLine(
+      'Received stop command from webview, stopping search...'
+    )
+    this.extension.runner.stop()
+  }
+
+  private async handleCopyMatches(fileOrder?: string[]): Promise<void> {
+    const count = await this.extension.copyMatches(fileOrder)
+    this.viewProvider.notifyCopyMatchesComplete(count)
+  }
+
+  private async handleCutMatches(fileOrder?: string[]): Promise<void> {
+    const count = await this.extension.cutMatches(fileOrder)
+    this.viewProvider.notifyCutMatchesComplete(count)
+  }
+
+  private async handlePasteToMatches(fileOrder?: string[]): Promise<void> {
+    const count = await this.extension.pasteToMatches(fileOrder)
+    this.viewProvider.notifyPasteToMatchesComplete(count)
+  }
+
+  private async handleCopyFileNames(): Promise<void> {
+    const count = await this.extension.copyFileNames()
+    this.viewProvider.notifyCopyFileNamesComplete(count)
+  }
+
+  private handleExcludeFile(filePath: string): void {
+    const fileUri = vscode.Uri.parse(filePath)
+    this.extension.runner.excludeFileFromCache(fileUri)
+    this.extension.transformResultProvider.results.delete(filePath)
+
+    // We need to notify the provider to update its state, but the provider handles state itself.
+    // Ideally, the provider logic should also be decoupled or exposed.
+    // For now, assuming direct manipulation is handled by the provider's listeners,
+    // but we need to trigger the fileUpdated message.
+    // Since MessageHandler doesn't have access to provider's private state,
+    // we might need to rely on the extension logic or emit an event.
+
+    // However, looking at the original code, the provider manually sends 'fileUpdated'.
+    this.viewProvider.postMessage({
+      type: 'fileUpdated',
+      filePath,
+      newSource: '',
+    })
+
+    this.extension.channel.appendLine(`File excluded from search: ${filePath}`)
+  }
+
+  private async handleUndoLastOperation(): Promise<void> {
+    try {
+      const restored = await this.extension.undoLastOperation()
+      this.viewProvider.notifyUndoComplete(restored)
+    } catch (error) {
+      this.viewProvider.notifyUndoComplete(false)
+      throw error
+    }
+  }
+
+  private async handleOpenFile(
+    filePath: string,
+    range?: { start: number }
+  ): Promise<void> {
+    const uri = vscode.Uri.parse(filePath)
+    const result = this.extension.transformResultProvider.results.get(
+      uri.toString()
+    )
+
+    if (result && result.transformed && result.transformed !== result.source) {
+      const transformedUri = uri.with({ scheme: MD_SEARCH_RESULT_SCHEME })
+      const filename = uri.path.substring(uri.path.lastIndexOf('/') + 1)
+      vscode.commands.executeCommand(
+        'vscode.diff',
+        uri,
+        transformedUri,
+        `${filename} ↔ Changes`
+      )
+    } else {
+      if (range?.start !== undefined) {
+        try {
+          const document = await vscode.workspace.openTextDocument(uri)
+          const textUpToStart = document.getText(
+            new vscode.Range(
+              new vscode.Position(0, 0),
+              document.positionAt(range.start)
+            )
+          )
+          const lineNumber = textUpToStart.split('\n').length - 1
+          const calculatedRange = new vscode.Range(
+            new vscode.Position(lineNumber, 0),
+            new vscode.Position(lineNumber, 0)
+          )
+          vscode.window.showTextDocument(uri, {
+            selection: calculatedRange,
+          })
+        } catch (error) {
+          this.extension.logError(
+            error instanceof Error ? error : new Error(String(error))
+          )
+          vscode.window.showTextDocument(uri)
+        }
+      } else {
+        vscode.window.showTextDocument(uri)
+      }
+    }
+  }
+
+  private handleLog(level: string, message: string, data: any): void {
+    const logMessage = `[Webview ${level.toUpperCase()}] ${message}`
+    this.extension.channel.appendLine(logMessage)
+    if (data) {
+      this.extension.channel.appendLine(`Data: ${JSON.stringify(data)}`)
+    }
+  }
+
+  private handleUpdateFileOrder(customOrder: { [key: string]: number }): void {
+    this.extension.setCustomFileOrder(customOrder)
+  }
+}

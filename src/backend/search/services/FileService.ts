@@ -29,7 +29,55 @@ export class FileService {
     // )
     try {
       // Basic VS Code findFiles
-      return await vscode.workspace.findFiles(include, exclude)
+      const uris = await vscode.workspace.findFiles(include, exclude)
+      return uris.filter((uri) => {
+        const ext = uri.path.split('.').pop()?.toLowerCase()
+        if (
+          ext &&
+          [
+            'png',
+            'jpg',
+            'jpeg',
+            'gif',
+            'bmp',
+            'ico',
+            'webp',
+            'tiff',
+            'mp4',
+            'mov',
+            'avi',
+            'mkv',
+            'webm',
+            'mp3',
+            'wav',
+            'ogg',
+            'flac',
+            'zip',
+            'tar',
+            'gz',
+            '7z',
+            'rar',
+            'exe',
+            'dll',
+            'so',
+            'dylib',
+            'bin',
+            'obj',
+            'class',
+            'jar',
+            'pdf',
+            'doc',
+            'docx',
+            'xls',
+            'xlsx',
+            'ppt',
+            'pptx',
+          ].includes(ext)
+        ) {
+          return false
+        }
+        return true
+      })
     } catch (error) {
       // console.error('[FileService] findFiles error:', error)
       return []

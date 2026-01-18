@@ -22,7 +22,7 @@ export function getFileIcon(filePath: string): React.ReactNode {
 
     try {
         // Используем путь к иконкам из window
-        const materialIconsPath = window.materialIconsPath || '/material-icons';
+        const materialIconsPath = (window as any).materialIconsPath || '/material-icons';
         // Получаем URL иконки с учетом пути к иконкам
         const iconUrl = materialIcons.getIconUrlForFilePath(filePath, materialIconsPath);
 

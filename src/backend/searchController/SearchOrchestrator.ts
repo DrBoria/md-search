@@ -1,8 +1,8 @@
 import { TypedEmitter } from 'tiny-typed-emitter'
 import * as vscode from 'vscode'
 import { debounce } from 'lodash'
-import { Params, IAstxExtension } from '../types'
-import { AstxRunnerEvents } from '../../model/SearchRunnerTypes'
+import { Params, IMdSearchExtension } from '../types'
+import { SearchRunnerEvents } from '../../model/SearchRunnerTypes'
 import { SearchWorkflow } from '../search/workflow/SearchWorkflow'
 import { SearchCache } from '../search/services/CacheService'
 
@@ -12,16 +12,16 @@ export type { TransformResultEvent } from '../../model/SearchRunnerTypes'
  * Controller class that manages the SearchWorkflow.
  * Orchestrates the search process and manages state/debouncing.
  */
-export class SearchOrchestrator extends TypedEmitter<AstxRunnerEvents> {
+export class SearchOrchestrator extends TypedEmitter<SearchRunnerEvents> {
   private params: Params
-  private extension: IAstxExtension
+  private extension: IMdSearchExtension
 
   // Dependencies
   private workflow: SearchWorkflow
   private cacheService: SearchCache
 
   constructor(
-    extension: IAstxExtension,
+    extension: IMdSearchExtension,
     workflow: SearchWorkflow,
     cacheService: SearchCache
   ) {

@@ -39,6 +39,7 @@ export class SearchWorkflow extends EventEmitter {
 
       // 2. Setup Cache Node
       const cacheNode = this.setupCacheNode(params, targetParentNode)
+
       if (!cacheNode && !targetParentNode) {
         // Optimization: Exact cache match found (handled inside setupCacheNode? No, separated)
         // If setupCacheNode returns null, it might mean we found an exact match and emitted results?
@@ -60,7 +61,9 @@ export class SearchWorkflow extends EventEmitter {
       const excludedFiles = this.cacheService.getExcludedFiles()
 
       // Emit cached results
-      if (cacheNode && params.searchInResults && params.searchInResults > 0) {
+      // If we have a cache node for this exact query, emit what we already have.
+      // This is crucial for re-runs (e.g. typing "let" -> clear -> "let") where the cache persists.
+      if (cacheNode && cacheNode.query === find) {
         this.emitCachedResults(cacheNode, processedFiles)
       }
 

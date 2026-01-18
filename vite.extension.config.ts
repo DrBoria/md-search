@@ -6,7 +6,7 @@ export default defineConfig({
     ssr: true,
     target: 'node16', // VS Code uses a recent Node version
     lib: {
-      entry: path.resolve(__dirname, 'src/backend/extension.ts'),
+      entry: './src/backend/extension.ts',
       fileName: () => 'extension.js',
       formats: ['cjs'],
     },
@@ -47,7 +47,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      src: path.resolve(__dirname, './src'),
+      src: path.resolve(process.cwd(), './src'),
     },
   },
 })

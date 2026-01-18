@@ -1,216 +1,252 @@
-export type SearchReplaceViewStatus = {
-  running: boolean
-  completed: number
-  total: number
-  error?: Error
-  numMatches: number
-  numFilesThatWillChange: number
-  numFilesWithMatches: number
-  numFilesWithErrors: number
-}
+import { z } from 'zod'
 
-// Represents the data received from the extension host for a single file result
-// Note: `file` is a string representation of the URI
-export type SerializedTransformResultEvent = {
-  file: string
-  source?: string
-  transformed?: string
-  matches?: Array<{
-    start: number
-    end: number
-    loc: {
-      start: { line: number; column: number }
-      end: { line: number; column: number }
-    }
-  }>
-  reports?: any[]
-  error?: any
-  data?: unknown
-}
+export const SearchReplaceViewStatusSchema = z.object({
+  running: z.boolean(),
+  completed: z.number(),
+  total: z.number(),
+  error: z.instanceof(Error).optional(),
+  numMatches: z.number(),
+  numFilesThatWillChange: z.number(),
+  numFilesWithMatches: z.number(),
+  numFilesWithErrors: z.number(),
+})
+export type SearchReplaceViewStatus = z.infer<
+  typeof SearchReplaceViewStatusSchema
+>
 
-export type AstxParser =
-  | 'babel'
-  | 'babel/auto'
-  | 'recast/babel'
-  | 'recast/babel/auto'
+export const SerializedTransformResultEventSchema = z.object({
+  file: z.string(),
+  source: z.string().optional(),
+  transformed: z.string().optional(),
+  matches: z
+    .array(
+      z.object({
+        start: z.number(),
+        end: z.number(),
+        loc: z.object({
+          start: z.object({ line: z.number(), column: z.number() }),
+          end: z.object({ line: z.number(), column: z.number() }),
+        }),
+      })
+    )
+    .optional(),
+  reports: z.array(z.any()).optional(),
+  error: z.any().optional(),
+  data: z.unknown().optional(),
+})
+export type SerializedTransformResultEvent = z.infer<
+  typeof SerializedTransformResultEventSchema
+>
 
-export interface SearchReplaceViewValues {
-  find: string
-  replace: string
-  paused: boolean
-  include: string
-  exclude: string
-  parser: string
-  prettier: boolean
-  babelGeneratorHack: boolean
-  preferSimpleReplacement: boolean
-  searchMode: 'astx' | 'text' | 'regex'
-  matchCase: boolean
-  wholeWord: boolean
-  searchInResults: number
-  isReplacement?: boolean
-}
+export const AstxParserSchema = z.enum([
+  'babel',
+  'babel/auto',
+  'recast/babel',
+  'recast/babel/auto',
+])
+export type AstxParser = z.infer<typeof AstxParserSchema>
 
-// State that can be saved and restored for undo functionality
-export interface ViewUndoState {
-  searchLevels: SearchLevel[]
-  resultsByFile: Record<string, SerializedTransformResultEvent[]>
-  values: SearchReplaceViewValues
-  expandedFiles: string[]
-  expandedFolders: string[]
-  viewMode: 'list' | 'tree'
-  isReplaceVisible: boolean
-  isNestedReplaceVisible: boolean
-}
+export const SearchReplaceViewValuesSchema = z.object({
+  find: z.string(),
+  replace: z.string(),
+  paused: z.boolean(),
+  include: z.string(),
+  exclude: z.string(),
+  parser: z.string(),
+  prettier: z.boolean(),
+  babelGeneratorHack: z.boolean(),
+  preferSimpleReplacement: z.boolean(),
+  searchMode: z.enum(['text', 'regex']),
+  matchCase: z.boolean(),
+  wholeWord: z.boolean(),
+  searchInResults: z.number(),
+  isReplacement: z.boolean().optional(),
+  searchNonce: z.string().optional(),
+})
+export type SearchReplaceViewValues = z.infer<
+  typeof SearchReplaceViewValuesSchema
+>
 
-// Represents a single level of search in the Find in Found stack
-export interface SearchLevel {
-  // Values for this search level
-  values: SearchReplaceViewValues
-  // Results for this search level
-  resultsByFile: Record<string, SerializedTransformResultEvent[]>
-  // UI state for this level
-  matchCase: boolean
-  wholeWord: boolean
-  searchMode: SearchReplaceViewValues['searchMode']
-  isReplaceVisible: boolean
-  viewMode: 'list' | 'tree' // Добавляем viewMode
-  // Navigation state within results
-  expandedFiles: Set<string> | string[]
-  expandedFolders: Set<string> | string[]
-  // Label for this search level (for navigation breadcrumbs)
-  label?: string
-  // Statistics for this search level
-  stats?: {
-    numMatches: number
-    numFilesWithMatches: number
-  }
-}
+const ViewUndoStateSchemaBase = z.object({
+  resultsByFile: z.record(
+    z.string(),
+    z.array(SerializedTransformResultEventSchema)
+  ),
+  values: SearchReplaceViewValuesSchema,
+  expandedFiles: z.array(z.string()),
+  expandedFolders: z.array(z.string()),
+  viewMode: z.enum(['list', 'tree']),
+  isReplaceVisible: z.boolean(),
+  isNestedReplaceVisible: z.boolean(),
+})
 
-export type InitialDataFromExtension = {
-  type: 'initialData'
-  values: SearchReplaceViewValues
-  status: SearchReplaceViewStatus
-  workspacePath: string
-  searchLevels?: SearchLevel[]
-}
+// Circular dependency handling for SearchLevel
+export const SearchLevelSchema: z.ZodType<any> = z.lazy(() =>
+  z.object({
+    values: SearchReplaceViewValuesSchema,
+    resultsByFile: z.record(
+      z.string(),
+      z.array(SerializedTransformResultEventSchema)
+    ),
+    matchCase: z.boolean(),
+    wholeWord: z.boolean(),
+    searchMode: SearchReplaceViewValuesSchema.shape.searchMode,
+    isReplaceVisible: z.boolean(),
+    viewMode: z.enum(['list', 'tree']),
+    expandedFiles: z.union([z.instanceof(Set), z.array(z.string())]),
+    expandedFolders: z.union([z.instanceof(Set), z.array(z.string())]),
+    label: z.string().optional(),
+    stats: z
+      .object({
+        numMatches: z.number(),
+        numFilesWithMatches: z.number(),
+      })
+      .optional(),
+  })
+)
 
-export type StatusUpdateFromExtension = {
-  type: 'status'
-  status: Partial<SearchReplaceViewStatus>
-  data: SerializedTransformResultEvent
-}
+export const ViewUndoStateSchema = ViewUndoStateSchemaBase.extend({
+  searchLevels: z.array(SearchLevelSchema),
+})
+export type ViewUndoState = z.infer<typeof ViewUndoStateSchema>
+export type SearchLevel = z.infer<typeof SearchLevelSchema>
 
-export type ValuesUpdateFromExtension = {
-  type: 'values'
-  values: Partial<SearchReplaceViewValues>
-}
+export const InitialDataFromExtensionSchema = z.object({
+  type: z.literal('initialData'),
+  values: SearchReplaceViewValuesSchema,
+  status: SearchReplaceViewStatusSchema,
+  workspacePath: z.string(),
+  searchLevels: z.array(SearchLevelSchema).optional(),
+})
+export type InitialDataFromExtension = z.infer<
+  typeof InitialDataFromExtensionSchema
+>
 
-export type ClearResultsMessage = {
-  type: 'clearResults'
-}
+export const StatusUpdateFromExtensionSchema = z.object({
+  type: z.literal('status'),
+  status: SearchReplaceViewStatusSchema.partial(),
+  data: SerializedTransformResultEventSchema.optional(),
+})
+export type StatusUpdateFromExtension = z.infer<
+  typeof StatusUpdateFromExtensionSchema
+>
 
-export type AddResultMessage = {
-  type: 'addResult'
-  data: SerializedTransformResultEvent
-}
+export const ValuesUpdateFromExtensionSchema = z.object({
+  type: z.literal('values'),
+  values: SearchReplaceViewValuesSchema.partial(),
+})
+export type ValuesUpdateFromExtension = z.infer<
+  typeof ValuesUpdateFromExtensionSchema
+>
 
-export type MessageToWebview =
-  | ValuesUpdateFromExtension
-  | StatusUpdateFromExtension
-  | ClearResultsMessage
-  | AddResultMessage
-  | InitialDataFromExtension
-  | {
-      type: 'addBatchResults'
-      data: SerializedTransformResultEvent[]
-      isSearchRunning: boolean
-    }
-  | { type: 'replaceDone' }
-  | { type: 'stop' }
-  | { type: 'focusSearchInput' }
-  | { type: 'focusReplaceInput' }
-  | {
-      type: 'replacementComplete'
-      totalReplacements: number
-      totalFilesChanged: number
-    }
-  | {
-      type: 'fileUpdated'
-      filePath: string
-      newSource: string
-    }
-  | {
-      type: 'copyMatchesComplete'
-      count: number
-    }
-  | {
-      type: 'cutMatchesComplete'
-      count: number
-    }
-  | {
-      type: 'pasteToMatchesComplete'
-      count: number
-    }
-  | {
-      type: 'copyFileNamesComplete'
-      count: number
-    }
-  | {
-      type: 'undoComplete'
-      restored: boolean
-    }
-  | {
-      type: 'restoreViewState'
-      viewState: ViewUndoState
-    }
+export const ClearResultsMessageSchema = z.object({
+  type: z.literal('clearResults'),
+})
+export type ClearResultsMessage = z.infer<typeof ClearResultsMessageSchema>
 
-export type MessageFromWebview =
-  | { type: 'mount' }
-  | { type: 'unmount' }
-  | {
-      type: 'values'
-      values: SearchReplaceViewValues
-    }
-  | ({
-      type: 'search'
-    } & SearchReplaceViewValues)
-  | {
-      type: 'replace'
-      filePaths?: string[]
-    }
-  | {
-      type: 'openFile'
-      filePath: string // String URI of the file to open
-      range?: { start: number; end: number } // Optional range (character offsets)
-    }
-  | {
-      type: 'log'
-      level: 'info' | 'warn' | 'error'
-      message: string
-      data?: any // Optional structured data
-    }
-  | { type: 'stop' }
-  | { type: 'abort' }
-  | { type: 'copyMatches'; fileOrder?: string[] }
-  | { type: 'cutMatches'; fileOrder?: string[] }
-  | { type: 'pasteToMatches'; fileOrder?: string[] }
-  | { type: 'copyFileNames' }
-  | { type: 'excludeFile'; filePath: string }
-  | { type: 'saveViewMode'; viewMode: 'list' | 'tree' }
-  | { type: 'undoLastOperation' }
-  | {
-      type: 'updateFileOrder'
-      customOrder: { [key: string]: number }
-    }
+export const AddResultMessageSchema = z.object({
+  type: z.literal('addResult'),
+  data: SerializedTransformResultEventSchema,
+})
+export type AddResultMessage = z.infer<typeof AddResultMessageSchema>
 
-// === Combined Message Type (for use in component) ===
+export const MessageToWebviewSchema = z.discriminatedUnion('type', [
+  ValuesUpdateFromExtensionSchema,
+  StatusUpdateFromExtensionSchema,
+  ClearResultsMessageSchema,
+  AddResultMessageSchema,
+  InitialDataFromExtensionSchema,
+  z.object({
+    type: z.literal('addBatchResults'),
+    data: z.array(SerializedTransformResultEventSchema),
+    isSearchRunning: z.boolean(),
+  }),
+  z.object({ type: z.literal('replaceDone') }),
+  z.object({ type: z.literal('stop') }),
+  z.object({ type: z.literal('focusSearchInput') }),
+  z.object({ type: z.literal('focusReplaceInput') }),
+  z.object({
+    type: z.literal('replacementComplete'),
+    totalReplacements: z.number(),
+    totalFilesChanged: z.number(),
+  }),
+  z.object({
+    type: z.literal('fileUpdated'),
+    filePath: z.string(),
+    newSource: z.string(),
+  }),
+  z.object({ type: z.literal('copyMatchesComplete'), count: z.number() }),
+  z.object({ type: z.literal('cutMatchesComplete'), count: z.number() }),
+  z.object({ type: z.literal('pasteToMatchesComplete'), count: z.number() }),
+  z.object({ type: z.literal('copyFileNamesComplete'), count: z.number() }),
+  z.object({ type: z.literal('undoComplete'), restored: z.boolean() }),
+  z.object({
+    type: z.literal('restoreViewState'),
+    viewState: ViewUndoStateSchema,
+  }),
+])
+export type MessageToWebview = z.infer<typeof MessageToWebviewSchema>
+
+export const MessageFromWebviewSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('mount') }),
+  z.object({ type: z.literal('unmount') }),
+  z.object({
+    type: z.literal('values'),
+    values: SearchReplaceViewValuesSchema,
+  }),
+  SearchReplaceViewValuesSchema.extend({ type: z.literal('search') }),
+  z.object({
+    type: z.literal('replace'),
+    filePaths: z.array(z.string()).optional(),
+  }),
+  z.object({
+    type: z.literal('openFile'),
+    filePath: z.string(),
+    range: z.object({ start: z.number(), end: z.number() }).optional(),
+  }),
+  z.object({
+    type: z.literal('log'),
+    level: z.enum(['info', 'warn', 'error']),
+    message: z.string(),
+    data: z.any().optional(),
+  }),
+  z.object({ type: z.literal('stop') }),
+  z.object({ type: z.literal('abort') }),
+  z.object({
+    type: z.literal('copyMatches'),
+    fileOrder: z.array(z.string()).optional(),
+  }),
+  z.object({
+    type: z.literal('cutMatches'),
+    fileOrder: z.array(z.string()).optional(),
+  }),
+  z.object({
+    type: z.literal('pasteToMatches'),
+    fileOrder: z.array(z.string()).optional(),
+  }),
+  z.object({ type: z.literal('copyFileNames') }),
+  z.object({ type: z.literal('excludeFile'), filePath: z.string() }),
+  z.object({
+    type: z.literal('saveViewMode'),
+    viewMode: z.enum(['list', 'tree']),
+  }),
+  z.object({ type: z.literal('undoLastOperation') }),
+  z.object({
+    type: z.literal('updateFileOrder'),
+    customOrder: z.record(z.string(), z.number()),
+  }),
+])
+export type MessageFromWebview = z.infer<typeof MessageFromWebviewSchema>
+
+export const SearchReplaceViewInitialDataSchema = z.object({
+  type: z.literal('initialData'),
+  values: SearchReplaceViewValuesSchema,
+  status: SearchReplaceViewStatusSchema,
+  results: z.array(SerializedTransformResultEventSchema),
+  viewMode: z.enum(['list', 'tree']).optional(),
+})
+export type SearchReplaceViewInitialData = z.infer<
+  typeof SearchReplaceViewInitialDataSchema
+>
+
 export type Message = MessageFromWebview | MessageToWebview
-
-export type SearchReplaceViewInitialData = {
-  type: 'initialData'
-  values: SearchReplaceViewValues
-  status: SearchReplaceViewStatus
-  results: SerializedTransformResultEvent[]
-  viewMode?: 'list' | 'tree' // Добавляем viewMode
-}

@@ -1,20 +1,22 @@
-import { CodeFrameError } from 'astx'
 import * as vscode from 'vscode'
 import { TransformResultEvent } from '../searchController/SearchRunner'
-import { ASTX_REPORTS_SCHEME, ASTX_RESULT_SCHEME } from '../../constants'
-import { IAstxExtension } from '../types'
+import {
+  MD_SEARCH_REPORTS_SCHEME,
+  MD_SEARCH_RESULT_SCHEME,
+} from '../../constants'
+import { IMdSearchExtension } from '../types'
 
 export default class TransformResultProvider
   implements vscode.TextDocumentContentProvider, vscode.FileDecorationProvider
 {
   results: Map<string, TransformResultEvent> = new Map()
 
-  constructor(private extension: IAstxExtension) {
+  constructor(private extension: IMdSearchExtension) {
     const { runner } = extension
     runner.on('stop', () => {
       const uris = [...this.results.keys()].flatMap((raw) => [
-        vscode.Uri.parse(raw).with({ scheme: ASTX_RESULT_SCHEME }),
-        vscode.Uri.parse(raw).with({ scheme: ASTX_REPORTS_SCHEME }),
+        vscode.Uri.parse(raw).with({ scheme: MD_SEARCH_RESULT_SCHEME }),
+        vscode.Uri.parse(raw).with({ scheme: MD_SEARCH_REPORTS_SCHEME }),
       ])
       this.results.clear()
       this._onDidChangeFileDecorations.fire(uris)
@@ -40,8 +42,8 @@ export default class TransformResultProvider
         this.results.delete(uri.toString())
       }
       const uris = [
-        event.file.with({ scheme: ASTX_RESULT_SCHEME }),
-        event.file.with({ scheme: ASTX_REPORTS_SCHEME }),
+        event.file.with({ scheme: MD_SEARCH_RESULT_SCHEME }),
+        event.file.with({ scheme: MD_SEARCH_REPORTS_SCHEME }),
       ]
       for (const uri of uris) this._onDidChange.fire(uri)
       this._onDidChangeFileDecorations.fire(uris)
@@ -51,23 +53,17 @@ export default class TransformResultProvider
   provideTextDocumentContent(uri: vscode.Uri): string {
     const result = this.results.get(uri.with({ scheme: 'file' }).toString())
     switch (uri.scheme) {
-      case ASTX_RESULT_SCHEME: {
+      case MD_SEARCH_RESULT_SCHEME: {
         const transformed = result?.transformed
         if (transformed) return transformed
         const error = result?.error
 
         if (error) {
-          if (error instanceof CodeFrameError) {
-            return error.format({
-              highlightCode: true,
-              stack: true,
-            })
-          }
           return error.stack || error.message || String(error)
         }
         break
       }
-      case ASTX_REPORTS_SCHEME: {
+      case MD_SEARCH_REPORTS_SCHEME: {
         return (result?.reports || [])
           ?.map((report) => `Report type: ${typeof report}`)
           .join('\n')
@@ -106,8 +102,8 @@ export default class TransformResultProvider
   // Method for clearing all results and notifying of changes
   clear(): void {
     const uris = [...this.results.keys()].flatMap((raw) => [
-      vscode.Uri.parse(raw).with({ scheme: ASTX_RESULT_SCHEME }),
-      vscode.Uri.parse(raw).with({ scheme: ASTX_REPORTS_SCHEME }),
+      vscode.Uri.parse(raw).with({ scheme: MD_SEARCH_RESULT_SCHEME }),
+      vscode.Uri.parse(raw).with({ scheme: MD_SEARCH_REPORTS_SCHEME }),
     ])
     this.results.clear()
     this._onDidChangeFileDecorations.fire(uris)

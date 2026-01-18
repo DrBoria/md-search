@@ -1,4 +1,5 @@
-import { IpcMatch, Params } from '../../types'
+import { Params } from '../../types'
+import { SearchRunnerMatch } from '../../../model/SearchRunnerTypes'
 
 export class TextSearchService {
   private abortController: AbortController | null = null
@@ -12,10 +13,10 @@ export class TextSearchService {
     content: string,
     params: Params,
     _logMessage?: (msg: string) => void
-  ): Promise<IpcMatch[]> {
+  ): Promise<SearchRunnerMatch[]> {
     const { matchCase, wholeWord, searchMode } = params
     let find = params.find
-    const matches: IpcMatch[] = []
+    const matches: SearchRunnerMatch[] = []
     let captureGroupIndex = 0
 
     // Extract capture group index if present (e.g., "$1")
@@ -49,6 +50,11 @@ export class TextSearchService {
       return []
     }
 
+    // Binary file check (heuristic: content contains null bytes)
+    if (content.includes('\0')) {
+      return []
+    }
+
     await this.findMatchesInChunks(
       content,
       file,
@@ -69,7 +75,7 @@ export class TextSearchService {
     source: string,
     file: string,
     regex: RegExp,
-    matches: IpcMatch[],
+    matches: SearchRunnerMatch[],
     captureGroupIndex = 0
   ): Promise<void> {
     const CHUNK_SIZE = 512 * 1024 // 512 KB
@@ -147,9 +153,8 @@ export class TextSearchService {
             end: matchEndOffset,
             file,
             source: matchText,
-            captures: {},
             loc,
-          } as unknown as IpcMatch)
+          } as unknown as SearchRunnerMatch)
         }
       }
     }

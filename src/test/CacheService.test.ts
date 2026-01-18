@@ -89,18 +89,18 @@ suite('SearchCache Service Tests', () => {
     )
   })
 
-  test('should support ASTX search mode', () => {
-    const nodeAstx = cacheService.createCacheNode(
+  test('should support REGEX search mode distinct from TEXT', () => {
+    const nodeRegex = cacheService.createCacheNode(
       'foo',
       false,
       false,
       undefined,
       undefined,
-      'astx',
+      'regex',
       true
     )
 
-    assert.strictEqual(nodeAstx.params.searchMode, 'astx')
+    assert.strictEqual(nodeRegex.params.searchMode, 'regex')
 
     const foundNode = cacheService.findSuitableCache(
       'foo',
@@ -108,11 +108,11 @@ suite('SearchCache Service Tests', () => {
       false,
       undefined,
       undefined,
-      'astx',
+      'regex',
       true
     )
 
-    assert.strictEqual(foundNode, nodeAstx)
+    assert.strictEqual(foundNode, nodeRegex)
 
     const foundNodeText = cacheService.findSuitableCache(
       'foo',
@@ -126,8 +126,8 @@ suite('SearchCache Service Tests', () => {
 
     assert.notStrictEqual(
       foundNodeText,
-      nodeAstx,
-      'Should not mix ASTX and Text caches'
+      nodeRegex,
+      'Should not mix REGEX and Text caches'
     )
   })
 

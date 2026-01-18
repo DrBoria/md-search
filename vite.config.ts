@@ -31,7 +31,7 @@ export default defineConfig({
       input: {
         SearchReplaceView: path.resolve(
           __dirname,
-          'src/frontend/views/SearchReplace/SearchReplaceViewEntry.tsx'
+          'src/frontend/views/SearchReplaceViewEntry.tsx'
         ),
       },
       output: {

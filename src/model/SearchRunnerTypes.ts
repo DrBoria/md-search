@@ -1,15 +1,28 @@
 import * as vscode from 'vscode'
 
+export interface SearchRunnerMatch {
+  start: number
+  end: number
+  loc: {
+    start: { line: number; column: number }
+    end: { line: number; column: number }
+  }
+  type?: string
+  file?: string
+  source?: string
+  captures?: Record<string, string>
+}
+
 export type TransformResultEvent = {
   file: vscode.Uri
   source: string
   transformed?: string
   reports?: unknown[]
-  matches: readonly any[]
+  matches: readonly SearchRunnerMatch[]
   error?: Error
 }
 
-export interface AstxRunnerEvents {
+export interface SearchRunnerEvents {
   result: (options: TransformResultEvent) => void
   stop: () => void
   start: () => void

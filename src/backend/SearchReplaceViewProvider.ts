@@ -3,16 +3,16 @@ import {
   SearchRunner,
   TransformResultEvent,
 } from './searchController/SearchRunner'
-import type { IAstxExtension, ProgressEvent } from './types'
+import type { IMdSearchExtension, ProgressEvent } from './types'
 import { Params } from './types'
-import { ASTX_RESULT_SCHEME } from '../constants'
 import {
-  MessageFromWebview,
   SearchReplaceViewStatus,
   MessageToWebview,
+  MessageToWebviewSchema,
 } from '../model/SearchReplaceViewTypes'
-import { AstxRunnerEvents } from '../model/SearchRunnerTypes'
-import { randomUUID } from 'crypto'
+import { SearchRunnerEvents } from '../model/SearchRunnerTypes'
+import { HtmlTemplate } from './views/HtmlTemplate'
+import { MessageHandler } from './views/MessageHandler'
 
 // Константа для времени буферизации результатов (мс)
 const RESULT_BATCH_DELAY = 200
@@ -48,7 +48,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
   private _processedFiles: Set<string> = new Set()
 
   constructor(
-    private extension: IAstxExtension,
+    private extension: IMdSearchExtension,
     private readonly _extensionUri: vscode.Uri = extension.context.extensionUri,
     private readonly runner: SearchRunner = extension.runner
   ) {
@@ -130,7 +130,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     }
 
     for (const [event, listener] of Object.entries(globalListeners)) {
-      this.runner.on(event as keyof AstxRunnerEvents, listener)
+      this.runner.on(event as keyof SearchRunnerEvents, listener)
     }
 
     this._listenerRegistered = true
@@ -259,329 +259,17 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
       ;(webviewView.webview.options as any).devToolsEnabled = true
     }
 
-    webviewView.webview.html = this._getHtmlForWebview(webviewView.webview)
+    webviewView.webview.html = HtmlTemplate.getWebviewHtml(
+      this.extension,
+      webviewView.webview
+    )
+
+    // Create message handler
+    const messageHandler = new MessageHandler(this.extension, this)
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    webviewView.webview.onDidReceiveMessage((_message: any) => {
-      const message: MessageFromWebview = _message
-
-      // // --- ДОБАВЛЕНО: Обработка события mount ---
-      // if (message.type === 'mount') {
-      //   this._isWebviewMounted = true
-      //   this._flushEventQueue()
-      // }
-
-      // if (message.type === 'unmount') {
-      //   this._isWebviewMounted = false
-      // }
-
-      // Make the message handler async to allow await for file operations
-      const handleMessage = async (message: MessageFromWebview) => {
-        switch (message.type) {
-          case 'mount': {
-            // Получаем путь к рабочей области
-            const workspaceFolders = vscode.workspace.workspaceFolders || []
-            const workspacePath =
-              workspaceFolders.length > 0
-                ? workspaceFolders[0].uri.toString()
-                : ''
-
-            // Получаем текущие параметры из расширения
-            const currentParams = this.extension.getParams()
-
-            // Отправляем initialData с текущими значениями
-            webviewView.webview.postMessage({
-              type: 'initialData',
-              workspacePath,
-              values: currentParams, // Добавляем параметры в сообщение
-            })
-
-            break
-          }
-          case 'values': {
-            const newParams = message.values as Params
-            this._state.params = newParams
-            this.extension.setParams(newParams)
-            break
-          }
-          case 'replace': {
-            // Проверяем, есть ли список файлов для замены
-            const filePaths = message.filePaths || []
-            this.extension.channel.appendLine(
-              `Replace request received with ${filePaths.length} files`
-            )
-
-            // Если есть список файлов, фильтруем результаты перед заменой
-            if (filePaths.length > 0) {
-              // Фильтруем ResultProvider, оставляя только файлы из списка filePaths
-              const originalResults =
-                this.extension.transformResultProvider.results
-              const filteredResults = new Map()
-
-              // Копируем только результаты для файлов из filePaths
-              for (const filePath of filePaths) {
-                if (originalResults.has(filePath)) {
-                  filteredResults.set(filePath, originalResults.get(filePath))
-                }
-              }
-
-              // Временно заменяем результаты на отфильтрованные
-              const tempResults = this.extension.transformResultProvider.results
-              this.extension.transformResultProvider.results = filteredResults
-
-              // Выполняем замену
-              this.extension.replace()
-
-              // Восстанавливаем оригинальные результаты
-              this.extension.transformResultProvider.results = tempResults
-            } else {
-              // Если список файлов не указан, выполняем обычную замену
-              this.extension.replace()
-            }
-            break
-          }
-          case 'abort': {
-            this.extension.channel.appendLine(
-              'Received stop command from webview, aborting search...'
-            )
-            this.runner.abort()
-
-            this._state.status.running = false
-            this._notifyWebviewIfActive('status', {
-              status: this._state.status,
-            })
-            break
-          }
-          case 'stop': {
-            // Вызываем метод остановки поиска в runner
-            this.extension.channel.appendLine(
-              'Received stop command from webview, stopping search...'
-            )
-            this.runner.stop()
-
-            // Отправляем оставшиеся буферизованные результаты перед очисткой
-            this._flushBufferedResults()
-
-            this._state.status.running = false
-            this._state.status.numMatches = 0
-            this._state.status.numFilesThatWillChange = 0
-            this._state.status.numFilesWithMatches = 0
-            this._state.status.numFilesWithErrors = 0
-            this._state.status.completed = 0
-            this._state.status.total = 0
-            // this._state.results = []
-            this._notifyWebviewIfActive('status', {
-              status: this._state.status,
-            })
-            this._notifyWebviewIfActive('clearResults', {})
-            break
-          }
-          case 'copyMatches': {
-            // Выполняем копирование совпадений
-            try {
-              const count = await this.extension.copyMatches(message.fileOrder)
-              this.notifyCopyMatchesComplete(count)
-            } catch (error) {
-              this.extension.logError(
-                error instanceof Error
-                  ? error
-                  : new Error(`Failed to copy matches: ${error}`)
-              )
-            }
-            break
-          }
-          case 'cutMatches': {
-            // Выполняем вырезание совпадений
-            try {
-              const count = await this.extension.cutMatches(message.fileOrder)
-              this.notifyCutMatchesComplete(count)
-            } catch (error) {
-              this.extension.logError(
-                error instanceof Error
-                  ? error
-                  : new Error(`Failed to cut matches: ${error}`)
-              )
-            }
-            break
-          }
-          case 'pasteToMatches': {
-            // Выполняем вставку из буфера
-            try {
-              const count = await this.extension.pasteToMatches(
-                message.fileOrder
-              )
-              this.notifyPasteToMatchesComplete(count)
-            } catch (error) {
-              this.extension.logError(
-                error instanceof Error
-                  ? error
-                  : new Error(`Failed to paste to matches: ${error}`)
-              )
-            }
-            break
-          }
-          case 'copyFileNames': {
-            // Выполняем копирование имен файлов
-            try {
-              const count = await this.extension.copyFileNames()
-              this.notifyCopyFileNamesComplete(count)
-            } catch (error) {
-              this.extension.logError(
-                error instanceof Error
-                  ? error
-                  : new Error(`Failed to copy file names: ${error}`)
-              )
-            }
-            break
-          }
-          case 'excludeFile': {
-            // Исключаем файл из кэша поиска
-            try {
-              const fileUri = vscode.Uri.parse(message.filePath)
-              this.extension.runner.excludeFileFromCache(fileUri)
-
-              // Также удаляем файл из TransformResultProvider
-              this.extension.transformResultProvider.results.delete(
-                message.filePath
-              )
-
-              // Удаляем файл из Set обработанных файлов
-              this._processedFiles.delete(message.filePath)
-
-              // Уведомляем webview об обновлении результатов
-              this._notifyWebviewIfActive('fileUpdated', {
-                filePath: message.filePath,
-                newSource: null, // null означает удаление
-              })
-
-              this.extension.channel.appendLine(
-                `File excluded from search: ${message.filePath}`
-              )
-            } catch (error) {
-              this.extension.logError(
-                error instanceof Error
-                  ? error
-                  : new Error(`Failed to exclude file: ${error}`)
-              )
-            }
-            break
-          }
-          case 'undoLastOperation': {
-            // Выполняем отмену последней операции
-            try {
-              const restored = await this.extension.undoLastOperation()
-              this.notifyUndoComplete(restored)
-            } catch (error) {
-              this.extension.logError(
-                error instanceof Error
-                  ? error
-                  : new Error(`Failed to undo operation: ${error}`)
-              )
-              this.notifyUndoComplete(false)
-            }
-            break
-          }
-          case 'openFile': {
-            const uri = vscode.Uri.parse(message.filePath)
-
-            // Check if there's a transformed version available to show a diff
-            const result = this.extension.transformResultProvider.results.get(
-              uri.toString()
-            )
-            if (
-              result &&
-              result.transformed &&
-              result.transformed !== result.source
-            ) {
-              const transformedUri = uri.with({ scheme: ASTX_RESULT_SCHEME })
-              const filename = uri.path.substring(uri.path.lastIndexOf('/') + 1)
-              vscode.commands.executeCommand(
-                'vscode.diff',
-                uri,
-                transformedUri,
-                `${filename} ↔ Changes`
-              )
-            } else {
-              if (message.range?.start !== undefined) {
-                try {
-                  const document = await vscode.workspace.openTextDocument(uri)
-                  const textUpToStart = document.getText(
-                    new vscode.Range(
-                      new vscode.Position(0, 0),
-                      document.positionAt(message.range.start)
-                    )
-                  )
-                  const lineNumber = textUpToStart.split('\n').length - 1
-                  const calculatedRange = new vscode.Range(
-                    new vscode.Position(lineNumber, 0),
-                    new vscode.Position(lineNumber, 0)
-                  )
-                  vscode.window.showTextDocument(uri, {
-                    selection: calculatedRange,
-                  })
-                } catch (error) {
-                  this.extension.logError(
-                    error instanceof Error
-                      ? error
-                      : new Error(`Failed to calculate position: ${error}`)
-                  )
-                  vscode.window.showTextDocument(uri)
-                }
-              } else {
-                vscode.window.showTextDocument(uri)
-              }
-            }
-            break
-          }
-          // Add case to handle logging messages from webview
-          case 'log': {
-            const level = message.level.toUpperCase()
-            const logMessage = `[Webview ${level}] ${message.message}`
-            // Safely log the message without logging sensitive content
-            this.extension.channel.appendLine(logMessage)
-
-            // If there's data, only log safe metadata about it
-            if (message.data) {
-              const dataType = typeof message.data
-              this.extension.channel.appendLine(
-                `Data properties: ${
-                  dataType === 'object' && message.data
-                    ? Object.keys(message.data).join(', ')
-                    : dataType
-                }`
-              )
-            }
-            break
-          }
-          case 'updateFileOrder': {
-            // Handle custom file order update from drag and drop
-            try {
-              this.extension.channel.appendLine(
-                `Received custom file order update: ${
-                  Object.keys(message.customOrder).length
-                } entries`
-              )
-              // Store the custom order for extension operations
-              this.extension.setCustomFileOrder(message.customOrder)
-            } catch (error) {
-              this.extension.logError(
-                error instanceof Error
-                  ? error
-                  : new Error(`Failed to update file order: ${error}`)
-              )
-            }
-            break
-          }
-        }
-      }
-      // Execute the async handler
-      handleMessage(message).catch((error) => {
-        this.extension.logError(
-          error instanceof Error
-            ? error
-            : new Error(`Error handling webview message: ${error}`)
-        )
-      })
+    webviewView.webview.onDidReceiveMessage((message) => {
+      messageHandler.handle(message)
     })
 
     webviewView.onDidDispose(() => {
@@ -671,7 +359,6 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
         type: 'values',
         values: currentParams,
       })
-
       // Focus on replace input with some delay after params
       this.postMessage({
         type: 'focusReplaceInput',
@@ -683,102 +370,24 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     return this._view?.visible ?? false
   }
 
-  private _getHtmlForWebview(webview: vscode.Webview): string {
-    const isProduction = this.extension.isProduction
-    const port = 9099 // Updated to match vite config
-
-    const nonce = Buffer.from(randomUUID()).toString('base64')
-
-    // Generate URI for the entry point
-    const scriptUri = isProduction
-      ? webview.asWebviewUri(
-          vscode.Uri.joinPath(this._extensionUri, 'out', 'SearchReplaceView.js')
-        )
-      : `http://localhost:${port}/src/frontend/views/SearchReplace/SearchReplaceViewEntry.tsx`
-
-    const stylesUri = isProduction
-      ? webview.asWebviewUri(
-          vscode.Uri.joinPath(
-            this._extensionUri,
-            'out',
-            'SearchReplaceView.css'
-          )
-        )
-      : `http://localhost:${port}/src/frontend/views/SearchReplace/SearchReplaceView.css`
-
-    // Icon paths
-    const codiconsUri = isProduction
-      ? webview.asWebviewUri(
-          vscode.Uri.joinPath(this._extensionUri, 'out', 'codicons')
-        )
-      : webview.asWebviewUri(
-          vscode.Uri.joinPath(
-            this._extensionUri,
-            'node_modules',
-            '@vscode/codicons',
-            'dist'
-          )
-        )
-
-    const materialIconsUri = isProduction
-      ? webview.asWebviewUri(
-          vscode.Uri.joinPath(this._extensionUri, 'out', 'material-icons')
-        )
-      : webview.asWebviewUri(
-          vscode.Uri.joinPath(
-            this._extensionUri,
-            'node_modules',
-            'vscode-material-icons',
-            'generated',
-            'icons'
-          )
-        )
-
-    const scriptTag = isProduction
-      ? `<script nonce="${nonce}" src="${scriptUri}"></script>`
-      : `<script type="module" src="${scriptUri}"></script>`
-
-    // In Vite dev mode, we need to inject the vite client and react refresh preamble
-    const viteHead = !isProduction
-      ? `
-    <script type="module">
-      import RefreshRuntime from "http://localhost:${port}/@react-refresh"
-      RefreshRuntime.injectIntoGlobalHook(window)
-      window.$RefreshReg$ = () => {}
-      window.$RefreshSig$ = () => (type) => type
-      window.__vite_plugin_react_preamble_installed__ = true
-    </script>
-    <script type="module" src="http://localhost:${port}/@vite/client"></script>
-    `
-      : ''
-
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  ${viteHead}
-  ${
-    isProduction
-      ? `<link rel="stylesheet" type="text/css" href="${stylesUri}">`
-      : ''
-  } 
-  <link rel="stylesheet" type="text/css" href="${codiconsUri}/codicon.css">
-  <title>Search & Replace</title>
-</head>
-<body style="padding: 0;">
-  <div id="root"></div>
-  <script>
-    window.codiconsPath = "${codiconsUri}";
-    window.materialIconsPath = "${materialIconsUri}";
-  </script>
-  ${scriptTag}
-</body>
-</html>`
-  }
-
   postMessage(message: MessageToWebview): void {
-    this._view?.webview.postMessage(message)
+    if (this._view?.visible) {
+      // Validate outgoing message in development or check for errors
+      const validation = MessageToWebviewSchema.safeParse(message)
+      if (!validation.success) {
+        this.extension.logError(
+          new Error(
+            `Invalid message sent to webview: ${JSON.stringify(
+              validation.error.format()
+            )}`
+          )
+        )
+        // We might still want to send it or throw? Let's log and send for now to avoid breaking if schema is too strict vs type.
+        // Actually, if it fails schema, it might crash frontend validation.
+        return
+      }
+      this._view.webview.postMessage(message)
+    }
   }
 
   // Метод для отправки уведомления о завершении замены
@@ -842,5 +451,11 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
 
     // Отправляем буферизованные результаты
     this._sendBufferedResults()
+    // Отправляем буферизованные результаты
+    this._sendBufferedResults()
+  }
+
+  public getStatus(): SearchReplaceViewStatus {
+    return this._state.status
   }
 }
