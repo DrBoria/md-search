@@ -86,24 +86,44 @@ export default function SearchReplaceViewController({ vscode }: Props): React.Re
     switch (data.type) {
       case 'focusSearchInput':
         try {
-          // First check if nested search exists
-          // DOM structure changes depending on nested search presence
           const isInNestedSearch = document.querySelector('.search-level-breadcrumbs')
-
           let searchInput: HTMLTextAreaElement | null = null
 
           if (isInNestedSearch) {
-            // If in nested search, look for nested search input
             searchInput = document.querySelector('textarea[name="nestedSearch"]') as HTMLTextAreaElement
           } else {
-            // Otherwise look for main search input
             searchInput = document.querySelector('textarea[name="search"]') as HTMLTextAreaElement
-
           }
 
-          // If input found, focus it
           if (searchInput) {
+            const msgData = data as { selectedText?: string; triggerSearch?: boolean }
+            if (msgData.selectedText) {
+              searchInput.value = msgData.selectedText
+              searchInput.dispatchEvent(new Event('input', { bubbles: true }))
+            }
             searchInput.select()
+
+            if (msgData.triggerSearch && msgData.selectedText) {
+              const selectedTextToSearch = msgData.selectedText
+              setTimeout(() => {
+                vscode.postMessage({
+                  type: 'search',
+                  find: selectedTextToSearch,
+                  replace: '',
+                  paused: false,
+                  include: '',
+                  exclude: '',
+                  parser: 'babel',
+                  prettier: true,
+                  babelGeneratorHack: false,
+                  preferSimpleReplacement: false,
+                  searchMode: 'text',
+                  matchCase: false,
+                  wholeWord: false,
+                  searchInResults: 0,
+                })
+              }, 100)
+            }
           }
         } catch (e) {
           vscode.postMessage({ type: 'log', level: 'error', message: `Error focusing search input: ${e}` })
@@ -112,38 +132,32 @@ export default function SearchReplaceViewController({ vscode }: Props): React.Re
       case 'focusReplaceInput':
         setTimeout(() => {
           try {
-            // Check for nested search
             const isInNestedSearch = document.querySelector('.search-level-breadcrumbs')
 
+            let searchInput: HTMLTextAreaElement | null = null
             let replaceInput: HTMLTextAreaElement | null = null
 
             if (isInNestedSearch) {
-              // If in nested search, look for nested replace input
+              searchInput = document.querySelector('textarea[name="nestedSearch"]') as HTMLTextAreaElement
               replaceInput = document.querySelector('textarea[name="nestedReplace"]') as HTMLTextAreaElement
             } else {
-              // Otherwise look for main replace input
+              searchInput = document.querySelector('textarea[name="search"]') as HTMLTextAreaElement
               replaceInput = document.querySelector('textarea[name="replace"]') as HTMLTextAreaElement
             }
 
-            // If input found, focus it
+            const selectedText = (data as { selectedText?: string }).selectedText
+            if (selectedText && searchInput) {
+              searchInput.value = selectedText
+              searchInput.dispatchEvent(new Event('input', { bubbles: true }))
+            }
+
             if (replaceInput) {
               replaceInput.focus()
-              vscode.postMessage({
-                type: 'log',
-                level: 'info',
-                message: `Successfully focused on replace input: ${isInNestedSearch ? 'nested' : 'main'}`
-              })
-            } else {
-              vscode.postMessage({
-                type: 'log',
-                level: 'error',
-                message: 'Could not find any replace input field'
-              })
             }
           } catch (e) {
             vscode.postMessage({ type: 'log', level: 'error', message: `Error focusing replace input: ${e}` })
           }
-        }, 50) // Increase delay for more reliable operation
+        }, 50)
         break
     }
   })

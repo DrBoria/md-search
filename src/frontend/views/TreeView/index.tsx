@@ -299,29 +299,25 @@ export const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                         </div>
                     </div>
                 </div>
-                {isExpanded && (
-                    <div>
-                        {node.children.map(child => (
-                            <TreeViewNode
-                                key={child.relativePath}
-                                node={child}
-                                level={level + 1}
-                                expandedFolders={expandedFolders}
-                                toggleFolderExpansion={toggleFolderExpansion}
-                                expandedFiles={expandedFiles}
-                                toggleFileExpansion={toggleFileExpansion}
-                                handleFileClick={handleFileClick}
-                                handleResultItemClick={handleResultItemClick}
-                                handleReplace={handleReplace}
-                                currentSearchValues={currentSearchValues}
-                                handleExcludeFile={handleExcludeFile}
-                                onDragStart={onDragStart}
-                                onDragOver={onDragOver}
-                                onDrop={onDrop}
-                            />
-                        ))}
-                    </div>
-                )}
+                {isExpanded && node.children.map(child => (
+                    <TreeViewNode
+                        key={child.relativePath}
+                        node={child}
+                        level={level + 1}
+                        expandedFolders={expandedFolders}
+                        toggleFolderExpansion={toggleFolderExpansion}
+                        expandedFiles={expandedFiles}
+                        toggleFileExpansion={toggleFileExpansion}
+                        handleFileClick={handleFileClick}
+                        handleResultItemClick={handleResultItemClick}
+                        handleReplace={handleReplace}
+                        currentSearchValues={currentSearchValues}
+                        handleExcludeFile={handleExcludeFile}
+                        onDragStart={onDragStart}
+                        onDragOver={onDragOver}
+                        onDrop={onDrop}
+                    />
+                ))}
             </div>
         );
     } else { // node.type === 'file'
@@ -408,81 +404,77 @@ export const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                     </div>
                 </div>
                 {/* Expanded Matches */}
-                {(isExpanded && canExpand) && (
-                    <div>
-                        {fileResults.map((res, idx) => (
-                            res.matches?.map((match, matchIdx) => (
-                                <div key={`${idx}-${matchIdx}`}
-                                    className="flex items-stretch cursor-pointer relative hover:bg-[var(--vscode-list-hoverBackground)] group"
-                                    onClick={() => handleResultItemClick(node.absolutePath, { start: match.start, end: match.end })}
-                                    title={getLineFromSource(res.source, match.start, match.end)}
-                                >
-                                    {/* Match Indentation: level + 1 (for file) */}
-                                    {(level + 1) > 0 && (
-                                        <div
-                                            className="relative flex-shrink-0"
-                                            style={{ width: `${(level + 1) * indentSize}px`, minWidth: `${(level + 1) * indentSize}px` }}
-                                        >
-                                            {Array.from({ length: level + 1 }).map((_, i) => (
-                                                <div
-                                                    key={i}
-                                                    className="absolute top-0 bottom-0"
-                                                    style={{
-                                                        left: `${i * indentSize + indentSize / 2}px`,
-                                                        width: '1px',
-                                                        backgroundColor: 'var(--vscode-tree-indentGuidesStroke)'
-                                                    }}
-                                                />
-                                            ))}
-                                        </div>
-                                    )}
-
-                                    <div className="pl-4 w-full overflow-hidden min-h-[22px] py-0.5 flex flex-col justify-center">
-                                        {currentSearchValues.replace && currentSearchValues.replace.length > 0
-                                            ? getHighlightedMatchContextWithReplacement(
-                                                res.source,
-                                                match,
-                                                currentSearchValues?.find,
-                                                currentSearchValues.replace,
-                                                currentSearchValues?.searchMode,
-                                                currentSearchValues?.matchCase,
-                                                currentSearchValues?.wholeWord,
-                                                undefined,
-                                                currentSearchValues?.searchMode === 'regex'
-                                            )
-                                            : getHighlightedMatchContext(res.source, match, undefined, currentSearchValues?.searchMode === 'regex')}
+                <Collapsible isOpen={isExpanded && canExpand}>
+                    {fileResults.map((res, idx) => (
+                        res.matches?.map((match, matchIdx) => (
+                            <div key={`${idx}-${matchIdx}`}
+                                className="flex items-stretch cursor-pointer relative hover:bg-[var(--vscode-list-hoverBackground)] group"
+                                onClick={() => handleResultItemClick(node.absolutePath, { start: match.start, end: match.end })}
+                                title={getLineFromSource(res.source, match.start, match.end)}
+                            >
+                                {/* Match Indentation: level + 1 (for file) */}
+                                {(level + 1) > 0 && (
+                                    <div
+                                        className="relative flex-shrink-0"
+                                        style={{ width: `${(level + 1) * indentSize}px`, minWidth: `${(level + 1) * indentSize}px` }}
+                                    >
+                                        {Array.from({ length: level + 1 }).map((_, i) => (
+                                            <div
+                                                key={i}
+                                                className="absolute top-0 bottom-0"
+                                                style={{
+                                                    left: `${i * indentSize + indentSize / 2}px`,
+                                                    width: '1px',
+                                                    backgroundColor: 'var(--vscode-tree-indentGuidesStroke)'
+                                                }}
+                                            />
+                                        ))}
                                     </div>
+                                )}
 
-                                    {/* Replace button for individual match */}
-                                    {currentSearchValues.replace && (
-                                        <div
-                                            className="absolute right-[5px] top-1/2 -translate-y-1/2 opacity-0 transition-opacity duration-200 group-hover:opacity-100"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                // For now, just replace all matches in this file
-                                                // In the future we could implement single match replacement
-                                                handleReplace([node.absolutePath]);
-                                            }}
-                                        >
-                                            <button
-                                                className="bg-[var(--vscode-button-background)] text-[var(--vscode-button-foreground)] border-none rounded-[2px] cursor-pointer px-1.5 py-[2px] text-xs hover:bg-[var(--vscode-button-hoverBackground)]"
-                                                title="Replace this match"
-                                            >
-                                                <span className="codicon codicon-replace-all" />
-                                            </button>
-                                        </div>
-                                    )}
+                                <div className="pl-4 w-full overflow-hidden min-h-[22px] py-0.5 flex flex-col justify-center">
+                                    {currentSearchValues.replace && currentSearchValues.replace.length > 0
+                                        ? getHighlightedMatchContextWithReplacement(
+                                            res.source,
+                                            match,
+                                            currentSearchValues?.find,
+                                            currentSearchValues.replace,
+                                            currentSearchValues?.searchMode,
+                                            currentSearchValues?.matchCase,
+                                            currentSearchValues?.wholeWord,
+                                            undefined,
+                                            currentSearchValues?.searchMode === 'regex'
+                                        )
+                                        : getHighlightedMatchContext(res.source, match, undefined, currentSearchValues?.searchMode === 'regex')}
                                 </div>
-                            ))
-                        ))}
-                        {/* Display error if present (might co-exist with matches in some cases) */}
-                        {hasError && totalMatches === 0 && ( // Only show error text if NO matches were displayed
-                            <div className="text-[var(--vscode-errorForeground)] px-1.5 py-px">
-                                {String(firstResult.error?.message || firstResult.error || 'Error occurred')}
+
+                                {/* Replace button for individual match */}
+                                {currentSearchValues.replace && (
+                                    <div
+                                        className="absolute right-[5px] top-1/2 -translate-y-1/2 opacity-0 transition-opacity duration-200 group-hover:opacity-100"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleReplace([node.absolutePath]);
+                                        }}
+                                    >
+                                        <button
+                                            className="bg-[var(--vscode-button-background)] text-[var(--vscode-button-foreground)] border-none rounded-[2px] cursor-pointer px-1.5 py-[2px] text-xs hover:bg-[var(--vscode-button-hoverBackground)]"
+                                            title="Replace this match"
+                                        >
+                                            <span className="codicon codicon-replace-all" />
+                                        </button>
+                                    </div>
+                                )}
                             </div>
-                        )}
-                    </div>
-                )}
+                        ))
+                    ))}
+                    {/* Display error if present */}
+                    {hasError && totalMatches === 0 && (
+                        <div className="text-[var(--vscode-errorForeground)] px-1.5 py-px">
+                            {String(firstResult.error?.message || firstResult.error || 'Error occurred')}
+                        </div>
+                    )}
+                </Collapsible>
             </div>
         );
     }

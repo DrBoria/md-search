@@ -163,8 +163,15 @@ export const MessageToWebviewSchema = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('replaceDone') }),
   z.object({ type: z.literal('stop') }),
-  z.object({ type: z.literal('focusSearchInput') }),
-  z.object({ type: z.literal('focusReplaceInput') }),
+  z.object({
+    type: z.literal('focusSearchInput'),
+    selectedText: z.string().optional(),
+    triggerSearch: z.boolean().optional(),
+  }),
+  z.object({
+    type: z.literal('focusReplaceInput'),
+    selectedText: z.string().optional(),
+  }),
   z.object({
     type: z.literal('replacementComplete'),
     totalReplacements: z.number(),

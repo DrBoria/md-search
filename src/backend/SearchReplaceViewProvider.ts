@@ -46,6 +46,10 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
   private _resultBatchTimer: NodeJS.Timeout | null = null
   // Set для отслеживания уже обработанных файлов (избежание дублирования)
   private _processedFiles: Set<string> = new Set()
+  // Флаг готовности webview (после получения mount сообщения)
+  private _isWebviewMounted = false
+  // Очередь сообщений для отправки после mount
+  private _pendingMessages: MessageToWebview[] = []
 
   constructor(
     private extension: IMdSearchExtension,
@@ -273,9 +277,9 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     })
 
     webviewView.onDidDispose(() => {
-      // При закрытии view не удаляем глобальные слушатели событий
-      // чтобы расширение продолжило работу в фоне
       this._view = undefined
+      this._isWebviewMounted = false
+      this._pendingMessages = []
     })
   }
 
@@ -284,8 +288,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
   }
 
   // Updated method to show and focus the search input
-  showWithSearchFocus(): void {
-    // Если view не инициализирован, активируем через команду
+  showWithSearchFocus(selectedText?: string): void {
     if (!this._view) {
       this.extension.channel.appendLine(
         'View not initialized, forcing activation via command'
@@ -293,38 +296,32 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
       vscode.commands
         .executeCommand('workbench.view.extension.mdSearch-mdSearch')
         .then(() => {
-          this._focusSearchInput()
+          this._focusSearchInput(selectedText)
         })
       return
     }
 
-    // Если view уже доступен, используем стандартный подход
     this._view.show(true)
-    this._focusSearchInput()
+    this._focusSearchInput(selectedText)
   }
 
-  // Helper method to focus search input
-  private _focusSearchInput(): void {
-    // Отправляем несколько команд фокуса с разными задержками
-    // для большей надежности срабатывания
-    // Get current params
+  private _focusSearchInput(selectedText?: string): void {
     const currentParams = this.extension.getParams()
 
-    // Send parameters to webview first
     this.postMessage({
       type: 'values',
       values: currentParams,
     })
 
-    // Focus on search input
     this.postMessage({
       type: 'focusSearchInput',
+      selectedText,
+      triggerSearch: !!selectedText,
     })
   }
 
   // Updated method to show and focus the replace input
-  showWithReplaceFocus(): void {
-    // Если view не инициализирован, активируем через команду
+  showWithReplaceFocus(selectedText?: string): void {
     if (!this._view) {
       this.extension.channel.appendLine(
         'View not initialized, forcing activation via command'
@@ -333,35 +330,28 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
         .executeCommand('workbench.view.extension.mdSearch-mdSearch')
         .then(() => {
           setTimeout(() => {
-            this._focusReplaceInput()
-          }, 0) // Увеличиваем задержку для гарантии загрузки view
+            this._focusReplaceInput(selectedText)
+          }, 0)
         })
       return
     }
 
-    // Если view уже доступен, используем стандартный подход
     this._view.show(true)
-    this._focusReplaceInput()
+    this._focusReplaceInput(selectedText)
   }
 
-  // Helper method to focus replace input
-  private _focusReplaceInput(): void {
-    this.extension.channel.appendLine('Sending focus command to replace input')
-
-    // Отправляем несколько команд фокуса с разными задержками
-    // для большей надежности срабатывания
+  private _focusReplaceInput(selectedText?: string): void {
     setTimeout(() => {
-      // Get current params
       const currentParams = this.extension.getParams()
 
-      // Send parameters to webview first
       this.postMessage({
         type: 'values',
         values: currentParams,
       })
-      // Focus on replace input with some delay after params
+
       this.postMessage({
         type: 'focusReplaceInput',
+        selectedText,
       })
     }, 100)
   }
@@ -372,7 +362,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
 
   postMessage(message: MessageToWebview): void {
     if (this._view?.visible) {
-      // Validate outgoing message in development or check for errors
+      // Validate outgoing message
       const validation = MessageToWebviewSchema.safeParse(message)
       if (!validation.success) {
         this.extension.logError(
@@ -382,12 +372,30 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
             )}`
           )
         )
-        // We might still want to send it or throw? Let's log and send for now to avoid breaking if schema is too strict vs type.
-        // Actually, if it fails schema, it might crash frontend validation.
         return
       }
+
+      // Webview not yet mounted - queue the message
+      if (!this._isWebviewMounted) {
+        this._pendingMessages.push(message)
+        return
+      }
+
       this._view.webview.postMessage(message)
     }
+  }
+
+  // Called by MessageHandler when webview sends 'mount' message
+  onWebviewMounted(): void {
+    this._isWebviewMounted = true
+
+    // Flush pending messages
+    for (const message of this._pendingMessages) {
+      if (this._view?.visible) {
+        this._view.webview.postMessage(message)
+      }
+    }
+    this._pendingMessages = []
   }
 
   // Метод для отправки уведомления о завершении замены

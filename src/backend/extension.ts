@@ -200,29 +200,26 @@ export class MdSearchExtension implements IMdSearchExtension {
     // что SearchReplaceViewProvider уже инициализирован
     context.subscriptions.push(
       vscode.commands.registerCommand('mdSearch.search', () => {
-        // Всегда сначала активируем расширение в сайдбаре, чтобы убедиться, что панель видима
+        const editor = vscode.window.activeTextEditor
+        const selectedText = editor?.document.getText(editor.selection) || ''
+
         vscode.commands
           .executeCommand('workbench.view.extension.mdSearch-mdSearch')
           .then(() => {
-            // После активации сайдбара, показываем наш view и фокусируем ввод
-            this.searchReplaceViewProvider.showWithSearchFocus()
+            this.searchReplaceViewProvider.showWithSearchFocus(selectedText)
           })
       })
     )
 
-    // Команда replace, открывающая панель с фокусом на поле замены
     context.subscriptions.push(
       vscode.commands.registerCommand('mdSearch.replace', () => {
-        this.channel.appendLine(
-          'Command mdSearch.replace executed - showing view with replace focus'
-        )
+        const editor = vscode.window.activeTextEditor
+        const selectedText = editor?.document.getText(editor.selection) || ''
 
-        // Всегда сначала активируем расширение в сайдбаре, чтобы убедиться, что панель видима
         vscode.commands
           .executeCommand('workbench.view.extension.mdSearch-mdSearch')
           .then(() => {
-            // После активации сайдбара, показываем наш view и фокусируем ввод
-            this.searchReplaceViewProvider.showWithReplaceFocus()
+            this.searchReplaceViewProvider.showWithReplaceFocus(selectedText)
           })
       })
     )

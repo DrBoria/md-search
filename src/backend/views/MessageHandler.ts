@@ -23,6 +23,7 @@ export class MessageHandler {
       notifyUndoComplete: (restored: boolean) => void
       postMessage: (message: MessageToWebview) => void
       getStatus: () => SearchReplaceViewStatus
+      onWebviewMounted: () => void
     }
   ) {}
 
@@ -97,6 +98,9 @@ export class MessageHandler {
   }
 
   private async handleMount(): Promise<void> {
+    // Mark webview as mounted and flush any pending messages
+    this.viewProvider.onWebviewMounted()
+
     const workspaceFolders = vscode.workspace.workspaceFolders || []
     const workspacePath =
       workspaceFolders.length > 0 ? workspaceFolders[0].uri.toString() : ''
@@ -105,7 +109,6 @@ export class MessageHandler {
 
     const values: any = {
       ...currentParams,
-      // Defaults for missing properties to satisfy SearchReplaceViewValues
       parser: (currentParams as any).parser || 'babel',
       babelGeneratorHack: (currentParams as any).babelGeneratorHack || false,
       preferSimpleReplacement:
