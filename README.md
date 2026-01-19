@@ -14,8 +14,6 @@ VSCode extension for nested code search and replace functionality
 - Support for code transformations in found matches
 - Filter results by file or pattern
 
-<sub>Based on [astx](https://github.com/codemodsquad/astx) structural search technology</sub>
-
 > **Deep Dive:** Want to master regex & capture groups? Check out our [Advanced Search & Regex Guide](docs/SEARCH_CACHE_DEEP_DIVE.md).
 
 ## Installation

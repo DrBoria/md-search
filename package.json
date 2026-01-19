@@ -210,7 +210,7 @@
     "prettier:check": "prettier --list-different $npm_package_config_prettier",
     "clean": "rimraf out",
     "check:types": "tsc --noEmit",
-    "build": "npm run clean && npm run build:extension && npm run build:webviews",
+    "build": "pnpm run clean && pnpm run build:extension && pnpm run build:webviews",
     "build:extension": "vite build -c vite.extension.config.ts",
     "watch:extension": "vite build -c vite.extension.config.ts --watch",
     "build:webviews": "vite build",
@@ -223,9 +223,9 @@
     "build:watch": "nodemon -e js,ts,json --watch src --exec \"(npm build)\"",
     "pretest": "BABEL_ENV=coverage npm run build",
     "copy-icon-assets": "mkdir -p out/codicons && cp -r node_modules/@vscode/codicons/dist/* out/codicons/ && mkdir -p out/icons && cp -r node_modules/vscode-icons-js/dist/* out/icons/",
-    "prepare-package": "npm run build && npm run copy-icon-assets",
-    "package": "npm run prepare-package && vsce package",
-    "vscode:prepublish": "npm run clean && npm run prettier:check && npm run lint && npm run build"
+    "prepare-package": "pnpm run build && pnpm run copy-icon-assets",
+    "package": "pnpm run prepare-package && pnpm exec vsce package --no-dependencies",
+    "vscode:prepublish": "pnpm run clean && pnpm run prettier:check && pnpm run lint && pnpm run build"
   },
   "release": {
     "plugins": [
