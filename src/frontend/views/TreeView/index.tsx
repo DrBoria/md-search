@@ -5,8 +5,9 @@ import { cn } from "../../utils"
 import { getHighlightedMatchContextWithReplacement } from './highlightedContextWithReplacement';
 import { getHighlightedMatchContext } from './highligtedContext';
 import { getLineFromSource } from '../utils';
-import { getFileIcon } from "../../components/icons";
+import { FileIcon } from "../../components/icons";
 import { SearchReplaceViewValues } from "../../../model/SearchReplaceViewTypes";
+import { AnimatedCounter } from "../components/AnimatedCounter";
 
 // --- Styles ---
 const STYLES = `
@@ -278,14 +279,17 @@ export const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                         <span className="font-semibold">{node.name}</span>
 
                         {/* Stats & Replace button container */}
-                        <div className="relative flex items-center gap-1 ml-auto mr-1">
+                        <div
+                            className="absolute right-1 flex items-center gap-1 h-full z-10 pl-2"
+                            style={{ backgroundColor: 'inherit' }}
+                        >
                             {/* Stats */}
                             {hasMatches && node.stats && (
                                 <span
-                                    className="text-[var(--vscode-descriptionForeground)] transition-opacity duration-200 text-xs"
+                                    className="text-[var(--vscode-descriptionForeground)] transition-opacity duration-200 text-xs whitespace-nowrap"
                                     style={{ opacity: isHovered && currentSearchValues.replace ? 0.3 : 1 }}
                                 >
-                                    ({node.stats.numFilesWithMatches} files, {node.stats.numMatches} matches)
+                                    (<AnimatedCounter value={node.stats.numFilesWithMatches} suffix=" files" />, <AnimatedCounter value={node.stats.numMatches} suffix=" matches" />)
                                 </span>
                             )}
 
@@ -357,7 +361,7 @@ export const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                 <style>{STYLES}</style>
                 {/* File Entry */}
                 <div
-                    className="flex items-stretch cursor-pointer hover:bg-[var(--vscode-list-hoverBackground)] group"
+                    className="relative flex items-stretch cursor-pointer hover:bg-[var(--vscode-list-hoverBackground)] group"
                     onClick={() => canExpand ? toggleFileExpansion(node.absolutePath) : handleFileClick(node.absolutePath)}
                     title={canExpand ? `Click to ${isExpanded ? 'collapse' : 'expand'} matches in ${node.name}` : `Click to open ${node.name}`}
                     onMouseEnter={() => setIsHovered(true)}
@@ -375,22 +379,25 @@ export const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                                 visibility: canExpand ? 'visible' : 'hidden',
                                 transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)'
                             }} />
-                        {getFileIcon(node.name)}
+                        <FileIcon filePath={node.name} />
                         {/* Make filename itself always clickable to open file */}
                         <span className="font-bold flex-grow cursor-pointer truncate"
                             onClick={(e) => { e.stopPropagation(); handleFileClick(node.absolutePath); }}
                             title={`Click to open ${node.name}`}>{node.name}</span>
 
                         {/* Stats & Replace button container */}
-                        <div className="relative flex items-center gap-1 ml-auto shrink-0 mr-1">
+                        <div
+                            className="absolute right-1 flex items-center gap-1 h-full z-10 pl-2"
+                            style={{ backgroundColor: 'inherit' }}
+                        >
                             {/* Match count or error status */}
                             <span
-                                className="text-[var(--vscode-descriptionForeground)] transition-opacity duration-200"
+                                className="text-[var(--vscode-descriptionForeground)] transition-opacity duration-200 whitespace-nowrap"
                                 style={{ opacity: isHovered && totalMatches > 0 && currentSearchValues.replace ? 0.3 : 1 }}
                             >
                                 {/* Prioritize match count, then check for error */}
                                 {totalMatches > 0
-                                    ? `${totalMatches} matches`
+                                    ? <><AnimatedCounter value={totalMatches} suffix=" matches" /></>
                                     : (hasError ? 'Error' : 'Changed')}
                             </span>
 

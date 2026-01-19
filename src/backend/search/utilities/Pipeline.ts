@@ -33,12 +33,23 @@ export class Pipeline<T> {
 
   async processConcurrent(
     concurrency: number,
-    processor: (item: T) => Promise<void>
+    processor: (item: T) => Promise<void>,
+    controls?: {
+      checkPause?: () => Promise<void>
+      signal?: AbortSignal
+    }
   ): Promise<void> {
-    const queue = []
     const executing = new Set<Promise<void>>()
 
     for (const item of this.input) {
+      if (controls?.signal?.aborted) return
+
+      // Check for pause
+      if (controls?.checkPause) {
+        await controls.checkPause()
+      }
+
+      if (controls?.signal?.aborted) return
       const p = Promise.resolve().then(() => processor(item))
       executing.add(p)
       const clean = () => executing.delete(p)

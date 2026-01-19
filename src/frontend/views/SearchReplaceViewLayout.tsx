@@ -11,6 +11,7 @@ import { URI } from 'vscode-uri';
 import * as path from 'path-browserify';
 import { TreeViewNode, FileTreeNode, FileNode, FolderNode } from './TreeView';
 import { VirtualizedListView } from './VirtualizedListView';
+import { AnimatedCounter } from './components/AnimatedCounter';
 
 // --- Interfaces ---
 
@@ -324,7 +325,8 @@ const SearchResultSummary = () => {
     return (
         <div className="px-0 py-1 text-xs text-[var(--vscode-descriptionForeground)] flex items-center justify-between">
             <span>
-                {status.numMatches} results in {status.numFilesWithMatches} files
+                <AnimatedCounter value={status.numMatches} suffix=" results in " />
+                <AnimatedCounter value={status.numFilesWithMatches} suffix=" files" />
             </span>
             {/* Open in editor link - mimicing VS Code style */}
             {/* <span
@@ -413,6 +415,8 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
         viewMode,
         searchLevels,
         isSearchRequested, // From Global Context
+        setStatus, // Needed for updating stats on exclude
+        status, // Needed for reading current stats for update
     } = useSearchGlobal();
 
     // Local UI State
@@ -440,6 +444,9 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
     }, [paginatedFilePaths, resultsByFile]);
 
 
+    const [pausedState, setPausedState] = useState<{ limit: number; count: number } | null>(null);
+    const [skippedCount, setSkippedCount] = useState<number>(0);
+
     useEffect(() => {
         const onMessage = (event: MessageEvent) => {
             const message = event.data as MessageToWebview;
@@ -451,6 +458,21 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
             switch (message.type) {
                 case 'initialData':
                     if (message.workspacePath) setWorkspacePath(message.workspacePath);
+                    setSkippedCount(0);
+                    setPausedState(null);
+                    break;
+                case 'clearResults':
+                    setSkippedCount(0);
+                    setPausedState(null);
+                    break;
+                case 'search-paused':
+                    setPausedState({ limit: message.limit, count: message.count });
+                    break;
+                case 'stop':
+                    setPausedState(null);
+                    break;
+                case 'skipped-large-files':
+                    setSkippedCount(message.count);
                     break;
             }
         };
@@ -490,25 +512,58 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
 
     const handleExcludeFile = useCallback((filePath: string) => {
         vscode.postMessage({ type: 'excludeFile', filePath });
+
+        let removedMatchesCount = 0;
+        let removedFileCount = 0;
+
         if (isInNestedSearch && values.searchInResults > 0) {
             setSearchLevels(prev => {
                 const newLevels = [...prev];
                 const currentLevel = newLevels[values.searchInResults];
-                if (currentLevel && currentLevel.resultsByFile[filePath]) {
-                    const updatedResultsByFile = { ...currentLevel.resultsByFile };
-                    delete updatedResultsByFile[filePath];
-                    newLevels[values.searchInResults] = { ...currentLevel, resultsByFile: updatedResultsByFile };
+                if (currentLevel) {
+                    const newResults = { ...currentLevel.resultsByFile };
+                    Object.keys(newResults).forEach(key => {
+                        // Check if key equals filePath (file) or starts with filePath/ (folder)
+                        // keys are absolute paths
+                        if (key === filePath || key.startsWith(filePath + path.sep)) {
+                            const fileEvents = newResults[key];
+                            const matches = fileEvents?.reduce((sum: number, e: any) => sum + (e.matches?.length || 0), 0) || 0;
+                            removedMatchesCount += matches;
+                            removedFileCount += 1;
+                            delete newResults[key];
+                        }
+                    });
+                    newLevels[values.searchInResults] = { ...currentLevel, resultsByFile: newResults };
                 }
                 return newLevels;
             });
         } else {
             setResultsByFile(prev => {
                 const newResults = { ...prev };
-                delete newResults[filePath];
+                Object.keys(newResults).forEach(key => {
+                    // Check if key equals filePath (file) or starts with filePath/ (folder)
+                    if (key === filePath || key.startsWith(filePath + path.sep)) {
+                        const fileEvents = newResults[key];
+                        const matches = fileEvents?.reduce((sum, e) => sum + (e.matches?.length || 0), 0) || 0;
+                        removedMatchesCount += matches;
+                        removedFileCount += 1;
+                        delete newResults[key];
+                    }
+                });
                 return newResults;
             });
         }
-    }, [vscode, isInNestedSearch, values.searchInResults, setSearchLevels, setResultsByFile]);
+
+        // Update global status for immediate UI feedback (Animation)
+        if (removedMatchesCount > 0 || removedFileCount > 0) {
+            setStatus(prev => ({
+                ...prev,
+                numMatches: Math.max(0, prev.numMatches - removedMatchesCount),
+                numFilesWithMatches: Math.max(0, prev.numFilesWithMatches - removedFileCount)
+            }));
+        }
+
+    }, [vscode, isInNestedSearch, values.searchInResults, setSearchLevels, setResultsByFile, setStatus]);
 
     const toggleFileExpansion = useCallback((relativePath: string) => {
         setSearchLevels(prev => {
@@ -544,6 +599,16 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
     }, []);
     const handleDragOver = useCallback((e: React.DragEvent, targetNode: FileTreeNode) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }, []);
     const handleDrop = useCallback((e: React.DragEvent, targetNode: FileTreeNode) => { e.preventDefault(); }, []);
+
+    const handleContinueSearch = useCallback(() => {
+        setPausedState(null);
+        vscode.postMessage({ type: 'continue-search' });
+    }, [vscode]);
+
+    const handleSearchLargeFiles = useCallback(() => {
+        setSkippedCount(0); // Clear notification
+        vscode.postMessage({ type: 'search-large-files' });
+    }, [vscode]);
 
     // Render Helpers
     const currentExpandedFiles = useMemo((): Set<string> => {
@@ -669,9 +734,6 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
         );
     };
 
-    // --- Styles & Keyframes ---
-    // Moved outside to avoid re-creation
-
     const renderRootView = () => (
         <div className="flex flex-col h-full">
             <div className="flex flex-col gap-1.5 mb-2">
@@ -679,9 +741,52 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
                     <RootSearchSection />
                 </div>
             </div>
+
+            {/* Pause Warning Banner */}
+            {pausedState && (
+                <div className="bg-[var(--vscode-inputValidation-warningBackground)] border border-[var(--vscode-inputValidation-warningBorder)] p-2 mb-2 rounded-sm flex flex-col gap-2 animate-in fade-in slide-in-from-top-1 duration-300">
+                    <div className="flex items-center gap-2 text-[var(--vscode-inputValidation-warningForeground)]">
+                        <span className="codicon codicon-warning" />
+                        <span className="font-semibold text-xs">
+                            Search paused at {pausedState.count.toLocaleString()} matches.
+                        </span>
+                    </div>
+                    <div className="text-xs opacity-90">
+                        Continuing may cause high CPU usage or instability.
+                    </div>
+                    <div className="flex gap-2 justify-end mt-1">
+                        <button
+                            className="bg-[var(--vscode-button-secondaryBackground)] text-[var(--vscode-button-secondaryForeground)] hover:bg-[var(--vscode-button-secondaryHoverBackground)] px-3 py-1 rounded-sm text-xs border border-[var(--vscode-button-border)] cursor-pointer"
+                            onClick={() => vscode.postMessage({ type: 'stop' })}
+                        >
+                            Stop
+                        </button>
+                        <button
+                            className="bg-[var(--vscode-button-background)] text-[var(--vscode-button-foreground)] hover:bg-[var(--vscode-button-hoverBackground)] px-3 py-1 rounded-sm text-xs border border-[var(--vscode-button-border)] cursor-pointer font-medium"
+                            onClick={handleContinueSearch}
+                        >
+                            Continue
+                        </button>
+                    </div>
+                </div>
+            )}
+
             <div className="flex-grow overflow-auto relative">
                 {viewMode === 'list' ? renderListViewResults() : renderTreeViewResults()}
             </div>
+
+            {/* Skipped Files Notification */}
+            {skippedCount > 0 && (
+                <div className="p-2 text-xs flex justify-between items-center border-t border-[var(--vscode-panel-border)] bg-[var(--vscode-sideBar-background)] animate-in slide-in-from-bottom-2 fade-in duration-300">
+                    <span className="opacity-80">Skipped {skippedCount} large files (&gt;1MB).</span>
+                    <button
+                        onClick={handleSearchLargeFiles}
+                        className="text-[var(--vscode-textLink-foreground)] hover:underline cursor-pointer bg-transparent border-none p-0"
+                    >
+                        Search them
+                    </button>
+                </div>
+            )}
         </div>
     );
 

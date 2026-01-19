@@ -19,11 +19,27 @@ export class SearchWorkflow extends EventEmitter {
     super()
   }
 
+  private totalMatchesInRun = 0
+  private isPaused = false
+  private pauseResolver: (() => void) | null = null
+  private currentLimitIndex = 0
+  // Limits: pause at 1k, then 10k. (0 means no initial limit index, but we check against LIMITS[0])
+  private readonly MATCH_LIMITS = [5000, 10000]
+  private skippedLargeFiles = new Set<string>()
+  private currentParams: Params | null = null
+
   async run(params: Params): Promise<void> {
     if (this.isRunning) {
       this.stop()
     }
     this.isRunning = true
+    this.isPaused = false
+    this.totalMatchesInRun = 0
+    this.currentLimitIndex = 0
+    this.pauseResolver = null
+    this.skippedLargeFiles.clear()
+    this.currentParams = params
+
     this.abortController = new AbortController()
     this.textSearchService.setAbortController(this.abortController)
 
@@ -33,36 +49,17 @@ export class SearchWorkflow extends EventEmitter {
       const { find, searchInResults, include, exclude } = params
 
       // 1. Determine Source Files & Parent Node
-      const { filesToScan, targetParentNode } = await this.getFilesToScan(
-        params
-      )
+      const { filesToScan, targetParentNode } =
+        await this.getFilesToScan(params)
 
       // 2. Setup Cache Node
       const cacheNode = this.setupCacheNode(params, targetParentNode)
-
-      if (!cacheNode && !targetParentNode) {
-        // Optimization: Exact cache match found (handled inside setupCacheNode? No, separated)
-        // If setupCacheNode returns null, it might mean we found an exact match and emitted results?
-        // Let's refine setupCacheNode to return the node OR indicate completion.
-        // For simplicity, we assume setupCacheNode always returns a node unless we're done.
-      }
-
-      // Check for exact cache match optimization
-      if (
-        !targetParentNode &&
-        this.cacheService.getCurrentNode()?.query === find
-        // && check params match...
-      ) {
-        // ... (Optimization logic could go here, but let's stick to the flow)
-      }
 
       // 3. Pipeline Processing
       const processedFiles = this.cacheService.getProcessedFiles()
       const excludedFiles = this.cacheService.getExcludedFiles()
 
       // Emit cached results
-      // If we have a cache node for this exact query, emit what we already have.
-      // This is crucial for re-runs (e.g. typing "let" -> clear -> "let") where the cache persists.
       if (cacheNode && cacheNode.query === find) {
         this.emitCachedResults(cacheNode, processedFiles)
       }
@@ -74,48 +71,163 @@ export class SearchWorkflow extends EventEmitter {
 
       this.emit('progress', { completed: 0, total: totalFiles })
 
+      // OPTIMIZATION: Reduced concurrency from 10 to 4 to prevent UI blocking
+      const CONCURRENCY = 4
+
       await Pipeline.from(filesToScan)
         .filter((f) => !processedFiles.has(f) && !excludedFiles.has(f))
-        .processConcurrent(10, async (fileUri) => {
-          if (this.abortController?.signal.aborted) return
+        .processConcurrent(
+          CONCURRENCY,
+          async (fileUri) => {
+            if (this.abortController?.signal.aborted) return
 
-          try {
-            const content = await this.fileService.readFile(fileUri)
-            const matches = await this.textSearchService.searchInFile(
-              fileUri,
-              content,
-              params
-            )
+            try {
+              const content = await this.fileService.readFile(fileUri)
+              // If empty, it might be skipped due to size limit
+              if (!content) return
 
-            if (matches.length > 0) {
-              const result: TransformResultEvent = {
-                file: vscode.Uri.parse(fileUri),
-                matches,
-                source: content,
+              const matches = await this.textSearchService.searchInFile(
+                fileUri,
+                content,
+                params
+              )
+
+              if (matches.length > 0) {
+                this.totalMatchesInRun += matches.length
+
+                const result: TransformResultEvent = {
+                  file: vscode.Uri.parse(fileUri),
+                  matches,
+                  source: content,
+                }
+
+                this.emit('result', result)
+                this.cacheService.addResult(result)
               }
-
-              this.emit('result', result)
-              this.cacheService.addResult(result)
+            } catch (err) {
+              if ((err as Error).message === 'FILE_TOO_LARGE') {
+                this.skippedLargeFiles.add(fileUri)
+                // Emit count
+                this.emit('skipped-large-files', this.skippedLargeFiles.size)
+              }
+            } finally {
+              completedCount++
+              this.emit('progress', {
+                completed: completedCount,
+                total: totalFiles,
+              })
             }
-          } catch (err) {
-            // ignore errors
-          } finally {
-            completedCount++
-            this.emit('progress', {
-              completed: completedCount,
-              total: totalFiles,
-            })
+          },
+          {
+            signal: this.abortController.signal,
+            checkPause: async () => {
+              // Check if we hit a limit
+              if (
+                this.currentLimitIndex < this.MATCH_LIMITS.length &&
+                this.totalMatchesInRun >=
+                  this.MATCH_LIMITS[this.currentLimitIndex]
+              ) {
+                this.isPaused = true
+                const limit = this.MATCH_LIMITS[this.currentLimitIndex]
+                this.emit('search-paused', {
+                  limit,
+                  count: this.totalMatchesInRun,
+                })
+
+                // Wait for resume
+                await new Promise<void>((resolve) => {
+                  this.pauseResolver = resolve
+                })
+
+                this.isPaused = false
+                this.pauseResolver = null
+                this.isPaused = false
+                this.pauseResolver = null
+                // Check done inside the pause logic
+              }
+            },
           }
-        })
+        )
 
       if (!this.abortController.signal.aborted) {
         this.cacheService.markCurrentAsComplete()
         this.finish()
       }
     } catch (error) {
-      this.emit('error', error)
+      if (this.abortController?.signal.aborted) {
+        // Normal abort, don't emit error
+      } else {
+        this.emit('error', error)
+      }
       this.isRunning = false
     }
+  }
+
+  continueSearch() {
+    if (this.isPaused && this.pauseResolver) {
+      if (this.currentLimitIndex < this.MATCH_LIMITS.length) {
+        this.currentLimitIndex++
+      }
+      this.pauseResolver()
+    }
+  }
+
+  async searchLargeFiles() {
+    if (!this.currentParams || this.skippedLargeFiles.size === 0) return
+
+    this.isRunning = true
+    this.abortController = new AbortController() // New controller or reuse?
+    // If we reuse, ensure it's not aborted.
+    if (!this.abortController || this.abortController.signal.aborted) {
+      this.abortController = new AbortController()
+    }
+
+    const files = Array.from(this.skippedLargeFiles)
+    let completedCount = 0
+    const totalFiles = files.length
+
+    await Pipeline.from(files).processConcurrent(
+      4, // Keep low concurrency
+      async (fileUri) => {
+        if (this.abortController?.signal.aborted) return
+        try {
+          // Ignore size limit here
+          const content = await this.fileService.readFile(fileUri, {
+            ignoreSizeLimit: true,
+          })
+          if (!content) return
+
+          const matches = await this.textSearchService.searchInFile(
+            fileUri,
+            content,
+            this.currentParams!
+          )
+
+          if (matches.length > 0) {
+            this.totalMatchesInRun += matches.length
+            const result: TransformResultEvent = {
+              file: vscode.Uri.parse(fileUri),
+              matches,
+              source: content,
+            }
+            this.emit('result', result)
+            this.cacheService.addResult(result)
+          }
+        } catch (err) {
+          // ignore
+        } finally {
+          completedCount++
+          // Emit progress?
+        }
+      },
+      { signal: this.abortController.signal }
+    )
+
+    // Clear them after search
+    this.skippedLargeFiles.clear()
+    this.emit('skipped-large-files', 0)
+
+    this.finish()
   }
 
   private async getFilesToScan(

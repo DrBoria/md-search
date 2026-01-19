@@ -6,7 +6,10 @@ export abstract class TreeNode<P = any> {
     return []
   }
 
-  constructor(public readonly props: P, public readonly parent?: TreeNode) {}
+  constructor(
+    public readonly props: P,
+    public readonly parent?: TreeNode
+  ) {}
 
   abstract getTreeItem(): TreeItem | Promise<TreeItem>
 

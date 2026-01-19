@@ -4,7 +4,7 @@ import { URI } from 'vscode-uri';
 import * as path from 'path-browserify';
 import { Button } from '../components/ui/button';
 import { TreeViewNode } from './TreeView';
-import { getFileIcon } from '../components/icons';
+import { FileIcon } from '../components/icons';
 import { getLineFromSource } from './utils';
 import { getHighlightedMatchContext } from './TreeView/highligtedContext';
 import { getHighlightedMatchContextWithReplacement } from './TreeView/highlightedContextWithReplacement';
@@ -313,7 +313,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
                                 onClick={() => toggleFileExpansion(filePath)}
                             >
                                 <span className={`codicon codicon-chevron-${isExpanded ? 'down' : 'right'}`} />
-                                {getFileIcon(filePath)}
+                                <FileIcon filePath={filePath} />
                                 <span
                                     className="font-bold cursor-pointer"
                                     onClick={(e) => { e.stopPropagation(); handleFileClick(filePath); }}

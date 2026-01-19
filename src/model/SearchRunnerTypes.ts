@@ -26,7 +26,9 @@ export interface SearchRunnerEvents {
   result: (options: TransformResultEvent) => void
   stop: () => void
   start: () => void
-  progress: (options: { completed: number; total: number }) => void
+  progress: (progress: { completed: number; total: number }) => void
+  'search-paused': (e: { limit: number; count: number }) => void
+  'skipped-large-files': (count: number) => void
   done: () => void
   error: (error: Error) => void
   replaceDone: () => void

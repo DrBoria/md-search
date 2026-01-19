@@ -90,6 +90,12 @@ export class MessageHandler {
         case 'updateFileOrder':
           this.handleUpdateFileOrder(message.customOrder)
           break
+        case 'continue-search':
+          this.handleContinueSearch()
+          break
+        case 'search-large-files':
+          this.handleSearchLargeFiles()
+          break
       }
     } catch (error) {
       this.extension.logError(
@@ -238,7 +244,7 @@ export class MessageHandler {
 
   private async handleOpenFile(
     filePath: string,
-    range?: { start: number }
+    range?: { start: number; end?: number }
   ): Promise<void> {
     const uri = vscode.Uri.parse(filePath)
     const result = this.extension.transformResultProvider.results.get(
@@ -258,19 +264,12 @@ export class MessageHandler {
       if (range?.start !== undefined) {
         try {
           const document = await vscode.workspace.openTextDocument(uri)
-          const textUpToStart = document.getText(
-            new vscode.Range(
-              new vscode.Position(0, 0),
-              document.positionAt(range.start)
-            )
-          )
-          const lineNumber = textUpToStart.split('\n').length - 1
-          const calculatedRange = new vscode.Range(
-            new vscode.Position(lineNumber, 0),
-            new vscode.Position(lineNumber, 0)
-          )
+          const startPos = document.positionAt(range.start)
+          const endPos =
+            range.end !== undefined ? document.positionAt(range.end) : startPos
+
           vscode.window.showTextDocument(uri, {
-            selection: calculatedRange,
+            selection: new vscode.Range(startPos, endPos),
           })
         } catch (error) {
           this.extension.logError(
@@ -294,5 +293,23 @@ export class MessageHandler {
 
   private handleUpdateFileOrder(customOrder: { [key: string]: number }): void {
     this.extension.setCustomFileOrder(customOrder)
+  }
+
+  private handleContinueSearch(): void {
+    this.extension.channel.appendLine(
+      '[MessageHandler] received continue-search'
+    )
+    if (this.extension.runner.continueSearch) {
+      this.extension.runner.continueSearch()
+    }
+  }
+
+  private handleSearchLargeFiles(): void {
+    this.extension.channel.appendLine(
+      '[MessageHandler] received search-large-files'
+    )
+    if (this.extension.runner.searchLargeFiles) {
+      this.extension.runner.searchLargeFiles()
+    }
   }
 }

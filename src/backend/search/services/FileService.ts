@@ -5,7 +5,10 @@ import * as util from 'util'
 const readFileAsync = util.promisify(fs.readFile)
 
 export class FileService {
-  async readFile(pathOrUri: string | vscode.Uri): Promise<string> {
+  async readFile(
+    pathOrUri: string | vscode.Uri,
+    options?: { ignoreSizeLimit?: boolean }
+  ): Promise<string> {
     let filePath: string
     if (typeof pathOrUri === 'string') {
       filePath = pathOrUri
@@ -14,6 +17,27 @@ export class FileService {
       }
     } else {
       filePath = pathOrUri.fsPath
+    }
+
+    // 1MB limit for now to prevent OOM/High CPU on large files
+    const MAX_FILE_SIZE = 1 * 1024 * 1024
+
+    // Check size first
+    try {
+      if (filePath.startsWith('file://')) {
+        filePath = vscode.Uri.parse(filePath).fsPath
+      }
+
+      const stats = await util.promisify(fs.stat)(filePath)
+      if (!options?.ignoreSizeLimit && stats.size > MAX_FILE_SIZE) {
+        throw new Error('FILE_TOO_LARGE')
+      }
+    } catch (e) {
+      if ((e as Error).message === 'FILE_TOO_LARGE') {
+        throw e
+      }
+      // If we can't stat, we might not be able to read it anyway, or it's a virtual file.
+      // Proceed with caution or just let readFile handle the error.
     }
 
     // Use fs.readFile for performance on local files

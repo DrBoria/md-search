@@ -22,17 +22,18 @@ export const SearchInput = () => {
                 rows={1}
                 value={find}
                 onChange={(e) => setFind(e.target.value)}
-                className="border-none focus-visible:ring-0 px-[6px] py-[4px] bg-transparent"
+                className="border-none focus-visible:ring-0 pl-[6px] py-[4px] pr-[70px] bg-transparent min-h-[26px]"
             />
-            <div className="flex items-center gap-[2px] pr-[4px]">
+            <div className="absolute right-[2px] top-[2px] flex items-center gap-[1px]">
                 <Button
                     onClick={toggleMatchCase}
                     title="Match Case (Alt+C)"
                     variant="icon"
                     size="icon"
                     active={matchCase}
+                    className="w-[20px] h-[20px] p-0"
                 >
-                    <span className="codicon codicon-case-sensitive" />
+                    <span className="codicon codicon-case-sensitive text-[14px]" />
                 </Button>
                 <Button
                     onClick={toggleWholeWord}
@@ -40,8 +41,9 @@ export const SearchInput = () => {
                     variant="icon"
                     size="icon"
                     active={wholeWord}
+                    className="w-[20px] h-[20px] p-0"
                 >
-                    <span className="codicon codicon-whole-word" />
+                    <span className="codicon codicon-whole-word text-[14px]" />
                 </Button>
                 <Button
                     onClick={toggleRegex}
@@ -49,8 +51,9 @@ export const SearchInput = () => {
                     variant="icon"
                     size="icon"
                     active={searchMode === 'regex'}
+                    className="w-[20px] h-[20px] p-0"
                 >
-                    <span className="codicon codicon-regex" />
+                    <span className="codicon codicon-regex text-[14px]" />
                 </Button>
             </div>
         </div>

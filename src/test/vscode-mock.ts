@@ -62,11 +62,17 @@ export const Range = class {
 }
 
 export const Position = class {
-  constructor(public line: number, public char: number) {}
+  constructor(
+    public line: number,
+    public char: number
+  ) {}
 }
 
 export const RelativePattern = class {
-  constructor(public base: unknown, public pattern: string) {}
+  constructor(
+    public base: unknown,
+    public pattern: string
+  ) {}
 }
 
 export enum ViewColumn {

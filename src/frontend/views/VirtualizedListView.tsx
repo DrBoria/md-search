@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
-import { VariableSizeList as List } from 'react-window';
-import AutoSizer from 'react-virtualized-auto-sizer';
+import { List } from 'react-window';
+import { AutoSizer } from 'react-virtualized-auto-sizer';
 import { SerializedTransformResultEvent, SearchReplaceViewValues } from '../../model/SearchReplaceViewTypes';
 import { TreeViewNode, FileNode } from './TreeView';
 import path from 'path-browserify';
@@ -170,18 +170,18 @@ export const VirtualizedListView: React.FC<VirtualizedListViewProps> = ({
 
     return (
         <div style={{ flex: '1 1 auto', height: '100%' }}>
-            <AutoSizer>
-                {({ height, width }: { height: number; width: number }) => (
+            <div style={{ flex: '1 1 auto', height: '100%' }}>
+                <AutoSizer renderProp={({ height, width }: { height?: number; width?: number }) => (
                     <List
-                        height={height}
-                        width={width}
-                        itemCount={flattenedItems.length}
-                        itemSize={getItemSize}
-                    >
-                        {Row}
-                    </List>
-                )}
-            </AutoSizer>
+                        style={{ height: height ?? 0, width: width ?? 0 }}
+                        rowCount={flattenedItems.length}
+                        rowHeight={getItemSize}
+                        rowComponent={Row}
+                        rowProps={{} as any}
+                    />
+                )} />
+            </div>
         </div>
     );
 };
+

@@ -37,7 +37,19 @@ export class SearchOrchestrator extends TypedEmitter<SearchRunnerEvents> {
     this.workflow.on('done', () => this.emit('done'))
     this.workflow.on('error', (e) => this.emit('error', e))
     this.workflow.on('progress', (e) => this.emit('progress', e))
+    this.workflow.on('skipped-large-files', (count) =>
+      this.emit('skipped-large-files', count)
+    )
     this.workflow.on('stop', () => this.emit('stop'))
+    this.workflow.on('search-paused', (e) => this.emit('search-paused', e))
+  }
+
+  continueSearch(): void {
+    this.workflow.continueSearch()
+  }
+
+  searchLargeFiles(): void {
+    this.workflow.searchLargeFiles()
   }
 
   /**

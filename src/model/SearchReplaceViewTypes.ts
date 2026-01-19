@@ -188,6 +188,15 @@ export const MessageToWebviewSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('copyFileNamesComplete'), count: z.number() }),
   z.object({ type: z.literal('undoComplete'), restored: z.boolean() }),
   z.object({
+    type: z.literal('search-paused'),
+    limit: z.number(),
+    count: z.number(),
+  }),
+  z.object({
+    type: z.literal('skipped-large-files'),
+    count: z.number(),
+  }),
+  z.object({
     type: z.literal('restoreViewState'),
     viewState: ViewUndoStateSchema,
   }),
@@ -219,6 +228,8 @@ export const MessageFromWebviewSchema = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('stop') }),
   z.object({ type: z.literal('abort') }),
+  z.object({ type: z.literal('continue-search') }),
+  z.object({ type: z.literal('search-large-files') }),
   z.object({
     type: z.literal('copyMatches'),
     fileOrder: z.array(z.string()).optional(),

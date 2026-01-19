@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import path from 'path-browserify'
 import * as MaterialIcons from 'vscode-icons-js'
 
-export function getFileIcon(filePath: string): React.ReactNode {
+export const FileIcon: React.FC<{ filePath: string }> = ({ filePath }) => {
     const [iconUrl, setIconUrl] = useState<string | null>(null);
 
     useEffect(() => {

@@ -7,6 +7,7 @@ import { useSearchGlobal } from './context/SearchGlobalContext';
 import { useSearchItemController, SearchItemProvider } from './context/SearchItemContext';
 import { ResultsView } from './ResultsView';
 import { FindInFoundButton } from './components/FindInFoundButton';
+import { AnimatedCounter } from './components/AnimatedCounter';
 
 // Inline styles for animations - avoids external CSS dependency
 const STYLES = `
@@ -69,7 +70,7 @@ const LiveStatsWidget = ({ resultsByFile }: { resultsByFile: any }) => {
                 hasStats ? "max-w-[200px] opacity-100 ml-2" : "max-w-0 opacity-0 ml-0"
             )}
         >
-            ({stats.fileCount} files, {stats.matchCount} matches)
+            (<AnimatedCounter value={stats.fileCount} suffix=" files" />, <AnimatedCounter value={stats.matchCount} suffix=" matches" />)
         </span>
     );
 };

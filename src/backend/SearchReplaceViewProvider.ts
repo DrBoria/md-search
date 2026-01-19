@@ -14,7 +14,7 @@ import { SearchRunnerEvents } from '../model/SearchRunnerTypes'
 import { HtmlTemplate } from './views/HtmlTemplate'
 import { MessageHandler } from './views/MessageHandler'
 
-// Константа для времени буферизации результатов (мс)
+// Constant for result buffering time (ms)
 const RESULT_BATCH_DELAY = 200
 
 export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
@@ -40,15 +40,15 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
   }
   private _listenerRegistered = false
 
-  // Буфер для накопления результатов
+  // Buffer for accumulating results
   private _resultBuffer: any[] = []
-  // Таймер для батчинга результатов
+  // Timer for result batching
   private _resultBatchTimer: NodeJS.Timeout | null = null
-  // Set для отслеживания уже обработанных файлов (избежание дублирования)
+  // Set to track processed files (avoid duplication)
   private _processedFiles: Set<string> = new Set()
-  // Флаг готовности webview (после получения mount сообщения)
+  // Webview readiness flag (after receiving mount message)
   private _isWebviewMounted = false
-  // Очередь сообщений для отправки после mount
+  // Queue of messages to send after mount
   private _pendingMessages: MessageToWebview[] = []
 
   constructor(
@@ -56,14 +56,14 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     private readonly _extensionUri: vscode.Uri = extension.context.extensionUri,
     private readonly runner: SearchRunner = extension.runner
   ) {
-    // Регистрируем глобальных слушателей событий при создании провайдера
+    // Register global event listeners when creating the provider
     this._registerGlobalEventListeners()
 
-    // Инициализация с параметрами расширения
+    // Initialize with extension parameters
     this._state.params = Object.assign({}, extension.getParams())
 
-    // _processedFiles используется для предотвращения дублирования результатов
-    // когда один и тот же файл может поступить из кеша и из текущего поиска
+    // _processedFiles is used to prevent result duplication
+    // when the same file might come from cache and current search
   }
   private isSearchRunning = false
   private _registerGlobalEventListeners(): void {
@@ -71,9 +71,9 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
 
     const globalListeners = {
       result: (e: TransformResultEvent) => {
-        // Обновляем состояние даже если view не активен
+        // Update status even if view is not active
         this._updateStatus(e)
-        // Сохраняем результат
+        // Save result
         this._addResult(e)
       },
       start: () => {
@@ -85,12 +85,12 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
         this._state.status.completed = 0
         this._state.status.total = 0
         this._state.results = []
-        // Очищаем Set обработанных файлов при новом поиске
+        // Clear processed files Set on new search
         this._processedFiles.clear()
         this.isSearchRunning = true
       },
       stop: () => {
-        // Отправляем оставшиеся буферизованные результаты перед очисткой
+        // Send remaining buffered results before clearing
         this._flushBufferedResults()
 
         this._state.status.running = false
@@ -101,7 +101,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
         this._state.status.completed = 0
         this._state.status.total = 0
         this._state.results = []
-        // Очищаем Set обработанных файлов при остановке поиска
+        // Clear processed files Set on stop search
         this._processedFiles.clear()
         this._notifyWebviewIfActive('status', {
           status: this._state.status,
@@ -110,7 +110,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
         this.isSearchRunning = false
       },
       done: () => {
-        // Отправляем оставшиеся буферизованные результаты
+        // Send remaining buffered results
         this._flushBufferedResults()
 
         this._state.status.running = false
@@ -130,6 +130,12 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
         if (isNoMatches) {
           this._notifyWebviewIfActive('clearResults', {})
         }
+      },
+      'search-paused': (data: { limit: number; count: number }) => {
+        this._notifyWebviewIfActive('search-paused', data)
+      },
+      'skipped-large-files': (count: number) => {
+        this._notifyWebviewIfActive('skipped-large-files', { count })
       },
     }
 
@@ -375,7 +381,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
   }
 
   postMessage(message: MessageToWebview): void {
-    if (this._view?.visible) {
+    if (this._view) {
       // Validate outgoing message
       const validation = MessageToWebviewSchema.safeParse(message)
       if (!validation.success) {
@@ -412,7 +418,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     this._pendingMessages = []
   }
 
-  // Метод для отправки уведомления о завершении замены
+  // Method to send notification about replacement completion
   notifyReplacementComplete(
     totalReplacements: number,
     totalFilesChanged: number
@@ -424,7 +430,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     })
   }
 
-  // Метод для отправки уведомления о завершении копирования
+  // Method to send notification about copy completion
   notifyCopyMatchesComplete(count: number): void {
     this.postMessage({
       type: 'copyMatchesComplete',
@@ -432,7 +438,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     })
   }
 
-  // Метод для отправки уведомления о завершении вырезания
+  // Method to send notification about cut completion
   notifyCutMatchesComplete(count: number): void {
     this.postMessage({
       type: 'cutMatchesComplete',
@@ -440,7 +446,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     })
   }
 
-  // Метод для отправки уведомления о завершении вставки
+  // Method to send notification about paste completion
   notifyPasteToMatchesComplete(count: number): void {
     this.postMessage({
       type: 'pasteToMatchesComplete',
@@ -455,7 +461,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     })
   }
 
-  // Метод для отправки уведомления о завершении отката операции
+  // Method to send notification about undo completion
   notifyUndoComplete(restored: boolean): void {
     this.postMessage({
       type: 'undoComplete',
@@ -463,17 +469,17 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     })
   }
 
-  // Метод для немедленной отправки буферизованных результатов без задержки
+  // Method to immediately send buffered results without delay
   private _flushBufferedResults(): void {
-    // Отменяем таймер, если он запущен
+    // Cancel timer if it is running
     if (this._resultBatchTimer !== null) {
       clearTimeout(this._resultBatchTimer)
       this._resultBatchTimer = null
     }
 
-    // Отправляем буферизованные результаты
+    // Send buffered results
     this._sendBufferedResults()
-    // Отправляем буферизованные результаты
+    // Send buffered results
     this._sendBufferedResults()
   }
 
