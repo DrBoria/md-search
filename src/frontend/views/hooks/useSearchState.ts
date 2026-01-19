@@ -56,6 +56,17 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
   const [resultsByFile, setResultsByFile] = useState<
     Record<string, SerializedTransformResultEvent[]>
   >({})
+  // Stale Results State (for smooth transitions)
+  const [staleResultsByFile, setStaleResultsByFile] = useState<Record<
+    string,
+    SerializedTransformResultEvent[]
+  > | null>(null)
+
+  const [staleLevel, setStaleLevel] = useState<number | null>(null)
+
+  const [staleStatus, setStaleStatus] =
+    useState<SearchReplaceViewStatus | null>(null)
+
   const [workspacePath, setWorkspacePath] = useState<string>('')
 
   // State to track when a search is requested but results haven't arrived yet
@@ -95,6 +106,10 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
   })
 
   const isInNestedSearch = searchLevels.length > 1
+  const searchLevelsRef = useRef(searchLevels)
+  useEffect(() => {
+    searchLevelsRef.current = searchLevels
+  }, [searchLevels])
 
   // --- Throttling Logic ---
   const throttleTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -435,12 +450,36 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
           break
         case 'status':
           setStatus((prev) => ({ ...prev, ...message.status }))
+          // If search is completed, clear stale results
+          if (
+            message.status.total !== undefined &&
+            message.status.total > 0 &&
+            message.status.completed === message.status.total
+          ) {
+            setStaleResultsByFile(null)
+            setStaleStatus(null)
+            setStaleLevel(null)
+          }
           break
         case 'values':
           console.log('value handleMessages', message.values)
           setValues((prev) => ({ ...prev, ...message.values }))
           break
+
+        // ... (inside handleMessage)
+
         case 'clearResults':
+          // Save current results as stale before clearing
+          if (Object.keys(resultsByFile).length > 0) {
+            setStaleResultsByFile(resultsByFile)
+            setStaleLevel(0)
+          }
+
+          setStaleStatus((prev) => {
+            if (status.numMatches > 0) return status
+            return prev
+          })
+
           setStatus((prev) => ({
             ...prev,
             numMatches: 0,
@@ -450,6 +489,20 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
             completed: 0,
             total: 0,
           }))
+
+          if (isInNestedSearch) {
+            // Save stale results for nested search before clearing
+            const currentLevelIndex = values.searchInResults
+            const currentLevelResults =
+              searchLevelsRef.current[currentLevelIndex]?.resultsByFile
+            if (
+              currentLevelResults &&
+              Object.keys(currentLevelResults).length > 0
+            ) {
+              setStaleResultsByFile(currentLevelResults)
+              setStaleLevel(currentLevelIndex)
+            }
+          }
 
           setReplacementResult({
             totalReplacements: 0,
@@ -476,6 +529,7 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
             })
           } else {
             setResultsByFile({})
+            // Sync searchLevels[0]
             setSearchLevels((prev) => {
               const newLevels = [...prev]
               if (newLevels.length > 0) {
@@ -485,14 +539,9 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
             })
           }
           break
+
         case 'addBatchResults': {
           console.log('DEBUG: addBatchResults', JSON.stringify(message))
-          if (message.data && message.data.length > 0) {
-            console.log(
-              'DEBUG: First item matches:',
-              JSON.stringify(message.data[0].matches)
-            )
-          }
 
           const batchResults = message.data
 
@@ -502,10 +551,37 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
             shouldClearResultsRef.current = false
             setIsSearchRequested(false)
 
+            // Set stale results here too if triggered by frontend logic
+            // Determine Stale Results Snapshot
+            if (isInNestedSearch) {
+              const currentLevelIndex = values.searchInResults
+              const currentLevelResults =
+                searchLevelsRef.current[currentLevelIndex]?.resultsByFile
+
+              if (
+                currentLevelResults &&
+                Object.keys(currentLevelResults).length > 0
+              ) {
+                setStaleResultsByFile(currentLevelResults)
+                setStaleLevel(currentLevelIndex)
+              }
+            } else {
+              if (Object.keys(resultsByFile).length > 0) {
+                setStaleResultsByFile(resultsByFile)
+                setStaleLevel(0)
+              }
+            }
+
+            setStaleStatus((prev) => {
+              if (status.numMatches > 0) return status
+              return prev
+            })
+
             // Clear Pending
             pendingResultsRef.current = {}
 
             if (isInNestedSearch) {
+              // ... existing nested clear logic
               setSearchLevels((prev) => {
                 const currentLevel = prev[values.searchInResults]
                 if (!currentLevel) return prev
@@ -523,7 +599,14 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
             }
           }
 
-          // Append to pending (removed the old inside-clearing logic)
+          // If we have new results, clear the stale results
+          if (batchResults.length > 0) {
+            setStaleResultsByFile(null)
+            setStaleStatus(null)
+            setStaleLevel(null)
+          }
+
+          // Append to pending
           batchResults.forEach((newResult: SerializedTransformResultEvent) => {
             const hasMatches = newResult.matches && newResult.matches.length > 0
             if (!hasMatches && !newResult.error) return
@@ -537,6 +620,7 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
           flushPendingResults()
           break
         }
+
         case 'fileUpdated': {
           const { filePath, newSource } = message
           setResultsByFile((prev) => {
@@ -805,6 +889,9 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
     setStatus,
     resultsByFile,
     setResultsByFile,
+    staleResultsByFile,
+    staleStatus,
+    staleLevel,
     workspacePath,
     setWorkspacePath,
     isSearchRequested,

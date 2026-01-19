@@ -3,6 +3,7 @@ import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { cn } from '../utils';
 import { SearchInputSection } from './SearchInputSection';
 import SearchNestedView from './SearchNestedView';
+import { Button } from '../components/ui/button';
 import { FindInFoundButton } from './components/FindInFoundButton';
 import { SearchGlobalProvider, useSearchGlobal } from './context/SearchGlobalContext';
 import { SearchItemProvider, useSearchItemController } from './context/SearchItemContext';
@@ -211,6 +212,8 @@ const RootSearchSection = () => {
         status,
         vscode,
         resultsByFile,
+        staleResultsByFile, // Added missing variable
+        staleLevel,         // Added missing variable
         valuesRef
     } = useSearchGlobal();
 
@@ -285,10 +288,31 @@ const RootSearchSection = () => {
         console.log('=== handleFindInFound END ===');
     }, [postValuesChange, status, setSearchLevels, vscode]);
 
+    const handleCopyFileNames = useCallback(() => {
+        vscode.postMessage({ type: 'copyFileNames' });
+    }, [vscode]);
+
     const hasResults = Object.keys(resultsByFile || {}).length > 0;
+    const isStale = Object.keys(resultsByFile).length === 0 && staleResultsByFile !== null && (staleLevel === 0 || staleLevel === null || staleLevel === undefined);
 
     const extraActions = (
-        <FindInFoundButton onClick={handleFindInFound} visible={hasResults} />
+        <>
+            <FindInFoundButton
+                onClick={handleFindInFound}
+                visible={hasResults || isStale}
+                forceHide={!values.find} // Immediately hide if input is empty
+            />
+            <Button
+                onClick={handleCopyFileNames}
+                title="Copy file names"
+                variant="ghost"
+                size="icon"
+                disabled={!hasResults && !isStale}
+                className={cn("transition-opacity duration-300", (hasResults || isStale) ? "opacity-100" : "opacity-0 pointer-events-none")}
+            >
+                <span className="codicon codicon-copy" />
+            </Button>
+        </>
     );
 
     const controller = useSearchItemController({
@@ -310,9 +334,12 @@ const RootSearchSection = () => {
 };
 
 const SearchResultSummary = () => {
-    const { status, values, vscode } = useSearchGlobal();
+    const { status, staleStatus, values, vscode } = useSearchGlobal();
 
-    if (!status.numMatches || status.numMatches === 0) return null;
+    // Use stale status if current status has 0 matches (e.g. during a re-search) to prevent flickering
+    const effectiveStatus = (status.numMatches === 0 && staleStatus) ? staleStatus : status;
+
+    if (!effectiveStatus.numMatches || effectiveStatus.numMatches === 0) return null;
 
     const handleOpenInEditor = () => {
         // Need to collect all file paths to open? Or just open a new search editor?
@@ -325,9 +352,9 @@ const SearchResultSummary = () => {
     return (
         <div className="px-0 py-1 text-xs text-[var(--vscode-descriptionForeground)] flex items-center justify-between">
             <span>
-                <AnimatedCounter value={status.numMatches} suffix="results in" />
+                <AnimatedCounter value={effectiveStatus.numMatches} suffix="results in" />
                 &nbsp;
-                <AnimatedCounter value={status.numFilesWithMatches} suffix=" files" />
+                <AnimatedCounter value={effectiveStatus.numFilesWithMatches} suffix=" files" />
             </span>
             {/* Open in editor link - mimicing VS Code style */}
             {/* <span
@@ -409,6 +436,7 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
     const {
         values,
         resultsByFile,
+        staleResultsByFile,
         setResultsByFile,
         setSearchLevels,
         handleMessage,
@@ -418,6 +446,7 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
         isSearchRequested, // From Global Context
         setStatus, // Needed for updating stats on exclude
         status, // Needed for reading current stats for update
+        staleLevel, // FROM CONTEXT
     } = useSearchGlobal();
 
     // Local UI State
@@ -425,24 +454,42 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
     // REMOVED shadowed isSearchRequested
     const [visibleResultsLimit, setVisibleResultsLimit] = useState(50);
     const [isLoadingMore, setIsLoadingMore] = useState(false);
+
+    // Determine effective results (current or stale)
+    // Determine effective results (current or stale)
+    const effectiveResultsByFile = useMemo(() => {
+        const hasCurrent = Object.keys(resultsByFile).length > 0;
+        if (hasCurrent) return resultsByFile;
+
+        // Only use stale results if they belong to the root level (level 0)
+        // or if staleLevel is null/undefined (legacy behavior fallback, though we set it explicitly now)
+        // But strictly for root view, we want staleLevel === 0.
+        if (staleResultsByFile && Object.keys(staleResultsByFile).length > 0 && (staleLevel === 0 || staleLevel === undefined || staleLevel === null)) {
+            return staleResultsByFile;
+        }
+        return resultsByFile;
+    }, [resultsByFile, staleResultsByFile, staleLevel]);
+
+    const isStale = Object.keys(resultsByFile).length === 0 && staleResultsByFile !== null && (staleLevel === 0 || staleLevel === null || staleLevel === undefined);
+
     // Derived State for Pagination
     const paginatedFilePaths = useMemo(() => {
-        return Object.keys(resultsByFile).slice(0, visibleResultsLimit);
-    }, [resultsByFile, visibleResultsLimit]);
+        return Object.keys(effectiveResultsByFile).slice(0, visibleResultsLimit);
+    }, [effectiveResultsByFile, visibleResultsLimit]);
     const [customFileOrder, setCustomFileOrder] = useState<{ [key: string]: number }>({});
 
     // Derived
     const paginatedResults = useMemo(() => {
-        if (!resultsByFile || !paginatedFilePaths || paginatedFilePaths.length === 0) {
+        if (!effectiveResultsByFile || !paginatedFilePaths || paginatedFilePaths.length === 0) {
             return {};
         }
         return paginatedFilePaths.reduce((acc, path) => {
-            if (resultsByFile[path]) {
-                acc[path] = resultsByFile[path];
+            if (effectiveResultsByFile[path]) {
+                acc[path] = effectiveResultsByFile[path];
             }
             return acc;
         }, {} as Record<string, SerializedTransformResultEvent[]>);
-    }, [paginatedFilePaths, resultsByFile]);
+    }, [paginatedFilePaths, effectiveResultsByFile]);
 
 
     const [pausedState, setPausedState] = useState<{ limit: number; count: number } | null>(null);
@@ -772,7 +819,7 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
                 </div>
             )}
 
-            <div className="flex-grow overflow-auto relative">
+            <div className={cn("flex-grow overflow-auto relative", isStale ? "opacity-50 transition-opacity duration-200" : "transition-opacity duration-200")}>
                 {viewMode === 'list' ? renderListViewResults() : renderTreeViewResults()}
             </div>
 

@@ -116,7 +116,7 @@ const SlideTransition = ({ children, itemKey, direction }: { children: React.Rea
             {animating && prevChild && (
                 <div
                     className={cn(
-                        "absolute inset-0 w-full h-full pointer-events-none", // Disable interaction on exiting
+                        "absolute inset-0 w-full h-full pointer-events-none flex flex-col", // Disable interaction on exiting
                         direction === 'forward' ? 'animate-slide-out-left' : 'animate-slide-out-right'
                     )}
                 >
@@ -127,7 +127,7 @@ const SlideTransition = ({ children, itemKey, direction }: { children: React.Rea
             {/* Entering/Current Item (Live Props) */}
             <div
                 className={cn(
-                    "w-full h-full",
+                    "w-full h-full flex flex-col",
                     animating && (direction === 'forward' ? 'animate-slide-in-right' : 'animate-slide-in-left')
                 )}
             >
@@ -257,7 +257,12 @@ const NestedSearchInputContent = () => {
     const extraActions = (
         <>
             {/* Animated Find in Found Button */}
-            <FindInFoundButton onClick={handleFindInFound} visible={hasResults} />
+            <FindInFoundButton
+                key={levelIndex} // Key by level index so state resets on level change
+                onClick={handleFindInFound}
+                visible={hasResults}
+                forceHide={!findValue} // Immediately hide if input is empty
+            />
 
             <Button
                 onClick={handleCopyFileNames}

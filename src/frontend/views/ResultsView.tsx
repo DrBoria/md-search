@@ -5,10 +5,10 @@ import * as path from 'path-browserify';
 import { Button } from '../components/ui/button';
 import { TreeViewNode } from './TreeView';
 import { FileIcon } from '../components/icons';
-import { getLineFromSource } from './utils';
 import { getHighlightedMatchContext } from './TreeView/highligtedContext';
 import { getHighlightedMatchContextWithReplacement } from './TreeView/highlightedContextWithReplacement';
 import { SerializedTransformResultEvent, SearchLevel } from '../../model/SearchReplaceViewTypes';
+import { cn } from "../utils";
 
 interface ResultsViewProps {
     levelIndex: number;
@@ -145,22 +145,44 @@ function buildFileTree(
 
 export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
     const {
-        status,
+        status: currentStatus,
         vscode,
         searchLevels,
         setSearchLevels,
-        setResultsByFile, // needed for root exclude? 
-        isInNestedSearch, // actually we know if we are nested by levelIndex > 0 usually, but let's check context
-        values: globalValues, // root values, but for styling highlighted context we need LEVEL values
+        setResultsByFile,
+        isInNestedSearch,
+        values: globalValues,
         workspacePath,
-        viewMode: globalViewMode, // Global viewMode as fallback
+        viewMode: globalViewMode,
+        staleResultsByFile, // FROM CONTEXT
+        staleStatus, // FROM CONTEXT
+        staleLevel, // FROM CONTEXT
     } = useSearchGlobal();
 
     // Get Level Data
     const level = searchLevels[levelIndex];
     // Helper to get safe values
-    const resultsByFile = level?.resultsByFile || {};
-    // Use level-specific values if available (for nested search context), otherwise global
+    const levelResults = level?.resultsByFile || {};
+
+    // Determine effective results (current or stale)
+    // Determine effective results (current or stale)
+    // BUT only if we are truly empty.
+    const effectiveResultsByFile = useMemo(() => {
+        const hasCurrent = Object.keys(levelResults).length > 0;
+        if (hasCurrent) return levelResults;
+
+        // If we are nested, and we have stale results that match this level?
+        // Check staleLevel matches levelIndex.
+        if (staleResultsByFile && Object.keys(staleResultsByFile).length > 0 && staleLevel === levelIndex) {
+            return staleResultsByFile;
+        }
+
+        return levelResults;
+    }, [levelResults, staleResultsByFile, staleLevel, levelIndex]);
+
+    const isStale = Object.keys(levelResults).length === 0 && staleResultsByFile !== null && Object.keys(staleResultsByFile || {}).length > 0 && staleLevel === levelIndex;
+
+    // Use level-specific values if available, otherwise global
     const values = level?.values || globalValues;
     // Use level-specific viewMode if available, otherwise fallback to global
     const viewMode = level?.viewMode || globalViewMode || 'tree';
@@ -171,8 +193,8 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
 
     // Derived State for Pagination
     const paginatedFilePaths = useMemo(() => {
-        return Object.keys(resultsByFile).slice(0, visibleResultsLimit);
-    }, [resultsByFile, visibleResultsLimit]);
+        return Object.keys(effectiveResultsByFile).slice(0, visibleResultsLimit);
+    }, [effectiveResultsByFile, visibleResultsLimit]);
 
 
     // Handlers
@@ -253,16 +275,16 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
 
     // Derivations
     const paginatedResults = useMemo(() => {
-        if (!resultsByFile || !paginatedFilePaths || paginatedFilePaths.length === 0) {
+        if (!effectiveResultsByFile || !paginatedFilePaths || paginatedFilePaths.length === 0) {
             return {};
         }
         return paginatedFilePaths.reduce((acc, path) => {
-            if (resultsByFile[path]) {
-                acc[path] = resultsByFile[path];
+            if (effectiveResultsByFile[path]) {
+                acc[path] = effectiveResultsByFile[path];
             }
             return acc;
         }, {} as Record<string, SerializedTransformResultEvent[]>);
-    }, [paginatedFilePaths, resultsByFile]);
+    }, [paginatedFilePaths, effectiveResultsByFile]);
 
     const currentExpandedFiles = useMemo((): Set<string> => {
         const files = level?.expandedFiles;
@@ -300,73 +322,49 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
                         ? path.relative(uriToPath(workspacePath), uriToPath(filePath))
                         : uriToPath(filePath);
 
-                    const totalMatches = results.reduce((sum, r) => sum + (r.matches?.length || 0), 0);
-                    if (totalMatches === 0) return null;
+                    // Normalize path for consistent display
+                    let cleanDisplayPath = displayPath;
+                    if (cleanDisplayPath.startsWith('/') || cleanDisplayPath.startsWith('\\')) {
+                        cleanDisplayPath = cleanDisplayPath.substring(1);
+                    }
 
-                    const filePathKey = filePath;
-                    const isExpanded = currentExpandedFiles.has(filePath);
+                    const node: FileNode = {
+                        type: 'file',
+                        name: cleanDisplayPath,
+                        relativePath: cleanDisplayPath,
+                        absolutePath: filePath,
+                        results: results
+                    };
+
+                    /* 
+                       Note: In SearchReplaceViewLayout they use '0' level for list view items. 
+                       We should do the same to match styles.
+                    */
 
                     return (
-                        <div key={filePathKey} className="mb-2 rounded-[3px] overflow-hidden">
-                            <div
-                                className="flex items-center p-[2px] gap-2 cursor-pointer hover:bg-[var(--vscode-list-hoverBackground)]"
-                                onClick={() => toggleFileExpansion(filePath)}
-                            >
-                                <span className={`codicon codicon-chevron-${isExpanded ? 'down' : 'right'}`} />
-                                <FileIcon filePath={filePath} />
-                                <span
-                                    className="font-bold cursor-pointer"
-                                    onClick={(e) => { e.stopPropagation(); handleFileClick(filePath); }}
-                                    title={`Click to open ${displayPath}`}
-                                >
-                                    {displayPath}
-                                </span>
-                                <span className="ml-auto mr-2 text-[var(--vscode-descriptionForeground)]">
-                                    {totalMatches} matches
-                                </span>
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); handleExcludeFile(filePath); }}
-                                    title={`Exclude ${displayPath} from search`}
-                                    className="bg-transparent border-none p-[2px] cursor-pointer flex items-center text-[#bcbbbc] rounded-[3px] hover:bg-[rgba(128,128,128,0.2)] hover:text-[var(--vscode-errorForeground)]"
-                                >
-                                    <span className="codicon codicon-close" />
-                                </button>
-                            </div>
-
-                            {isExpanded && (
-                                <div className="py-1 bg-[var(--vscode-editor-background)]">
-                                    {results.map((result, resultIdx) =>
-                                        result.matches?.map((match, matchIdx) => (
-                                            <div
-                                                key={`${resultIdx}-${matchIdx}`}
-                                                className="px-6 py-[2px] cursor-pointer relative hover:bg-[var(--vscode-list-hoverBackground)] group"
-                                                onClick={() => handleResultItemClick(filePath, match)}
-                                                title={getLineFromSource(result.source, match.start, match.end)}
-                                            >
-                                                {values.replace && values.replace.length > 0
-                                                    ? getHighlightedMatchContextWithReplacement(result.source, match, values.find, values.replace, values.searchMode, values.matchCase, values.wholeWord, undefined, values.searchMode === 'regex')
-                                                    : getHighlightedMatchContext(result.source, match, undefined, values.searchMode === 'regex')}
-
-                                                {values.replace && (
-                                                    <div className="absolute right-[5px] top-1/2 -translate-y-1/2 opacity-0 transition-opacity duration-200 group-hover:opacity-100"
-                                                        onClick={(e) => { e.stopPropagation(); handleReplaceSelectedFiles([filePath]); }}>
-                                                        <button className="bg-[var(--vscode-button-background)] text-[var(--vscode-button-foreground)] border-none rounded-[2px] cursor-pointer px-[6px] py-[2px] text-xs hover:bg-[var(--vscode-button-hoverBackground)]" title="Replace this match">
-                                                            <span className="codicon codicon-replace-all" />
-                                                        </button>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        ))
-                                    )}
-                                </div>
-                            )}
-                        </div>
+                        <TreeViewNode
+                            key={filePath}
+                            node={node}
+                            level={0}
+                            expandedFolders={currentExpandedFolders}
+                            toggleFolderExpansion={toggleFolderExpansion}
+                            expandedFiles={currentExpandedFiles}
+                            toggleFileExpansion={toggleFileExpansion}
+                            handleFileClick={handleFileClick}
+                            handleResultItemClick={handleResultItemClick}
+                            handleReplace={handleReplaceSelectedFiles}
+                            currentSearchValues={values}
+                            handleExcludeFile={handleExcludeFile}
+                            onDragStart={handleDragStart}
+                            onDragOver={handleDragOver}
+                            onDrop={handleDrop}
+                        />
                     );
                 })}
-                {Object.keys(resultsByFile).length > visibleResultsLimit && (
+                {Object.keys(effectiveResultsByFile).length > visibleResultsLimit && (
                     <div className="p-[10px] text-center">
-                        <button className="bg-[var(--vscode-button-background)] text-[var(--vscode-button-foreground)] border-none px-3 py-[6px] rounded-[2px] cursor-pointer hover:bg-[var(--vscode-button-hoverBackground)]" onClick={loadMoreResults} disabled={isLoadingMore}>
-                            {isLoadingMore ? 'Loading...' : `Load more results (${Object.keys(resultsByFile).length - visibleResultsLimit} remaining)`}
+                        <button className="bg-[var(--input-background)] border border-[var(--panel-view-border)] text-[var(--panel-tab-active-border)] px-3 py-[6px] rounded-[2px] cursor-pointer hover:border-[var(--panel-tab-active-border)]" onClick={loadMoreResults} disabled={isLoadingMore}>
+                            {isLoadingMore ? 'Loading...' : `Load more results`}
                         </button>
                     </div>
                 )}
@@ -376,7 +374,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
 
     const renderTreeViewResults = () => {
         if (!paginatedResults || Object.keys(paginatedResults).length === 0) {
-            return status.running ? (
+            return currentStatus.running ? (
                 <div className="p-[10px] text-center flex gap-2 justify-center"><span className="codicon codicon-loading codicon-modifier-spin" /><span>Searching...</span></div>
             ) : (
                 <div className="p-[10px] text-center text-[var(--vscode-descriptionForeground)]">No matches found.</div>
@@ -408,7 +406,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
                         />
                     ))
                 ) : null}
-                {Object.keys(resultsByFile).length > visibleResultsLimit && (
+                {Object.keys(effectiveResultsByFile).length > visibleResultsLimit && (
                     <div className="p-[10px] text-center">
                         <button className="bg-[var(--input-background)] border border-[var(--panel-view-border)] text-[var(--panel-tab-active-border)] px-3 py-[6px] rounded-[2px] cursor-pointer hover:border-[var(--panel-tab-active-border)]" onClick={loadMoreResults} disabled={isLoadingMore}>
                             {isLoadingMore ? 'Loading...' : `Load more results`}
@@ -419,8 +417,13 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
         );
     };
 
+    const status = currentStatus; // Alias for compatibility
+
     return (
-        <div className="flex-grow overflow-auto mt-2">
+        <div className={cn(
+            "flex-grow overflow-auto mt-2 transition-opacity duration-200",
+            isStale ? "opacity-50" : ""
+        )}>
             {viewMode === 'list' ? renderListViewResults() : renderTreeViewResults()}
         </div>
     );
