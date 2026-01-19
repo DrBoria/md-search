@@ -254,7 +254,32 @@ export const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                         if (!isExpanded) {
                             toggleFolderExpansion(node.relativePath);
                         } else {
-                            e.currentTarget.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            // Manual scroll to handle sticky positioning correctly
+                            const header = e.currentTarget;
+                            const wrapper = header.parentElement;
+                            // Find closest scrollable container
+                            let container = wrapper?.parentElement;
+                            while (container && container !== document.body) {
+                                const style = window.getComputedStyle(container);
+                                if (style.overflowY === 'auto' || style.overflowY === 'scroll') {
+                                    break;
+                                }
+                                container = container.parentElement;
+                            }
+
+                            if (container && wrapper) {
+                                const containerRect = container.getBoundingClientRect();
+                                const wrapperRect = wrapper.getBoundingClientRect();
+                                // Calculate where the wrapper (start of folder) is relative to the scroll content
+                                const currentRelativeTop = wrapperRect.top - containerRect.top + container.scrollTop;
+                                // We want this wrapper top to settle at (level * 22px) from the container top
+                                const targetScrollTop = currentRelativeTop - (level * 22);
+
+                                container.scrollTo({
+                                    top: targetScrollTop,
+                                    behavior: 'smooth'
+                                });
+                            }
                         }
                     }}
                     title={`Click to ${isExpanded ? 'scroll to top' : 'expand'} ${node.name}`}

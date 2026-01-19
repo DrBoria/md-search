@@ -133,7 +133,7 @@ export const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
                     return <span key={index} style={{ height: '1.5em', lineHeight: '1.5em' }}>{char}</span>;
                 }
             })}
-            {suffix && <span className="ml-0.5">{suffix}</span>}
+            {suffix && <span className="ml-1">{suffix}</span>}
         </span>
     );
 };

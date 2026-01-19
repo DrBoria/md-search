@@ -590,6 +590,17 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
           })
           break
         }
+        case 'focusReplaceInput': {
+          setSearchLevels((prev) => {
+            const newLevels = [...prev]
+            // Ensure root level exists and set isReplaceVisible to true
+            if (newLevels.length > 0) {
+              newLevels[0] = { ...newLevels[0], isReplaceVisible: true }
+            }
+            return newLevels
+          })
+          break
+        }
       }
     },
     [

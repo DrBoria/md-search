@@ -325,7 +325,8 @@ const SearchResultSummary = () => {
     return (
         <div className="px-0 py-1 text-xs text-[var(--vscode-descriptionForeground)] flex items-center justify-between">
             <span>
-                <AnimatedCounter value={status.numMatches} suffix=" results in " />
+                <AnimatedCounter value={status.numMatches} suffix="results in" />
+                &nbsp;
                 <AnimatedCounter value={status.numFilesWithMatches} suffix=" files" />
             </span>
             {/* Open in editor link - mimicing VS Code style */}
@@ -451,7 +452,7 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
         const onMessage = (event: MessageEvent) => {
             const message = event.data as MessageToWebview;
 
-            if (['initialData', 'status', 'values', 'clearResults', 'addBatchResults', 'fileUpdated', 'replacementComplete'].includes(message.type)) {
+            if (['initialData', 'status', 'values', 'clearResults', 'addBatchResults', 'fileUpdated', 'replacementComplete', 'focusReplaceInput'].includes(message.type)) {
                 handleMessage(message);
             }
 
