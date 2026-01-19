@@ -45,6 +45,9 @@ export default defineConfig({
     sourcemap: true,
     minify: false, // Useful for debugging
   },
+  ssr: {
+    noExternal: true, // Bundle all dependencies (except those in rollupOptions.external)
+  },
   resolve: {
     alias: {
       src: path.resolve(process.cwd(), './src'),

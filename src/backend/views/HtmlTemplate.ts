@@ -41,16 +41,13 @@ export class HtmlTemplate {
         )
 
     const materialIconsUri = isProduction
-      ? webview.asWebviewUri(
-          vscode.Uri.joinPath(extensionUri, 'out', 'material-icons')
-        )
+      ? webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'out', 'icons'))
       : webview.asWebviewUri(
           vscode.Uri.joinPath(
             extensionUri,
             'node_modules',
-            'vscode-material-icons',
-            'generated',
-            'icons'
+            'vscode-icons-js',
+            'dist'
           )
         )
 

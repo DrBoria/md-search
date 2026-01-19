@@ -298,8 +298,43 @@ const RootSearchSection = () => {
 
     return (
         <SearchItemProvider value={controller}>
-            <SearchInputSection className="flex-grow" />
+            <SearchInputSection
+                className="flex-grow"
+                summary={<SearchResultSummary />}
+            />
         </SearchItemProvider>
+    );
+
+
+};
+
+const SearchResultSummary = () => {
+    const { status, values, vscode } = useSearchGlobal();
+
+    if (!status.numMatches || status.numMatches === 0) return null;
+
+    const handleOpenInEditor = () => {
+        // Need to collect all file paths to open? Or just open a new search editor?
+        // The screenshot says "Open in editor". In standard VS Code this usually opens a search editor.
+        // For now, we might not have 'open search editor' capability easily, but let's implement the UI.
+        // If the user meant "Open in editor" as a specific command, we might need to send a message.
+        vscode.postMessage({ type: 'openNewSearchEditor' } as any);
+    };
+
+    return (
+        <div className="px-0 py-1 text-xs text-[var(--vscode-descriptionForeground)] flex items-center justify-between">
+            <span>
+                {status.numMatches} results in {status.numFilesWithMatches} files
+            </span>
+            {/* Open in editor link - mimicing VS Code style */}
+            {/* <span
+                className="cursor-pointer hover:text-[var(--vscode-textLink-activeForeground)] ml-2"
+                onClick={handleOpenInEditor}
+             >
+                - Open in editor
+             </span> */}
+            {/* Commented out open in editor until backed support is confirmed/requested */}
+        </div>
     );
 };
 

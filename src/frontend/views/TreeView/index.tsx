@@ -12,6 +12,11 @@ import { SearchReplaceViewValues } from "../../../model/SearchReplaceViewTypes";
 const STYLES = `
 @keyframes fadeIn { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: translateY(0); } }
 .animate-fade-in { animation: fadeIn 0.2s ease-out forwards; }
+/* Fix for Sticky Jump: behaviors sticky elements as relative during animation */
+.collapsible-animating .tree-node-sticky-header {
+    position: relative !important;
+    top: auto !important;
+}
 `;
 
 export interface FileTreeNodeBase {
@@ -45,11 +50,17 @@ const Collapsible = ({ isOpen, children }: { isOpen: boolean; children: React.Re
     // Track initial render to avoid animating on load if already open
     const isFirstRender = useRef(true);
     const ref = useRef<HTMLDivElement>(null);
+    const timeoutRef = useRef<NodeJS.Timeout>();
 
     useEffect(() => {
         if (isFirstRender.current) {
             isFirstRender.current = false;
             return;
+        }
+
+        // Clear any existing timeout to avoid race conditions
+        if (timeoutRef.current) {
+            clearTimeout(timeoutRef.current);
         }
 
         if (isOpen) {
@@ -63,6 +74,11 @@ const Collapsible = ({ isOpen, children }: { isOpen: boolean; children: React.Re
                 requestAnimationFrame(() => {
                     if (ref.current) {
                         setHeight(ref.current.scrollHeight);
+                        // Fallback: Ensure we switch to auto/visible even if transitionEnd won't fire
+                        timeoutRef.current = setTimeout(() => {
+                            setHeight('auto');
+                            setOverflow('visible');
+                        }, 250); // 200ms duration + 50ms buffer
                     }
                 });
             });
@@ -76,15 +92,25 @@ const Collapsible = ({ isOpen, children }: { isOpen: boolean; children: React.Re
                 requestAnimationFrame(() => {
                     requestAnimationFrame(() => {
                         setHeight(0);
+                        timeoutRef.current = setTimeout(() => {
+                            setIsVisible(false);
+                            // No need to set height auto/overflow visible for closed state
+                        }, 250);
                     });
                 });
             }
         }
+        return () => {
+            if (timeoutRef.current) clearTimeout(timeoutRef.current);
+        };
     }, [isOpen]);
 
     return (
         <div
-            className="transition-[height] duration-200 ease-in-out"
+            className={cn(
+                "transition-[height] duration-200 ease-in-out",
+                overflow === 'hidden' && "collapsible-animating"
+            )}
             style={{
                 height,
                 overflow,
@@ -94,6 +120,9 @@ const Collapsible = ({ isOpen, children }: { isOpen: boolean; children: React.Re
             onTransitionEnd={(e) => {
                 if (e.target !== e.currentTarget) return; // Ignore children transitions
 
+                // Clear timeout since we finished naturally
+                if (timeoutRef.current) clearTimeout(timeoutRef.current);
+
                 if (isOpen) {
                     setHeight('auto');
                     setOverflow('visible');
@@ -102,7 +131,7 @@ const Collapsible = ({ isOpen, children }: { isOpen: boolean; children: React.Re
                 }
             }}
         >
-            <div ref={ref}>{children}</div>
+            <div ref={ref} className="flow-root">{children}</div>
         </div>
     );
 };
@@ -178,7 +207,7 @@ export const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                         key={i}
                         className="absolute top-0 bottom-0"
                         style={{
-                            left: `${i * indentSize + indentSize / 2}px`,
+                            left: `${i * indentSize + indentSize / 2 + 3}px`,
                             width: '1px',
                             backgroundColor: 'var(--vscode-tree-indentGuidesStroke)'
                         }}
@@ -213,7 +242,7 @@ export const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                 <div
                     className={cn(
                         "flex items-stretch cursor-pointer hover:bg-[var(--vscode-list-hoverBackground)]",
-                        "sticky bg-[var(--vscode-sideBar-background)]"
+                        "sticky bg-[var(--vscode-sideBar-background)] tree-node-sticky-header"
                     )}
                     style={{
                         zIndex: 100 - level,
@@ -256,7 +285,7 @@ export const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                                     className="text-[var(--vscode-descriptionForeground)] transition-opacity duration-200 text-xs"
                                     style={{ opacity: isHovered && currentSearchValues.replace ? 0.3 : 1 }}
                                 >
-                                    ({node.stats.numFilesWithMatches}, {node.stats.numMatches})
+                                    ({node.stats.numFilesWithMatches} files, {node.stats.numMatches} matches)
                                 </span>
                             )}
 
@@ -419,7 +448,7 @@ export const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                                                 key={i}
                                                 className="absolute top-0 bottom-0"
                                                 style={{
-                                                    left: `${i * indentSize + indentSize / 2}px`,
+                                                    left: `${i * indentSize + indentSize / 2 + 3}px`,
                                                     width: '1px',
                                                     backgroundColor: 'var(--vscode-tree-indentGuidesStroke)'
                                                 }}

@@ -1,12 +1,12 @@
 {
   "name": "md-search",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "displayName": "MD Search",
   "description": "Find and replace in search results",
   "publisher": "drboria",
   "icon": "media/logo.jpeg",
   "engines": {
-    "vscode": "^1.84.0"
+    "vscode": "^1.90.0"
   },
   "categories": [
     "Other"
@@ -222,10 +222,10 @@
     "semantic-release": "semantic-release",
     "build:watch": "nodemon -e js,ts,json --watch src --exec \"(npm build)\"",
     "pretest": "BABEL_ENV=coverage npm run build",
-    "copy-icon-assets": "mkdir -p out/codicons && cp -r node_modules/@vscode/codicons/dist/* out/codicons/ && mkdir -p out/icons && cp -r node_modules/vscode-icons-js/dist/* out/icons/",
+    "copy-icon-assets": "mkdir -p out/codicons && cp -r node_modules/@vscode/codicons/dist/* out/codicons/ && mkdir -p out/icons/generated && cp -r node_modules/vscode-material-icons/generated/icons/* out/icons/generated/",
     "prepare-package": "pnpm run build && pnpm run copy-icon-assets",
     "package": "pnpm run prepare-package && pnpm exec vsce package --no-dependencies",
-    "vscode:prepublish": "pnpm run clean && pnpm run prettier:check && pnpm run lint && pnpm run build"
+    "vscode:prepublish": "pnpm run clean && pnpm run prettier:check && pnpm run lint && pnpm run build && pnpm run copy-icon-assets"
   },
   "release": {
     "plugins": [
@@ -353,7 +353,7 @@
     "@types/lodash-es": "^4.17.6",
     "@types/minimatch": "^5.1.2",
     "@types/mocha": "^10.0.10",
-    "@types/node": "^16.9.6",
+    "@types/node": "^20.0.0",
     "@types/react": "^18.0.18",
     "@types/react-dom": "^18.0.6",
     "@types/react-virtualized-auto-sizer": "^1.0.4",

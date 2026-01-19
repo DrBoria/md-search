@@ -7,9 +7,10 @@ import { SearchActions } from './components/SearchActions';
 
 interface SearchInputSectionProps {
     className?: string;
+    summary?: React.ReactNode;
 }
 
-export const SearchInputSection: React.FC<SearchInputSectionProps> = ({ className = "" }) => {
+export const SearchInputSection: React.FC<SearchInputSectionProps> = ({ className = "", summary }) => {
     const {
         isReplaceVisible, toggleReplaceVisible,
         include, setInclude,
@@ -70,47 +71,77 @@ export const SearchInputSection: React.FC<SearchInputSectionProps> = ({ classNam
                 </div>
             </div>
 
-            {/* Row 3: Toggle Search Details Button */}
-            <div className="flex justify-end px-1 mt-1">
-                <Button
-                    onClick={() => setIsDetailsOpen(!isDetailsOpen)}
-                    title="Toggle Search Details"
-                    variant="icon"
-                    size="icon"
-                    active={isDetailsOpen}
-                >
-                    <span className="codicon codicon-ellipsis" />
-                </Button>
-            </div>
+            {/* Row 3: Toggle Row (Contains Summary [Closed] OR Inputs [Open] + Toggle Button) */}
+            <div className="flex items-start gap-1 mt-1">
 
-            {/* Row 4: Include/Exclude Inputs */}
-            <div
-                className={`grid transition-all duration-300 ease-in-out ${isDetailsOpen ? 'grid-rows-[1fr] opacity-100 mt-1' : 'grid-rows-[0fr] opacity-0 mt-0'
-                    }`}
-            >
-                <div className="overflow-hidden ml-[24px]">
-                    <div className="flex flex-col gap-1 pb-1">
-                        <div className="flex flex-col gap-1">
-                            <span className="text-xs font-bold text-[var(--vscode-input-placeholderForeground)]">files to include</span>
-                            <input
-                                type="text"
-                                className="bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] border border-[var(--vscode-input-border)] rounded-[2px] h-[26px] px-1 focus:outline-none focus:border-[var(--vscode-focusBorder)]"
-                                value={include || ''}
-                                onChange={(e) => setInclude(e.target.value)}
-                            />
-                        </div>
-                        <div className="flex flex-col gap-1">
-                            <span className="text-xs font-bold text-[var(--vscode-input-placeholderForeground)]">files to exclude</span>
-                            <div className="flex items-center gap-1">
-                                <input
-                                    type="text"
-                                    className="flex-grow bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] border border-[var(--vscode-input-border)] rounded-[2px] h-[26px] px-1 focus:outline-none focus:border-[var(--vscode-focusBorder)]"
-                                    value={exclude || ''}
-                                    onChange={(e) => setExclude(e.target.value)}
-                                />
+                {/* Left Side Container: Swaps between Summary and Inputs */}
+                <div className="flex-grow min-w-0 flex flex-col">
+
+                    {/* Mode A: Summary (Visible when CLOSED) */}
+                    <div
+                        className={`grid transition-all duration-300 ease-in-out ${!isDetailsOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+                            }`}
+                    >
+                        <div className="overflow-hidden min-h-0">
+                            <div className="pt-1 select-none"> {/* Align center with button roughly */}
+                                {summary}
                             </div>
                         </div>
                     </div>
+
+                    {/* Mode B: Inputs (Visible when OPEN) */}
+                    <div
+                        className={`grid transition-all duration-300 ease-in-out ${isDetailsOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+                            }`}
+                    >
+                        <div className="overflow-hidden min-h-0">
+                            <div className="flex flex-col gap-2 w-full pt-1">
+                                <div className="flex flex-col gap-1 w-full">
+                                    <span className="text-xs font-bold text-[var(--vscode-input-placeholderForeground)] truncate leading-4 block">files to include</span>
+                                    <input
+                                        type="text"
+                                        className="w-full bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] border border-[var(--vscode-input-border)] rounded-[2px] h-[26px] px-1 focus:outline-none focus:border-[var(--vscode-focusBorder)]"
+                                        value={include || ''}
+                                        onChange={(e) => setInclude(e.target.value)}
+                                    />
+                                </div>
+                                <div className="flex flex-col gap-1 w-full">
+                                    <span className="text-xs font-bold text-[var(--vscode-input-placeholderForeground)] truncate leading-4 block">files to exclude</span>
+                                    <input
+                                        type="text"
+                                        className="w-full bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] border border-[var(--vscode-input-border)] rounded-[2px] h-[26px] px-1 focus:outline-none focus:border-[var(--vscode-focusBorder)]"
+                                        value={exclude || ''}
+                                        onChange={(e) => setExclude(e.target.value)}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+
+                {/* Right Side: Toggle Button */}
+                <div className={`flex-shrink-0 pt-1 transition-all duration-300 ease-in-out ${isDetailsOpen ? 'mt-[20px]' : 'mt-0'}`}>
+                    <Button
+                        onClick={() => setIsDetailsOpen(!isDetailsOpen)}
+                        title="Toggle Search Details"
+                        variant="icon"
+                        size="icon"
+                        active={isDetailsOpen}
+                        className="h-[26px] w-[26px]"
+                    >
+                        <span className="codicon codicon-ellipsis" />
+                    </Button>
+                </div>
+            </div>
+
+            {/* Row 4: Summary (Moved down when OPEN) */}
+            <div
+                className={`transition-all duration-300 ease-in-out overflow-hidden ${isDetailsOpen ? 'grid grid-rows-[1fr] opacity-100 mt-1' : 'grid grid-rows-[0fr] opacity-0 mt-0'
+                    }`}
+            >
+                <div className="overflow-hidden min-h-0">
+                    {summary}
                 </div>
             </div>
         </div>

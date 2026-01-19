@@ -29,7 +29,14 @@ export class FileService {
     // )
     try {
       // Basic VS Code findFiles
-      const uris = await vscode.workspace.findFiles(include, exclude)
+      // Enforce exclusion of common heavy directories for multiple languages
+      const defaultExcludes =
+        '{**/node_modules/**,**/.git/**,**/dist/**,**/out/**,**/build/**,**/__pycache__/**,**/.venv/**,**/venv/**,**/target/**,**/vendor/**,**/.gradle/**,**/.idea/**,**/.vscode/**}'
+      const finalExclude = exclude
+        ? `${exclude},${defaultExcludes}`
+        : defaultExcludes
+
+      const uris = await vscode.workspace.findFiles(include, finalExclude)
       return uris.filter((uri) => {
         const ext = uri.path.split('.').pop()?.toLowerCase()
         if (
