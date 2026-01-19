@@ -48,6 +48,9 @@ export class MessageHandler {
         case 'mount':
           await this.handleMount()
           break
+        case 'search':
+          this.handleSearch(message)
+          break
         case 'values':
           this.handleValues(message.values)
           break
@@ -131,9 +134,13 @@ export class MessageHandler {
     })
   }
 
-  private handleValues(values: any): void {
-    const newParams = values
-    this.extension.setParams(newParams)
+  private handleValues(values: SearchReplaceViewValues): void {
+    this.extension.setParams(values)
+  }
+
+  private handleSearch(values: SearchReplaceViewValues): void {
+    this.extension.setParams(values)
+    this.extension.triggerSearch()
   }
 
   private handleReplace(filePaths?: string[]): void {

@@ -289,6 +289,13 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
 
   // Updated method to show and focus the search input
   showWithSearchFocus(selectedText?: string): void {
+    if (selectedText) {
+      const current = this.extension.getParams()
+      if (current.find !== selectedText) {
+        this.extension.setParams({ ...current, find: selectedText })
+      }
+    }
+
     if (!this._view) {
       this.extension.channel.appendLine(
         'View not initialized, forcing activation via command'
@@ -322,6 +329,13 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
 
   // Updated method to show and focus the replace input
   showWithReplaceFocus(selectedText?: string): void {
+    if (selectedText) {
+      const current = this.extension.getParams()
+      if (current.find !== selectedText) {
+        this.extension.setParams({ ...current, find: selectedText })
+      }
+    }
+
     if (!this._view) {
       this.extension.channel.appendLine(
         'View not initialized, forcing activation via command'

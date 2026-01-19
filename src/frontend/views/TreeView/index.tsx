@@ -37,78 +37,72 @@ export interface FileNode extends FileTreeNodeBase {
 export type FileTreeNode = FolderNode | FileNode
 
 // --- Collapsible Component ---
-const Collapsible = ({ isOpen, children }: { isOpen: boolean, children: React.ReactNode }) => {
-    const [shouldRender, setShouldRender] = useState(isOpen);
-    const [height, setHeight] = useState<string | number>(isOpen ? 'auto' : 0);
-    const [opacity, setOpacity] = useState<number>(isOpen ? 1 : 0);
-    const ref = useRef<HTMLDivElement>(null);
+const Collapsible = ({ isOpen, children }: { isOpen: boolean; children: React.ReactNode }) => {
+    const [height, setHeight] = useState<number | 'auto'>(isOpen ? 'auto' : 0);
+    const [overflow, setOverflow] = useState<'hidden' | 'visible'>(isOpen ? 'visible' : 'hidden');
+    const [isVisible, setIsVisible] = useState(isOpen);
+
+    // Track initial render to avoid animating on load if already open
     const isFirstRender = useRef(true);
+    const ref = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         if (isFirstRender.current) {
             isFirstRender.current = false;
-            return; // Skip animation on mount
+            return;
         }
 
         if (isOpen) {
-            setShouldRender(true);
+            setIsVisible(true);
+            setOverflow('hidden');
+            // Ensure we start from 0 if we were hidden
             setHeight(0);
-            setOpacity(0);
 
-            // Double RAF to ensure browser paint
+            // Double RAF ensures the 0 height is applied before we measure scrollHeight
             requestAnimationFrame(() => {
                 requestAnimationFrame(() => {
                     if (ref.current) {
-                        const fullHeight = ref.current.scrollHeight;
-                        const maxAnimHeight = window.innerHeight;
-                        const targetHeight = Math.min(fullHeight, maxAnimHeight);
-
-                        setHeight(targetHeight);
-                        setOpacity(1);
+                        setHeight(ref.current.scrollHeight);
                     }
                 });
             });
-
-            const timer = setTimeout(() => {
-                setHeight('auto');
-            }, 200); // Match transition duration
-            return () => clearTimeout(timer);
         } else {
-            if (ref.current) {
-                const fullHeight = ref.current.scrollHeight;
-                const maxAnimHeight = window.innerHeight;
-                const startHeight = Math.min(fullHeight, maxAnimHeight);
-
-                setHeight(startHeight);
+            const el = ref.current;
+            if (el) {
+                // Lock height to current pixel height (instead of auto) so we can animate to 0
+                setHeight(el.scrollHeight);
+                setOverflow('hidden');
 
                 requestAnimationFrame(() => {
                     requestAnimationFrame(() => {
                         setHeight(0);
-                        setOpacity(0);
                     });
                 });
             }
-
-            const timer = setTimeout(() => {
-                setShouldRender(false);
-            }, 200);
-            return () => clearTimeout(timer);
         }
     }, [isOpen]);
 
-    if (!shouldRender) return null;
-
     return (
         <div
-            ref={ref}
+            className="transition-[height] duration-200 ease-in-out"
             style={{
                 height,
-                opacity,
-                transition: 'height 0.2s ease-in-out, opacity 0.2s ease-in-out',
-                overflow: 'hidden'
+                overflow,
+                // Use display: none when closed to ensure NO space is taken
+                display: isVisible ? 'block' : 'none'
+            }}
+            onTransitionEnd={(e) => {
+                if (e.target !== e.currentTarget) return; // Ignore children transitions
+
+                if (isOpen) {
+                    setHeight('auto');
+                    setOverflow('visible');
+                } else {
+                    setIsVisible(false);
+                }
             }}
         >
-            {children}
+            <div ref={ref}>{children}</div>
         </div>
     );
 };
@@ -299,25 +293,27 @@ export const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                         </div>
                     </div>
                 </div>
-                {isExpanded && node.children.map(child => (
-                    <TreeViewNode
-                        key={child.relativePath}
-                        node={child}
-                        level={level + 1}
-                        expandedFolders={expandedFolders}
-                        toggleFolderExpansion={toggleFolderExpansion}
-                        expandedFiles={expandedFiles}
-                        toggleFileExpansion={toggleFileExpansion}
-                        handleFileClick={handleFileClick}
-                        handleResultItemClick={handleResultItemClick}
-                        handleReplace={handleReplace}
-                        currentSearchValues={currentSearchValues}
-                        handleExcludeFile={handleExcludeFile}
-                        onDragStart={onDragStart}
-                        onDragOver={onDragOver}
-                        onDrop={onDrop}
-                    />
-                ))}
+                <Collapsible isOpen={isExpanded}>
+                    {node.children.map(child => (
+                        <TreeViewNode
+                            key={child.relativePath}
+                            node={child}
+                            level={level + 1}
+                            expandedFolders={expandedFolders}
+                            toggleFolderExpansion={toggleFolderExpansion}
+                            expandedFiles={expandedFiles}
+                            toggleFileExpansion={toggleFileExpansion}
+                            handleFileClick={handleFileClick}
+                            handleResultItemClick={handleResultItemClick}
+                            handleReplace={handleReplace}
+                            currentSearchValues={currentSearchValues}
+                            handleExcludeFile={handleExcludeFile}
+                            onDragStart={onDragStart}
+                            onDragOver={onDragOver}
+                            onDrop={onDrop}
+                        />
+                    ))}
+                </Collapsible>
             </div>
         );
     } else { // node.type === 'file'

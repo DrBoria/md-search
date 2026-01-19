@@ -148,22 +148,26 @@ export class MdSearchExtension implements IMdSearchExtension {
 
       // Clear search cache when search parameters change (matchCase, wholeWord),
       // UNLESS we are refining a search (searchInResults > 0), in which case we need the cache history.
-      if (
-        (params.matchCase !== this.params.matchCase ||
-          params.wholeWord !== this.params.wholeWord ||
-          params.exclude !== this.params.exclude) &&
-        (!params.searchInResults || params.searchInResults === 0)
-      ) {
+      const searchParamsChanged =
+        params.matchCase !== this.params.matchCase ||
+        params.wholeWord !== this.params.wholeWord ||
+        params.searchMode !== this.params.searchMode
+
+      if (searchParamsChanged && params.searchInResults === 0) {
         this.runner.clearCache()
       }
 
-      this.params = { ...params }
+      this.params = params
 
       // No deed to set params if replacement is in progress
       if (!params.isReplacement) {
         this.runner.setParams({ ...this.params })
       }
     }
+  }
+
+  triggerSearch(): void {
+    this.runner.restartSoon()
   }
 
   getCustomFileOrder(): { [key: string]: number } {
