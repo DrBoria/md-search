@@ -117,6 +117,7 @@ export const InitialDataFromExtensionSchema = z.object({
   status: SearchReplaceViewStatusSchema,
   workspacePath: z.string(),
   searchLevels: z.array(SearchLevelSchema).optional(),
+  customFileOrder: z.record(z.string(), z.number()).optional(),
 })
 export type InitialDataFromExtension = z.infer<
   typeof InitialDataFromExtensionSchema

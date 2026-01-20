@@ -8,7 +8,8 @@ import { FileService } from '../search/services/FileService'
 import { TextSearchService } from '../search/services/TextSearchService'
 import { SearchCache } from '../search/services/CacheService'
 
-export type { TransformResultEvent } from '../../model/SearchRunnerTypes'
+import { TransformResultEvent } from '../../model/SearchRunnerTypes'
+export type { TransformResultEvent }
 
 /**
  * Controller class that manages the SearchWorkflow.
@@ -143,9 +144,43 @@ export class SearchRunner extends TypedEmitter<SearchRunnerEvents> {
     this.cacheService.excludeFileFromCache(uri)
   }
 
-  updateDocumentsForChangedFile(uri: vscode.Uri): void {
-    // Stub or implement if needed. TextSearchRunner might handle this internally via cache check or we need to forward it.
-    // For now, clearing cache for file is safe fallback.
-    this.clearCacheForFile(uri)
+  /*
+   * Scans a single file and emits a result (for Live Updates).
+   * Note: This bypasses the workflow's queue and filtering to provide immediate feedback.
+   */
+  async scanFile(document: vscode.TextDocument): Promise<void> {
+    const { find } = this.params
+    if (!find) return
+
+    try {
+      // Clear cache for this file first
+      this.clearCacheForFile(document.uri)
+
+      // Run search using service directly
+      const content = document.getText()
+      const matches = await this.textSearchService.searchInFile(
+        document.uri.fsPath,
+        content,
+        this.params
+      )
+
+      // Create result event - Emit even if matches are empty so frontend can clear entries
+      const result: TransformResultEvent = {
+        file: document.uri,
+        matches,
+        source: content,
+      }
+
+      this.emit('result', result)
+
+      // Update cache only if there are matches (or should we cache empty results? 
+      // CacheService usually caches positive results. If we don't cache empty, next search might re-scan. 
+      // But clearing cache above ensures correctness.)
+      if (matches.length > 0) {
+        this.cacheService.addResult(result)
+      }
+    } catch (e) {
+      console.error(`Error scanning file ${document.uri.fsPath}:`, e)
+    }
   }
 }

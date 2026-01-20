@@ -23,7 +23,9 @@ export const SearchGlobalProvider: React.FC<SearchGlobalProviderProps> = ({ chil
 
     const value = useMemo(() => ({
         ...state,
-        vscode
+        vscode,
+        customFileOrder: state.customFileOrder, // Assuming useSearchState now returns these
+        setCustomFileOrder: state.setCustomFileOrder // Assuming useSearchState now returns these
     }), [state, vscode]);
 
     return (

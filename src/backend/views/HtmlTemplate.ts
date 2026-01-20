@@ -16,40 +16,41 @@ export class HtmlTemplate {
     // Generate URI for the entry point
     const scriptUri = isProduction
       ? webview.asWebviewUri(
-          vscode.Uri.joinPath(extensionUri, 'out', 'SearchReplaceView.js')
-        )
+        vscode.Uri.joinPath(extensionUri, 'out', 'SearchReplaceView.js')
+      )
       : `http://localhost:${port}/src/frontend/views/SearchReplaceViewEntry.tsx`
 
     const stylesUri = isProduction
       ? webview.asWebviewUri(
-          vscode.Uri.joinPath(extensionUri, 'out', 'SearchReplaceView.css')
-        )
+        vscode.Uri.joinPath(extensionUri, 'out', 'SearchReplaceView.css')
+      )
       : `http://localhost:${port}/src/frontend/views/SearchReplaceView.css`
 
     // Icon paths
     const codiconsUri = isProduction
       ? webview.asWebviewUri(
-          vscode.Uri.joinPath(extensionUri, 'out', 'codicons')
-        )
+        vscode.Uri.joinPath(extensionUri, 'out', 'codicons')
+      )
       : webview.asWebviewUri(
-          vscode.Uri.joinPath(
-            extensionUri,
-            'node_modules',
-            '@vscode/codicons',
-            'dist'
-          )
+        vscode.Uri.joinPath(
+          extensionUri,
+          'node_modules',
+          '@vscode/codicons',
+          'dist'
         )
+      )
 
     const materialIconsUri = isProduction
       ? webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'out', 'icons'))
       : webview.asWebviewUri(
-          vscode.Uri.joinPath(
-            extensionUri,
-            'node_modules',
-            'vscode-icons-js',
-            'dist'
-          )
+        vscode.Uri.joinPath(
+          extensionUri,
+          'node_modules',
+          'vscode-material-icons',
+          'generated',
+          'icons'
         )
+      )
 
     const scriptTag = isProduction
       ? `<script nonce="${nonce}" src="${scriptUri}"></script>`
@@ -75,11 +76,10 @@ export class HtmlTemplate {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   ${viteHead}
-  ${
-    isProduction
-      ? `<link rel="stylesheet" type="text/css" href="${stylesUri}">`
-      : ''
-  } 
+  ${isProduction
+        ? `<link rel="stylesheet" type="text/css" href="${stylesUri}">`
+        : ''
+      } 
   <link rel="stylesheet" type="text/css" href="${codiconsUri}/codicon.css">
   <title>Search & Replace</title>
 </head>

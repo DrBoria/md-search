@@ -49,10 +49,10 @@ export class MdSearchExtension implements IMdSearchExtension {
     savedResults: Map<string, any>
     canUndo: boolean
   } = {
-    savedFileContents: new Map(),
-    savedResults: new Map(),
-    canUndo: false,
-  }
+      savedFileContents: new Map(),
+      savedResults: new Map(),
+      canUndo: false,
+    }
 
   constructor(public context: vscode.ExtensionContext) {
     // const config = vscode.workspace.getConfiguration('astx')
@@ -175,11 +175,12 @@ export class MdSearchExtension implements IMdSearchExtension {
   }
 
   setCustomFileOrder(customOrder: { [key: string]: number }): void {
+    this.channel.appendLine(
+      `[Extension] setCustomFileOrder called with ${Object.keys(customOrder).length} items`
+    )
     this.customFileOrder = { ...customOrder }
     this.channel.appendLine(
-      `Custom file order updated with ${
-        Object.keys(customOrder).length
-      } entries`
+      `[Extension] Custom file order updated in memory. Keys: ${Object.keys(customOrder).slice(0, 5).join(', ')}...`
     )
   }
 
@@ -250,31 +251,31 @@ export class MdSearchExtension implements IMdSearchExtension {
 
     const setIncludePaths =
       ({ useTransformFile }: { useTransformFile: boolean }) =>
-      (dir: vscode.Uri, arg2: vscode.Uri[]) => {
-        const dirs =
-          Array.isArray(arg2) &&
-          arg2.every((item) => item instanceof vscode.Uri)
-            ? arg2
-            : [dir || vscode.window.activeTextEditor?.document.uri].filter(
+        (dir: vscode.Uri, arg2: vscode.Uri[]) => {
+          const dirs =
+            Array.isArray(arg2) &&
+              arg2.every((item) => item instanceof vscode.Uri)
+              ? arg2
+              : [dir || vscode.window.activeTextEditor?.document.uri].filter(
                 (x): x is vscode.Uri => x instanceof vscode.Uri
               )
-        if (!dirs.length) return
-        const newParams: Params = {
-          ...this.getParams(),
-          useTransformFile,
-          include: dirs.map(normalizeFsPath).join(', '),
+          if (!dirs.length) return
+          const newParams: Params = {
+            ...this.getParams(),
+            useTransformFile,
+            include: dirs.map(normalizeFsPath).join(', '),
+          }
+
+          // Сначала устанавливаем параметры
+          this.setParams(newParams)
+
+          // Затем уже показываем представление с фокусом
+          this.searchReplaceViewProvider.showWithSearchFocus()
+          this.searchReplaceViewProvider.postMessage({
+            type: 'values',
+            values: newParams,
+          })
         }
-
-        // Сначала устанавливаем параметры
-        this.setParams(newParams)
-
-        // Затем уже показываем представление с фокусом
-        this.searchReplaceViewProvider.showWithSearchFocus()
-        this.searchReplaceViewProvider.postMessage({
-          type: 'values',
-          values: newParams,
-        })
-      }
     const findInPath = setIncludePaths({ useTransformFile: false })
 
     context.subscriptions.push(
@@ -394,7 +395,7 @@ export class MdSearchExtension implements IMdSearchExtension {
     }, 200)
   }
 
-  // Updated replace method with optimizations for text mode
+  // Updated replace method with optimizations for text mode and WorkspaceEdit
   async replace(): Promise<void> {
     if (this.replacing) return
     this.replacing = true
@@ -412,6 +413,7 @@ export class MdSearchExtension implements IMdSearchExtension {
 
       const resultsMap = this.transformResultProvider.results
       const { find, replace, matchCase, searchMode } = params
+      const replaceValue = replace || '' // ensure string
 
       if (!find || !resultsMap) {
         this.channel.appendLine(
@@ -423,95 +425,107 @@ export class MdSearchExtension implements IMdSearchExtension {
       let totalReplacements = 0
       let totalFilesChanged = 0
 
-      // Process files in parallel with concurrency limit
-      const MAX_CONCURRENT_WRITES = 10
+      const workspaceEdit = new vscode.WorkspaceEdit()
       const filesToProcess = Array.from(resultsMap.entries()).filter(
         ([, result]) => result.matches && result.matches.length > 0
       )
 
-      for (let i = 0; i < filesToProcess.length; i += MAX_CONCURRENT_WRITES) {
-        const batch = filesToProcess.slice(i, i + MAX_CONCURRENT_WRITES)
-        const batchPromises = batch.map(([uriString, result]) => {
-          return (async () => {
+      for (const [uriString, result] of filesToProcess) {
+        if (!result.matches || result.matches.length === 0) continue
+
+        const uri = vscode.Uri.parse(uriString)
+        // If document is open, use its text model? WorkspaceEdit handles this mostly, 
+        // but we need to calculate ranges based on the *current* content if we want to be safe.
+        // However, our search results (matches) have start/end indices based on the content *at the time of search*.
+        // If the file changed, these might be invalid.
+        // Assuming the user hasn't modified file since search (or search updated).
+
+        // To construct a TextEdit, we need vscode.Range.
+        // We can convert start/end index to Position if we have the document.
+
+        let document: vscode.TextDocument
+        try {
+          document = await vscode.workspace.openTextDocument(uri)
+        } catch (e) {
+          this.channel.appendLine(`Could not open document ${uriString}, skipping.`)
+          continue
+        }
+
+        const edits: vscode.TextEdit[] = []
+
+        // Sort matches descending to avoid interfering (though WorkspaceEdit handles random order, it's good practice)
+        // Actually for WorkspaceEdit, order doesn't matter as long as ranges don't overlap.
+
+        for (const match of result.matches) {
+          if (typeof match.start !== 'number' || typeof match.end !== 'number') continue
+
+          const startPos = document.positionAt(match.start)
+          const endPos = document.positionAt(match.end)
+          const range = new vscode.Range(startPos, endPos)
+
+          const matchedText = document.getText(range)
+          let replacementText = replaceValue
+
+          // Handle regex group substitutions ($1, $2, etc.)
+          if (searchMode === 'regex' && replacementText.includes('$')) {
             try {
-              const uri = vscode.Uri.parse(uriString)
-              const contentBytes = await vscode.workspace.fs.readFile(uri)
-              const originalContent = Buffer.from(contentBytes).toString('utf8')
+              const pattern = find
+              const flags = matchCase ? 'g' : 'gi'
+              const regex = new RegExp(pattern, flags)
 
-              if (!result.matches || result.matches.length === 0) {
-                return
-              }
-
-              // Sort matches descending to avoid position shifting during replacement
-              const sortedMatches = [...result.matches].sort(
-                (a, b) => b.start - a.start
-              )
-              let newContent = originalContent
-              let replacementCount = 0
-
-              for (const match of sortedMatches) {
-                if (
-                  typeof match.start !== 'number' ||
-                  typeof match.end !== 'number'
-                ) {
-                  continue
-                }
-
-                const matchedText = originalContent.substring(
-                  match.start,
-                  match.end
-                )
-                let replacementText = replace || ''
-
-                // Handle regex group substitutions ($1, $2, etc.)
-                if (searchMode === 'regex' && replacementText.includes('$')) {
-                  try {
-                    const pattern = find
-                    const flags = matchCase ? 'g' : 'gi'
-                    const regex = new RegExp(pattern, flags)
-
-                    const regexMatch = regex.exec(matchedText)
-                    if (regexMatch) {
-                      replacementText = replacementText.replace(
-                        /\$(\d+)/g,
-                        (_, groupNum) => {
-                          const groupIndex = parseInt(groupNum, 10)
-                          return regexMatch[groupIndex] || ''
-                        }
-                      )
-                    }
-                  } catch (error: any) {
-                    this.channel.appendLine(
-                      `Regex group substitution failed: ${error.message}`
-                    )
+              const regexMatch = regex.exec(matchedText)
+              if (regexMatch) {
+                replacementText = replacementText.replace(
+                  /\$(\d+)/g,
+                  (_, groupNum) => {
+                    const groupIndex = parseInt(groupNum, 10)
+                    return regexMatch[groupIndex] || ''
                   }
-                }
-
-                newContent =
-                  newContent.substring(0, match.start) +
-                  replacementText +
-                  newContent.substring(match.end)
-                replacementCount++
-              }
-
-              if (newContent !== originalContent) {
-                this.channel.appendLine(
-                  `Replacing ${replacementCount} matches in: ${uri.fsPath}`
                 )
-                totalReplacements += replacementCount
-                totalFilesChanged++
-                const newContentBytes = Buffer.from(newContent, 'utf8')
-                await vscode.workspace.fs.writeFile(uri, newContentBytes as any)
               }
             } catch (error: any) {
-              this.logError(
-                new Error(`Failed to replace in ${uriString}: ${error.message}`)
-              )
+              // ignore
             }
-          })()
-        })
+          }
 
-        await Promise.all(batchPromises)
+          edits.push(vscode.TextEdit.replace(range, replacementText))
+          totalReplacements++
+        }
+
+        if (edits.length > 0) {
+          workspaceEdit.set(uri, edits)
+          totalFilesChanged++
+        }
+      }
+
+      if (totalFilesChanged > 0) {
+        const success = await vscode.workspace.applyEdit(workspaceEdit)
+        if (!success) {
+          this.logError(new Error('Failed to apply workspace edit'))
+        } else {
+          // Save all modified documents
+          // Optional: user might want to review? simpler to save for "Replace All" behavior
+          // But standard VS Code replace all doesn't always autosave.
+          // For "Cut", we definitely want to save or at least keep dirty.
+          // If we keep dirty, `scanFile` needs to read from dirtied document.
+          // `SearchRunner.ts` `scanFile` uses `document.getText()` which gets dirty content.
+          // So we are good!
+
+          // However, if we want to mimic "Replace All" which usually saves files in many extensions:
+          // Let's explicitly save if it's a "Replace All" action, 
+          // but for "Cut" maybe just leave it dirty?
+          // The user said "blinks ... then shows data from cache".
+          // If we leave it dirty, `scanFile` sees new content.
+          // If we previously wrote to disk, checking "dirty" vs "disk" might have raced.
+
+          // Let's Try to Save to be consistent with previous fs.writeFile behavior.
+          // But purely using WorkspaceEdit is enough to update the view.
+          // We can iterate and save.
+
+          // Actually, saving might trigger the watcher again.
+          // We should probably save.
+          await vscode.workspace.saveAll()
+        }
       }
 
       this.searchReplaceViewProvider.notifyReplacementComplete(
@@ -529,7 +543,6 @@ export class MdSearchExtension implements IMdSearchExtension {
     } catch (error: any) {
       this.logError(error)
     } finally {
-      // FS change event triggers in about 250 ms
       setTimeout(() => {
         this.replacing = false
       }, 250)
@@ -949,8 +962,7 @@ export class MdSearchExtension implements IMdSearchExtension {
         clipboardParts.length === filesWithMatches.length
 
       this.channel.appendLine(
-        `Clipboard parts: ${clipboardParts.length}, Files with matches: ${
-          filesWithMatches.length
+        `Clipboard parts: ${clipboardParts.length}, Files with matches: ${filesWithMatches.length
         }, Distribute: ${shouldDistributeParts}, Using UI order: ${!!fileOrder}`
       )
 
@@ -1071,8 +1083,7 @@ export class MdSearchExtension implements IMdSearchExtension {
       clipboardParts.length === filesWithCutPositions.length
 
     this.channel.appendLine(
-      `Clipboard parts: ${clipboardParts.length}, Files with cut positions: ${
-        filesWithCutPositions.length
+      `Clipboard parts: ${clipboardParts.length}, Files with cut positions: ${filesWithCutPositions.length
       }, Distribute: ${shouldDistributeParts}, Using UI order: ${!!fileOrder}`
     )
 
@@ -1165,10 +1176,9 @@ export async function deactivate(): Promise<void> {
 function normalizeFsPath(uri: vscode.Uri): string {
   const folder = vscode.workspace.getWorkspaceFolder(uri)
   return folder
-    ? `${
-        (vscode.workspace.workspaceFolders?.length ?? 0) > 1
-          ? path.basename(folder.uri.path) + '/'
-          : ''
-      }${path.relative(folder.uri.path, uri.path)}`
+    ? `${(vscode.workspace.workspaceFolders?.length ?? 0) > 1
+      ? path.basename(folder.uri.path) + '/'
+      : ''
+    }${path.relative(folder.uri.path, uri.path)}`
     : uri.fsPath
 }

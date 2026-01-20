@@ -84,7 +84,9 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
   })
 
   // --- UI State that is also part of SearchLevel ---
+  // --- UI State that is also part of SearchLevel ---
   const [viewMode, setViewMode] = useState<'list' | 'tree'>('tree')
+  const [customFileOrder, setCustomFileOrder] = useState<string[]>([])
 
   // --- Multi-level Nested Search (Find in Found) States ---
   const [searchLevels, setSearchLevels] = useState<SearchLevel[]>(() => {
@@ -199,14 +201,11 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
 
           if (uniqueNewResults.length === 0) return
 
-          if (updatedResultsByFile[filePath]) {
-            updatedResultsByFile[filePath] = [
-              ...updatedResultsByFile[filePath],
-              ...uniqueNewResults,
-            ]
-          } else {
-            updatedResultsByFile[filePath] = [...uniqueNewResults]
-          }
+          if (uniqueNewResults.length === 0) return
+
+          // Replace existing results for this file (Live Update support)
+          // Since backend emits full file results, we overwrite instead of appending.
+          updatedResultsByFile[filePath] = [...uniqueNewResults]
 
           // Auto-expand logic remains the same (calculating TOTAL matches including new ones)
           const allMatches = updatedResultsByFile[filePath].reduce(
@@ -286,13 +285,11 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
 
           if (uniqueNewResults.length === 0) return
 
+          // Replace results (Live Update support)
           if (newResults[filePath]) {
-            newResults[filePath] = [
-              ...newResults[filePath],
-              ...uniqueNewResults,
-            ]
+            newResults[filePath] = uniqueNewResults
           } else {
-            newResults[filePath] = [...uniqueNewResults]
+            newResults[filePath] = uniqueNewResults
           }
         })
         return newResults
@@ -356,14 +353,8 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
           if (uniqueNewResults.length === 0) return
 
           resultsChanged = true
-          if (updatedResultsByFile[filePath]) {
-            updatedResultsByFile[filePath] = [
-              ...updatedResultsByFile[filePath],
-              ...uniqueNewResults,
-            ]
-          } else {
-            updatedResultsByFile[filePath] = [...uniqueNewResults]
-          }
+          // Replace results (Live Update)
+          updatedResultsByFile[filePath] = uniqueNewResults
 
           // Expansion Logic
           const totalMatches = updatedResultsByFile[filePath].reduce(
@@ -447,6 +438,12 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
       switch (message.type) {
         case 'initialData':
           setWorkspacePath(message.workspacePath)
+          if (message.customFileOrder) {
+            const keys = Object.keys(message.customFileOrder).sort(
+              (a, b) => message.customFileOrder![a] - message.customFileOrder![b]
+            )
+            setCustomFileOrder(keys)
+          }
           break
         case 'status':
           setStatus((prev) => ({ ...prev, ...message.status }))
@@ -725,18 +722,8 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
         currentLevel.values?.wholeWord === values.wholeWord &&
         currentLevel.values?.searchMode === values.searchMode
       ) {
-        console.log('useEffect SYNC: values unchanged, skipping')
         return prev
       }
-
-      console.log('useEffect SYNC: Updating level', index)
-      console.log(
-        '  Old find:',
-        currentLevel.values?.find,
-        'Old label:',
-        currentLevel.label
-      )
-      console.log('  New find:', values.find)
 
       const newLevels = [...prev]
       newLevels[index] = {
@@ -750,14 +737,6 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
         },
         label: values.find ? values.find : currentLevel.label,
       }
-
-      console.log('  Result label:', newLevels[index].label)
-      console.log(
-        '  All levels after sync:',
-        JSON.stringify(
-          newLevels.map((l) => ({ find: l.values?.find, label: l.label }))
-        )
-      )
 
       return newLevels
     })
@@ -774,7 +753,16 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
     () =>
       debounce((msg: MessageFromWebview) => {
         vscode.postMessage(msg)
-      }, 50), // Reduced to 50ms
+      }, 50),
+    [vscode]
+  )
+
+  // Separate debouncer to avoid clobbering 'values' messages with 'search' messages
+  const debouncedTriggerSearch = useMemo(
+    () =>
+      debounce((msg: MessageFromWebview) => {
+        vscode.postMessage(msg)
+      }, 50),
     [vscode]
   )
 
@@ -782,8 +770,22 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
   useEffect(() => {
     return () => {
       debouncedPostMessage.cancel()
+      debouncedTriggerSearch.cancel()
     }
-  }, [debouncedPostMessage])
+  }, [debouncedPostMessage, debouncedTriggerSearch])
+
+  // Sync customFileOrder to backend
+  useEffect(() => {
+    const customOrder: Record<string, number> = {}
+    customFileOrder.forEach((path, index) => {
+      customOrder[path] = index
+    })
+    console.log('Sending updateFileOrder to backend:', customOrder)
+    debouncedPostMessage({
+      type: 'updateFileOrder',
+      customOrder,
+    })
+  }, [customFileOrder, debouncedPostMessage])
 
   const postValuesChange = useCallback(
     (changed: Partial<SearchReplaceViewValues>) => {
@@ -822,6 +824,11 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
         // Only send to backend if not skipping
         if (!shouldSkipSearch) {
           debouncedPostMessage({ type: 'values', values: next })
+          debouncedTriggerSearch({
+            type: 'search',
+            ...next,
+            searchInResults: next.searchInResults,
+          })
         }
 
         // Sync find value to searchLevels for breadcrumb labels
@@ -879,33 +886,35 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
         return next
       })
     },
-    [debouncedPostMessage, setSearchLevels]
+    [debouncedPostMessage]
   )
 
   return {
     values,
     setValues,
+    postValuesChange,
     status,
     setStatus,
+    workspacePath,
+    setWorkspacePath,
+    searchLevels,
+    setSearchLevels,
+    isInNestedSearch,
+    valuesRef,
+    viewMode,
+    setViewMode,
     resultsByFile,
     setResultsByFile,
     staleResultsByFile,
     staleStatus,
     staleLevel,
-    workspacePath,
-    setWorkspacePath,
-    isSearchRequested,
-    setIsSearchRequested,
+    customFileOrder,
+    setCustomFileOrder,
+    vscode,
     replacementResult,
     setReplacementResult,
-    searchLevels,
-    setSearchLevels,
+    isSearchRequested,
     handleMessage,
-    postValuesChange,
-    isInNestedSearch,
-    viewMode,
-    setViewMode,
-    valuesRef,
     skipSearchUntilRef,
   }
 }

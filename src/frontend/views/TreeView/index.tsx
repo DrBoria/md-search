@@ -1,4 +1,5 @@
 import React, { memo, useRef, useState, useEffect } from "react";
+import { useAutoAnimate } from '@formkit/auto-animate/react';
 import path from 'path-browserify'
 import { SerializedTransformResultEvent } from '../../../model/SearchReplaceViewTypes';
 import { cn } from "../../utils"
@@ -27,6 +28,7 @@ export interface FileTreeNodeBase {
 
 export interface FolderNode extends FileTreeNodeBase {
     type: 'folder'
+    absolutePath: string
     children: FileTreeNode[]
     stats?: {
         numMatches: number
@@ -106,10 +108,18 @@ const Collapsible = ({ isOpen, children }: { isOpen: boolean; children: React.Re
         };
     }, [isOpen]);
 
+    const [animationParent] = useAutoAnimate<HTMLDivElement>();
+
+    const handleRef = React.useCallback((node: HTMLDivElement | null) => {
+        // @ts-ignore
+        ref.current = node;
+        animationParent(node);
+    }, [animationParent]);
+
     return (
         <div
             className={cn(
-                "transition-[height] duration-200 ease-in-out",
+                "transition-[height] duration-200 ease-in-out relative z-0", // Make container relative
                 overflow === 'hidden' && "collapsible-animating"
             )}
             style={{
@@ -132,7 +142,12 @@ const Collapsible = ({ isOpen, children }: { isOpen: boolean; children: React.Re
                 }
             }}
         >
-            <div ref={ref} className="flow-root">{children}</div>
+            <div
+                ref={handleRef}
+                className="flow-root relative"
+            >
+                {children}
+            </div>
         </div>
     );
 };
@@ -140,6 +155,7 @@ const Collapsible = ({ isOpen, children }: { isOpen: boolean; children: React.Re
 // --- TreeViewNode Component ---
 interface TreeViewNodeProps {
     node: FileTreeNode;
+    index: number; // Added index for z-index stacking context
     level: number;
     expandedFolders: Set<string>;
     toggleFolderExpansion: (folderPath: string) => void;
@@ -173,6 +189,7 @@ function getFolderIcon(folderPath: string, isOpen = false): React.ReactNode {
 
 export const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
     node,
+    index,
     level,
     expandedFolders,
     toggleFolderExpansion,
@@ -188,6 +205,7 @@ export const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
     onDrop
 }) => {
     const [isHovered, setIsHovered] = React.useState(false);
+    const [isDragOver, setIsDragOver] = React.useState(false); // New state to track drag over
     const indentSize = 16;
     const isExpanded = node.type === 'folder'
         ? expandedFolders.has(node.relativePath)
@@ -217,6 +235,23 @@ export const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
             </div>
         );
     };
+
+    const handleDragEnter = (e: React.DragEvent) => {
+        e.preventDefault();
+        // Only visual for files
+        if (node.type === 'file') setIsDragOver(true);
+    };
+
+    const handleDragLeave = (e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragOver(false);
+    };
+
+    // Wrap onDrop to clear state
+    const handleDropWrapper = (e: React.DragEvent) => {
+        setIsDragOver(false);
+        onDrop?.(e, node);
+    }
 
     if (node.type === 'folder') {
 
@@ -286,9 +321,18 @@ export const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                     onMouseEnter={() => setIsHovered(true)}
                     onMouseLeave={() => setIsHovered(false)}
                     draggable={true}
-                    onDragStart={(e) => onDragStart?.(e, node)}
-                    onDragOver={(e) => onDragOver?.(e, node)}
-                    onDrop={(e) => onDrop?.(e, node)}
+                    onDragStart={(e) => {
+                        console.log(`[TreeViewNode] [Folder] onDragStart: ${node.name}`, node);
+                        onDragStart?.(e, node);
+                    }}
+                    onDragOver={(e) => {
+                        // console.log(`[TreeViewNode] [Folder] onDragOver: ${node.name}`);
+                        onDragOver?.(e, node);
+                    }}
+                    onDrop={(e) => {
+                        console.log(`[TreeViewNode] [Folder] onDrop: ${node.name}`);
+                        onDrop?.(e, node);
+                    }}
                 >
                     {renderIndentationGuides()}
                     <div className="flex items-center gap-1.5 pl-1 flex-grow py-0.5 min-h-[22px]">
@@ -352,10 +396,11 @@ export const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                     </div>
                 </div>
                 <Collapsible isOpen={isExpanded}>
-                    {node.children.map(child => (
+                    {node.children.map((child, i) => (
                         <TreeViewNode
                             key={child.relativePath}
                             node={child}
+                            index={i}
                             level={level + 1}
                             expandedFolders={expandedFolders}
                             toggleFolderExpansion={toggleFolderExpansion}
@@ -382,19 +427,40 @@ export const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
         const canExpand = totalMatches > 0; // Can only expand file if there are matches
 
         return (
-            <div key={node.relativePath}>
-                <style>{STYLES}</style>
+            <div
+                key={node.relativePath}
+                className="relative"
+                style={{ zIndex: 1000 - index }} // Stack earlier items on top of later items
+            >
+
                 {/* File Entry */}
                 <div
-                    className="relative flex items-stretch cursor-pointer hover:bg-[var(--vscode-list-hoverBackground)] group"
+                    className={cn(
+                        "relative flex items-stretch z-10",
+                        isHovered ? "bg-[var(--vscode-list-hoverBackground)]" : "",
+                        "group z-10",
+                        isDragOver ? "bg-[var(--vscode-list-dropBackground)] outline outline-1 outline-[var(--vscode-list-focusOutline)]" : ""
+                    )}
                     onClick={() => canExpand ? toggleFileExpansion(node.absolutePath) : handleFileClick(node.absolutePath)}
                     title={canExpand ? `Click to ${isExpanded ? 'collapse' : 'expand'} matches in ${node.name}` : `Click to open ${node.name}`}
                     onMouseEnter={() => setIsHovered(true)}
                     onMouseLeave={() => setIsHovered(false)}
                     draggable={true}
-                    onDragStart={(e) => onDragStart?.(e, node)}
-                    onDragOver={(e) => onDragOver?.(e, node)}
-                    onDrop={(e) => onDrop?.(e, node)}
+                    onDragStart={(e) => {
+                        console.log(`[TreeViewNode] [File] onDragStart: ${node.name}`, node);
+                        onDragStart?.(e, node);
+                    }}
+                    onDragOver={(e) => {
+                        // console.log('onDragOver', e);
+                        onDragOver?.(e, node);
+                        handleDragEnter(e); // Trigger visual
+                    }}
+                    onDragEnter={handleDragEnter}
+                    onDragLeave={handleDragLeave}
+                    onDrop={(e) => {
+                        console.log(`[TreeViewNode] [File] onDrop: ${node.name}`);
+                        handleDropWrapper(e);
+                    }}
                 >
                     {renderIndentationGuides()}
                     <div className="flex items-center gap-1.5 pl-1 w-full overflow-hidden py-0.5 min-h-[22px]">

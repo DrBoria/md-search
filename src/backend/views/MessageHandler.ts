@@ -25,7 +25,7 @@ export class MessageHandler {
       getStatus: () => SearchReplaceViewStatus
       onWebviewMounted: () => void
     }
-  ) {}
+  ) { }
 
   public async handle(rawMessage: unknown): Promise<void> {
     const validation = MessageFromWebviewSchema.safeParse(rawMessage)
@@ -132,11 +132,14 @@ export class MessageHandler {
 
     const status = this.viewProvider.getStatus()
 
+    const customFileOrder = this.extension.getCustomFileOrder()
+
     this.viewProvider.postMessage({
       type: 'initialData',
       workspacePath,
       values: values as SearchReplaceViewValues,
       status,
+      customFileOrder,
     })
   }
 
@@ -292,6 +295,9 @@ export class MessageHandler {
   }
 
   private handleUpdateFileOrder(customOrder: { [key: string]: number }): void {
+    this.extension.channel.appendLine(
+      `[MessageHandler] handleUpdateFileOrder received with ${Object.keys(customOrder).length} items`
+    )
     this.extension.setCustomFileOrder(customOrder)
   }
 

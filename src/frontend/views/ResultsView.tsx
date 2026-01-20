@@ -1,4 +1,5 @@
 import React, { useCallback, useMemo, useState, useEffect } from 'react';
+import { useAutoAnimate } from '@formkit/auto-animate/react';
 import { useSearchGlobal } from './context/SearchGlobalContext';
 import { URI } from 'vscode-uri';
 import * as path from 'path-browserify';
@@ -22,6 +23,7 @@ interface FileTreeNodeBase {
 
 interface FolderNode extends FileTreeNodeBase {
     type: 'folder';
+    absolutePath: string; // Added absolutePath
     children: FileTreeNode[];
     stats?: {
         numMatches: number;
@@ -56,7 +58,15 @@ function buildFileTree(
     workspacePathUri: string,
     customOrder?: { [key: string]: number },
 ): FolderNode {
-    const root: FolderNode = { name: '', relativePath: '', type: 'folder', children: [], stats: { numMatches: 0, numFilesWithMatches: 0 } };
+    // Root's absolute path is the workspace path
+    const root: FolderNode = {
+        name: '',
+        relativePath: '',
+        absolutePath: uriToPath(workspacePathUri),
+        type: 'folder',
+        children: [],
+        stats: { numMatches: 0, numFilesWithMatches: 0 }
+    };
     const workspacePath = uriToPath(workspacePathUri);
 
     const findOrCreateFolder = (
@@ -70,9 +80,16 @@ function buildFileTree(
         if (existing) {
             return existing;
         }
+
+        // Construct absolute path for the folder
+        const folderAbsolutePath = path.join(parent.absolutePath, segment); // Assuming simple join works for our internal structure, or we calculate from workspace
+        // Actually, safer to join relative path to workspace path
+        const safeAbsolutePath = workspacePath ? path.join(workspacePath, currentRelativePath) : currentRelativePath;
+
         const newFolder: FolderNode = {
             name: segment,
             relativePath: currentRelativePath,
+            absolutePath: safeAbsolutePath, // Store absolute path
             type: 'folder',
             children: [],
             stats: { numMatches: 0, numFilesWithMatches: 0 }
@@ -127,8 +144,12 @@ function buildFileTree(
     const sortNodeChildren = (node: FolderNode) => {
         node.children.sort((a, b) => {
             if (customOrder) {
-                const aOrder = customOrder[a.relativePath] ?? 999999;
-                const bOrder = customOrder[b.relativePath] ?? 999999;
+                // Try both absolute path and relative path for lookup
+                const aOrder = customOrder[a.absolutePath] ?? customOrder[a.relativePath] ?? 999999;
+                const bOrder = customOrder[b.absolutePath] ?? customOrder[b.relativePath] ?? 999999;
+
+                console.log(`[buildFileTree] Sorting: ${a.name} (${aOrder}) vs ${b.name} (${bOrder})`);
+
                 if (aOrder !== bOrder) return aOrder - bOrder;
             }
             if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
@@ -154,53 +175,58 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
         values: globalValues,
         workspacePath,
         viewMode: globalViewMode,
-        staleResultsByFile, // FROM CONTEXT
-        staleStatus, // FROM CONTEXT
-        staleLevel, // FROM CONTEXT
+        staleResultsByFile,
+        staleStatus,
+        staleLevel,
+        customFileOrder, // Added
+        setCustomFileOrder // Added
     } = useSearchGlobal();
 
-    // Get Level Data
-    const level = searchLevels[levelIndex];
-    // Helper to get safe values
-    const levelResults = level?.resultsByFile || {};
-
-    // Determine effective results (current or stale)
-    // Determine effective results (current or stale)
-    // BUT only if we are truly empty.
-    const effectiveResultsByFile = useMemo(() => {
-        const hasCurrent = Object.keys(levelResults).length > 0;
-        if (hasCurrent) return levelResults;
-
-        // If we are nested, and we have stale results that match this level?
-        // Check staleLevel matches levelIndex.
-        if (staleResultsByFile && Object.keys(staleResultsByFile).length > 0 && staleLevel === levelIndex) {
-            return staleResultsByFile;
-        }
-
-        return levelResults;
-    }, [levelResults, staleResultsByFile, staleLevel, levelIndex]);
-
-    const isStale = Object.keys(levelResults).length === 0 && staleResultsByFile !== null && Object.keys(staleResultsByFile || {}).length > 0 && staleLevel === levelIndex;
-
-    // Use level-specific values if available, otherwise global
-    const values = level?.values || globalValues;
-    // Use level-specific viewMode if available, otherwise fallback to global
-    const viewMode = level?.viewMode || globalViewMode || 'tree';
-
-    // Local State for Pagination
     const [visibleResultsLimit, setVisibleResultsLimit] = useState(50);
     const [isLoadingMore, setIsLoadingMore] = useState(false);
+    const [listParent] = useAutoAnimate<HTMLDivElement>();
+    const [treeParent] = useAutoAnimate<HTMLDivElement>();
 
-    // Derived State for Pagination
-    const paginatedFilePaths = useMemo(() => {
-        return Object.keys(effectiveResultsByFile).slice(0, visibleResultsLimit);
-    }, [effectiveResultsByFile, visibleResultsLimit]);
+    // Derived Logic for Results
+    const level = searchLevels[levelIndex];
+
+    const effectiveResultsByFile = useMemo(() => {
+        const currentResults = level?.resultsByFile || {};
+        if (Object.keys(currentResults).length > 0) return currentResults;
+
+        // Check for stale results if current are empty
+        if (levelIndex === 0) {
+            // Root level fallback
+            if (staleResultsByFile && Object.keys(staleResultsByFile).length > 0 && (staleLevel === 0 || staleLevel === null || staleLevel === undefined)) {
+                return staleResultsByFile;
+            }
+        } else {
+            // Nested level fallback
+            if (staleResultsByFile && Object.keys(staleResultsByFile).length > 0 && staleLevel === levelIndex) {
+                return staleResultsByFile;
+            }
+        }
+        return {};
+    }, [level, levelIndex, staleResultsByFile, staleLevel]);
+
+    const isStale = useMemo(() => {
+        const currentResults = level?.resultsByFile || {};
+        const hasCurrent = Object.keys(currentResults).length > 0;
+        if (hasCurrent) return false;
+
+        if (levelIndex === 0) {
+            return !!staleResultsByFile && (staleLevel === 0 || staleLevel === null || staleLevel === undefined);
+        } else {
+            return !!staleResultsByFile && staleLevel === levelIndex;
+        }
+    }, [level, levelIndex, staleResultsByFile, staleLevel]);
 
 
     // Handlers
     const loadMoreResults = useCallback(() => {
         if (isLoadingMore) return;
         setIsLoadingMore(true);
+        // Simulate async load or just increase limit
         setTimeout(() => {
             setVisibleResultsLimit(prev => prev + 50);
             setIsLoadingMore(false);
@@ -216,26 +242,44 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
     }, [vscode]);
 
     const handleReplaceSelectedFiles = useCallback((filePaths: string[]) => {
-        if (!values?.find || !values.replace || filePaths.length === 0) return;
-
-        // If nested, we need to handle replace differently? 
-        // Logic in `useSearchItemController` handled this via IPC message 'replace' with filePaths.
+        const find = level?.values?.find || globalValues.find;
+        const replace = level?.values?.replace !== undefined ? level.values.replace : globalValues.replace;
+        if (!find || replace === undefined || filePaths.length === 0) return;
         vscode.postMessage({ type: 'replace', filePaths });
-    }, [values.find, values.replace, vscode]);
+    }, [level, globalValues, vscode]);
 
     const handleExcludeFile = useCallback((filePath: string) => {
         vscode.postMessage({ type: 'excludeFile', filePath });
-        // Update local state to remove file immediately
+        // Optimistic update handled in Layout or Context? 
+        // Logic was duplicated in Layout. For specific view, we might relying on global state update.
+        // But we can trigger a local update if needed via setSearchLevels.
+        // For now let's rely on backend sending 'fileUpdated' or similar, OR the Layout logic if it listens to exclude.
+        // Actually Layout has logic to remove from results.
+        // But we need to make sure UI reflects it.
+        // Replicating exclusion logic here safely:
+
         setSearchLevels(prev => {
             const newLevels = [...prev];
-            const currentLevel = newLevels[levelIndex];
-            if (currentLevel && currentLevel.resultsByFile[filePath]) {
-                const updatedResultsByFile = { ...currentLevel.resultsByFile };
-                delete updatedResultsByFile[filePath];
-                newLevels[levelIndex] = { ...currentLevel, resultsByFile: updatedResultsByFile };
+            const targetLevel = newLevels[levelIndex];
+            if (!targetLevel) return prev;
+
+            const newResults = { ...targetLevel.resultsByFile };
+            let changed = false;
+
+            Object.keys(newResults).forEach(key => {
+                if (key === filePath || key.startsWith(filePath + (filePath.includes('/') ? '/' : '\\'))) {
+                    delete newResults[key];
+                    changed = true;
+                }
+            });
+
+            if (changed) {
+                newLevels[levelIndex] = { ...targetLevel, resultsByFile: newResults };
+                return newLevels;
             }
-            return newLevels;
+            return prev;
         });
+
     }, [vscode, levelIndex, setSearchLevels]);
 
     const toggleFileExpansion = useCallback((relativePath: string) => {
@@ -264,27 +308,168 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
         });
     }, [levelIndex, setSearchLevels]);
 
-    // Drag handlers (simplified)
+    // View Mode: prefer level-specific mode (for nested), fallback to global (for root)
+    const viewMode = level?.viewMode || globalViewMode || 'tree';
+
+    // Values for highlighting
+    const values = level?.values || globalValues;
+
+    // Drag handlers
     const handleDragStart = useCallback((e: React.DragEvent, node: FileTreeNode) => {
-        e.dataTransfer.setData('text/plain', JSON.stringify({ relativePath: node.relativePath, type: node.type }));
+        // Allow dragging both files and folders
+        e.dataTransfer.setData('text/plain', node.absolutePath || node.relativePath);
         e.dataTransfer.effectAllowed = 'move';
+        console.log('[ResultsView] Drag Start:', {
+            path: node.absolutePath || node.relativePath,
+            type: node.type,
+            node
+        });
     }, []);
-    const handleDragOver = useCallback((e: React.DragEvent, targetNode: FileTreeNode) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }, []);
-    const handleDrop = useCallback((e: React.DragEvent, targetNode: FileTreeNode) => { e.preventDefault(); }, []);
 
+    const handleDragOver = useCallback((e: React.DragEvent, targetNode: FileTreeNode) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        // reducing log spam, but uncomment if needed
+        // console.log('[ResultsView] Drag Over:', targetNode.relativePath);
+    }, []);
 
-    // Derivations
-    const paginatedResults = useMemo(() => {
-        if (!effectiveResultsByFile || !paginatedFilePaths || paginatedFilePaths.length === 0) {
-            return {};
-        }
-        return paginatedFilePaths.reduce((acc, path) => {
-            if (effectiveResultsByFile[path]) {
-                acc[path] = effectiveResultsByFile[path];
+    const handleDrop = useCallback((e: React.DragEvent, targetNode: FileTreeNode) => {
+        console.error('[ResultsView] handleDrop ENTERED');
+        try {
+            e.preventDefault();
+            const sourcePath = e.dataTransfer.getData('text/plain');
+
+            // Target path should be the node's absolute path (which now exists for folders too)
+            // or relative path as fallback. Preferably absolute.
+            const targetPath = (targetNode as any).absolutePath || targetNode.relativePath;
+
+            console.error('[ResultsView] Handle Drop Data:', {
+                sourcePath,
+                targetPath,
+                targetNodeType: targetNode.type,
+                targetNodePath: targetNode.relativePath
+            });
+
+            if (!sourcePath || !targetPath || sourcePath === targetPath) {
+                console.error('[ResultsView] Drop ignored: validation failed or same source/target');
+                return;
             }
-            return acc;
-        }, {} as Record<string, SerializedTransformResultEvent[]>);
-    }, [paginatedFilePaths, effectiveResultsByFile]);
+
+            const currentFilePaths = Object.keys(effectiveResultsByFile);
+
+            let newOrder: string[] = [];
+            if (customFileOrder && customFileOrder.length > 0) {
+                newOrder = [...customFileOrder];
+                // Append missing visible files
+                currentFilePaths.forEach(p => {
+                    if (!newOrder.includes(p)) {
+                        newOrder.push(p);
+                    }
+                });
+            } else {
+                newOrder = [...currentFilePaths];
+            }
+
+            // Ensure source and target are in the order list
+            if (!newOrder.includes(sourcePath)) {
+                console.error('[ResultsView] Adding missing sourcePath to order:', sourcePath);
+                newOrder.push(sourcePath);
+            }
+            if (!newOrder.includes(targetPath)) {
+                console.error('[ResultsView] Adding missing targetPath to order:', targetPath);
+                newOrder.push(targetPath);
+            }
+
+            const sourceIndex = newOrder.indexOf(sourcePath);
+            const targetIndex = newOrder.indexOf(targetPath);
+
+            console.error('[ResultsView] Indices:', { sourceIndex, targetIndex });
+
+            if (sourceIndex === -1 || targetIndex === -1) {
+                console.error('[ResultsView] Source or Target index not found after insertion check');
+                return;
+            }
+
+            // Reorder
+            newOrder.splice(sourceIndex, 1);
+            let adjustedTargetIndex = newOrder.indexOf(targetPath);
+
+            // Adjust insertion point based on direction
+            if (sourceIndex < targetIndex) {
+                // Dragging Down: Insert AFTER target
+                adjustedTargetIndex += 1;
+            }
+            newOrder.splice(adjustedTargetIndex, 0, sourcePath);
+
+            console.error('[ResultsView] NEW ORDER Generated (first 5):', newOrder.slice(0, 5));
+            setCustomFileOrder(newOrder);
+        } catch (err) {
+            console.error('[ResultsView] DATA DROP ERROR:', err);
+        }
+    }, [effectiveResultsByFile, customFileOrder, setCustomFileOrder]);
+
+
+    // Derived State for Pagination
+    const sortedFilePaths = useMemo(() => {
+        const keys = Object.keys(effectiveResultsByFile);
+        if (!customFileOrder || customFileOrder.length === 0) return keys;
+
+        // Sort keys based on customFileOrder
+        // Create map for O(1) lookup
+        const orderMap = new Map(customFileOrder.map((path, index) => [path, index]));
+
+        return keys.sort((a, b) => {
+            const indexA = orderMap.has(a) ? orderMap.get(a)! : 999999;
+            const indexB = orderMap.has(b) ? orderMap.get(b)! : 999999;
+            return indexA - indexB;
+        });
+    }, [effectiveResultsByFile, customFileOrder]);
+
+    const paginatedFilePaths = useMemo(() => {
+        return sortedFilePaths.slice(0, visibleResultsLimit);
+    }, [sortedFilePaths, visibleResultsLimit]);
+
+    // Compute custom order map for Tree View (absolute paths to indices)
+    // Wait, buildFileTree uses relativePath? 
+    // Let's modify buildFileTree to use Absolute Path if available on node?
+    // Folder nodes don't have absolute paths easily mapped unless we map them?
+    // But Drag and Drop operates on Files.
+    // So if I pass `{ [absolutePath]: index }` to buildFileTree, I need to check `node.absolutePath`.
+    // Let's look at `buildFileTree` again.
+    // It calls `sortNodeChildren`. `a.relativePath` is available. `a.type`.
+    // `FileNode` has `absolutePath`.
+    // So distinct handling:
+    // If we want to sort files in Tree View based on our "Flat List Order", it's weird because Tree View is hierarchical.
+    // But users might drag files within a folder.
+    // If I just pass the map, I can verify in `buildFileTree`.
+    // I will try to map keys -> index.
+
+    // Actually, converting absolute paths in `customFileOrder` to `relativePath` is hard without workspace path logic here or repeatedly calling `path.relative`.
+    // `buildFileTree` computes relative path itself.
+    // Easier: modify `buildFileTree` to accept `fileOrderMap` keyed by `absolutePath` for files.
+    // I can't modify `buildFileTree` easily inside this tool call without replacing the massive function.
+    // Let's stick to List View support primarily, as reordering a Tree structure via flatten list is ambiguous.
+    // BUT user asked for "reorder files left side".
+    // If I drop a file, it reorders.
+    // If I am in List View, works great.
+    // In Tree View, `buildFileTree` is used.
+    // I should generate `customOrder` map using `workspacePath`.
+    // `uriToPath` and `path.relative` are used in `renderListViewResults`.
+    // I can replicate this.
+
+    // Use Absolute Paths for the map since we now track them in FolderNode
+    const customOrderMap = useMemo(() => {
+        if (!customFileOrder || customFileOrder.length === 0) return {};
+        const map: { [key: string]: number } = {};
+
+        customFileOrder.forEach((path, index) => {
+            // We trust the path in customFileOrder is absolute (as stored by handleDrop)
+            map[path] = index;
+            // Also store uriToPath version just in case of mismatch
+            map[uriToPath(path)] = index;
+        });
+        return map;
+    }, [customFileOrder]);
 
     const currentExpandedFiles = useMemo((): Set<string> => {
         const files = level?.expandedFiles;
@@ -299,7 +484,10 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
 
     // Render Functions
     const renderListViewResults = () => {
-        const resultEntries = Object.entries(paginatedResults);
+        // Use sorted paginated results (derived from sortedFilePaths)
+        // ...
+        // (existing logic uses paginatedResults which relies on paginatedFilePaths)
+        const resultEntries = paginatedFilePaths.map(path => [path, effectiveResultsByFile[path]] as [string, SerializedTransformResultEvent[]]);
 
         if (resultEntries.length === 0) {
             // Check if searching
@@ -316,8 +504,8 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
         }
 
         return (
-            <>
-                {resultEntries.map(([filePath, results]) => {
+            <div className="flex flex-col" ref={listParent}>
+                {resultEntries.map(([filePath, results], i) => {
                     const displayPath = workspacePath
                         ? path.relative(uriToPath(workspacePath), uriToPath(filePath))
                         : uriToPath(filePath);
@@ -345,6 +533,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
                         <TreeViewNode
                             key={filePath}
                             node={node}
+                            index={i}
                             level={0}
                             expandedFolders={currentExpandedFolders}
                             toggleFolderExpansion={toggleFolderExpansion}
@@ -361,19 +550,20 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
                         />
                     );
                 })}
-                {Object.keys(effectiveResultsByFile).length > visibleResultsLimit && (
+                {/* Load More Button */}
+                {sortedFilePaths.length > visibleResultsLimit && (
                     <div className="p-[10px] text-center">
                         <button className="bg-[var(--input-background)] border border-[var(--panel-view-border)] text-[var(--panel-tab-active-border)] px-3 py-[6px] rounded-[2px] cursor-pointer hover:border-[var(--panel-tab-active-border)]" onClick={loadMoreResults} disabled={isLoadingMore}>
                             {isLoadingMore ? 'Loading...' : `Load more results`}
                         </button>
                     </div>
                 )}
-            </>
+            </div>
         );
     };
 
     const renderTreeViewResults = () => {
-        if (!paginatedResults || Object.keys(paginatedResults).length === 0) {
+        if (!effectiveResultsByFile || Object.keys(effectiveResultsByFile).length === 0) {
             return currentStatus.running ? (
                 <div className="p-[10px] text-center flex gap-2 justify-center"><span className="codicon codicon-loading codicon-modifier-spin" /><span>Searching...</span></div>
             ) : (
@@ -381,15 +571,17 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
             );
         }
 
-        const paginatedFileTree = buildFileTree(paginatedResults, workspacePath, {}); // Custom order not supported yet
+        // Pass customOrderMap
+        const paginatedFileTree = buildFileTree(effectiveResultsByFile, workspacePath, customOrderMap);
 
         return (
-            <>
+            <div className="flex flex-col" ref={treeParent}>
                 {paginatedFileTree.children.length > 0 ? (
-                    paginatedFileTree.children.map(node => (
+                    paginatedFileTree.children.map((node, i) => (
                         <TreeViewNode
                             key={node.relativePath}
                             node={node}
+                            index={i}
                             level={0}
                             expandedFolders={currentExpandedFolders}
                             toggleFolderExpansion={toggleFolderExpansion}
@@ -413,7 +605,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
                         </button>
                     </div>
                 )}
-            </>
+            </div>
         );
     };
 
