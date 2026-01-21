@@ -296,6 +296,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
         this._extensionUri,
         vscode.Uri.joinPath(this._extensionUri, 'media'),
         vscode.Uri.joinPath(this._extensionUri, 'out'),
+        vscode.Uri.joinPath(this._extensionUri, 'node_modules'),
       ],
     } as vscode.WebviewOptions & { devToolsEnabled?: boolean }
 

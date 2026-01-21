@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { cn } from "../../utils";
 
 interface AnimatedCounterProps {
     value: number;
@@ -7,133 +8,119 @@ interface AnimatedCounterProps {
     suffix?: string;
 }
 
-// OdometerDigit handles the animation of a single digit
-const OdometerDigit = ({ digit, direction }: { digit: number; direction: 'up' | 'down' }) => {
-    const [prevDigit, setPrevDigit] = useState(digit);
-    const [animating, setAnimating] = useState(false);
-    const [animationKey, setAnimationKey] = useState(0); // Force re-render for restart
+// 0-9 repeated 3 times: [0..9] [0..9] [0..9]
+// This gives us a safe buffer to scroll in either direction and snap back to the center.
+const STRIP = Array.from({ length: 30 }, (_, i) => i % 10);
+
+function Digit({ char, direction }: { char: string, direction: number }) {
+    const isNumber = /^\d$/.test(char);
+    const targetDigit = isNumber ? parseInt(char) : 0;
+
+    // Position 15 is the center "5".
+    // 0 [0..9] 10 [0..9] 20 [0..9]
+    // We ideally want to stay in the range [10, 19].
+    const [position, setPosition] = useState(10 + targetDigit);
+    const [isAnimating, setIsAnimating] = useState(false);
+
+    // We store the current target digit to detect changes
+    const prevCharRef = useRef(char);
 
     useEffect(() => {
-        if (digit !== prevDigit) {
-            setAnimating(true);
-            // Reset animation state
-            setAnimationKey(k => k + 1);
-
-            const timer = setTimeout(() => {
-                setAnimating(false);
-                setPrevDigit(digit);
-            }, 600); // 600ms match CSS
-            return () => clearTimeout(timer);
+        if (prevCharRef.current === char) {
+            // Ensure position is correct on mount/steady state
+            setPosition(10 + targetDigit);
+            return;
         }
-    }, [digit]);
+        prevCharRef.current = char;
 
-    // If not animating, just show current digit
-    if (!animating && prevDigit === digit) {
-        return (
-            <span className="inline-block relative overflow-hidden align-bottom" style={{ height: '1.5em', width: '0.6em', lineHeight: '1.5em', verticalAlign: 'bottom' }}>
-                <span className="flex items-center justify-center h-full">{digit}</span>
-            </span>
-        );
+        if (!isNumber) {
+            // Non-numeric handling: just reset
+            return;
+        }
+
+        setPosition(prevPos => {
+            const currentDigit = prevPos % 10;
+            let diff = targetDigit - currentDigit;
+
+            // Adjust diff to match desired direction
+            if (direction > 0) {
+                // Moving UP (increasing value) = Index increases (strip moves up)
+                while (diff <= 0) diff += 10;
+            } else if (direction < 0) {
+                // Moving DOWN (decreasing value) = Index decreases (strip moves down)
+                while (diff >= 0) diff -= 10;
+            }
+
+            const nextPos = prevPos + diff;
+            setIsAnimating(true);
+            return nextPos;
+        });
+    }, [char, targetDigit, direction, isNumber]);
+
+    const handleTransitionEnd = () => {
+        setIsAnimating(false);
+        // Snap back to the center range [10..19]
+        setPosition(prev => {
+            const digit = prev % 10;
+            // JS modulo of negative numbers can be negative, ensure positive index
+            const positiveDigit = (digit + 10) % 10;
+            return 10 + positiveDigit;
+        });
+    };
+
+    if (!isNumber) {
+        return <span className="inline-block relative">{char}</span>;
     }
 
-    // While animating, we render a strip of TWO digits: [Top, Bottom]
-    // If direction UP: [Prev, Current]. Animate 0 -> -1.5em. (Move UP)
-    // If direction DOWN: [Current, Prev]. Animate -1.5em -> 0. (Move DOWN)
-
-    // Note: direction applies to the *counter* change. 
-    // Increments (UP): Old rolls up and out. New rolls up and in. 
-    //   Layout: [Old]
-    //           [New]
-    //   Transform: 0 -> -50%
-
-    // Decrements (DOWN): Old rolls down and out. New rolls down and in.
-    //   Layout: [New]
-    //           [Old]
-    //   Transform: -50% -> 0
-
-    const topDigit = direction === 'up' ? prevDigit : digit;
-    const bottomDigit = direction === 'up' ? digit : prevDigit;
-
-    const startY = direction === 'up' ? '0%' : '-50%';
-    const endY = direction === 'up' ? '-50%' : '0%';
-
     return (
-        <div
-            className="inline-block relative overflow-hidden align-bottom"
-            style={{
-                height: '1.5em',
-                width: '0.6em',
-                verticalAlign: 'bottom',
-                lineHeight: '1.5em'
-            }}
-        >
-            {/* Key ensures we reset the animation/element when Key changes */}
-            <div
-                key={animationKey}
-                className="flex flex-col will-change-transform blur-[0.3px]"
-                // We use animation instead of transition for reliable from->to reset
-                style={{
-                    height: '3em', // 2 items * 1.5em
-                    animation: `slide-${direction} 0.6s cubic-bezier(0.45, 0.05, 0.55, 0.95) forwards`,
-                }}
+        <span className="inline-flex relative h-[1.3em] w-[0.8ch] overflow-hidden items-center justify-center -mb-[0.1em]">
+            <span
+                className={cn(
+                    "absolute left-0 w-full flex flex-col will-change-transform",
+                    isAnimating ? "transition-transform duration-500 ease-in-out" : "transition-none"
+                )}
+                style={{ transform: `translateY(-${(position / 30) * 100}%)`, top: 0 }}
+                onTransitionEnd={handleTransitionEnd}
             >
-                <style>
-                    {`
-                    @keyframes slide-up {
-                        from { transform: translateY(0%); }
-                        to { transform: translateY(-50%); }
-                    }
-                    @keyframes slide-down {
-                        from { transform: translateY(-50%); }
-                        to { transform: translateY(0%); }
-                    }
-                    `}
-                </style>
-                <div style={{ height: '1.5em', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    {topDigit}
-                </div>
-                <div style={{ height: '1.5em', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    {bottomDigit}
-                </div>
-            </div>
-        </div>
+                {STRIP.map((n, i) => (
+                    <span key={i} className="h-[1.3em] flex items-center justify-center leading-none">
+                        {n}
+                    </span>
+                ))}
+            </span>
+            {/* Spacer to hold width/height */}
+            <span className="opacity-0 pointer-events-none font-mono">0</span>
+        </span>
     );
-};
+}
 
-export const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
+export function AnimatedCounter({
     value,
     className = "",
     prefix = "",
     suffix = ""
-}) => {
-    const prevValueRef = useRef(value);
-    const [direction, setDirection] = useState<'up' | 'down'>('up');
+}: AnimatedCounterProps) {
+    const displayValue = Number.isFinite(value) ? value : 0;
+    const chars = displayValue.toLocaleString().split('');
 
-    // Update direction when value changes
-    if (value !== prevValueRef.current) {
-        setDirection(value > prevValueRef.current ? 'up' : 'down');
-        prevValueRef.current = value;
+    // Track direction based on total value change
+    const prevValueRef = useRef(displayValue);
+    const directionRef = useRef(0);
+
+    // Update direction only when value changes
+    if (displayValue !== prevValueRef.current) {
+        directionRef.current = displayValue > prevValueRef.current ? 1 : -1;
+        prevValueRef.current = displayValue;
     }
-
-    const chars = value.toLocaleString().split('');
+    const direction = directionRef.current;
 
     return (
-        <span className={`inline-flex items-center ${className}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+        <span className={cn("inline-flex items-center", className)} style={{ fontVariantNumeric: 'tabular-nums' }}>
             {prefix && <span className="mr-0.5">{prefix}</span>}
             {chars.map((char, index) => {
-                if (/[0-9]/.test(char)) {
-                    // Start from right to maintain key stability? 
-                    // Actually index is fine for simple counter.
-                    // If length changes (10 -> 9), keys shift?
-                    // 10 (keys 0,1) -> 9 (key 0).
-                    // key 0 (was 1) becomes 9. key 1 is removed.
-                    // This is acceptable behavior.
-                    return <OdometerDigit key={index} digit={parseInt(char)} direction={direction} />;
-                } else {
-                    return <span key={index} style={{ height: '1.5em', lineHeight: '1.5em' }}>{char}</span>;
-                }
+                return <Digit key={index} char={char} direction={direction} />;
             })}
             {suffix && <span className="ml-1">{suffix}</span>}
         </span>
     );
-};
+}

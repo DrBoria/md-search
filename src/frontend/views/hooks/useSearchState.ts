@@ -107,7 +107,9 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
     ]
   })
 
-  const isInNestedSearch = searchLevels.length > 1
+  // Determine if we are actively viewing a nested search level (not Root)
+  // We check index > 0. If index is 0, we are at Root, even if history exists.
+  const isInNestedSearch = values.searchInResults > 0;
   const searchLevelsRef = useRef(searchLevels)
   useEffect(() => {
     searchLevelsRef.current = searchLevels
@@ -692,26 +694,29 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
     ]
   )
 
+  // Clear stale results when switching levels to prevent ghosting
+  useEffect(() => {
+    setStaleResultsByFile({});
+    setStaleLevel(null);
+  }, [values.searchInResults]);
+
+  // Sync resultsByFile with the current level's results from searchLevels
+  // This ensures that when navigating back/forward, `resultsByFile` (active) matches the level storage.
+  useEffect(() => {
+    const currentLevelResults = searchLevels[values.searchInResults]?.resultsByFile || {};
+    setResultsByFile(currentLevelResults);
+  }, [values.searchInResults, searchLevels]);
+
   // Sync current values to the corresponding searchLevels entry
   // This ensures breadcrumb labels reflect what the user has typed
   useEffect(() => {
-    console.log('=== useEffect SYNC triggered ===')
-    console.log(
-      'values.find:',
-      values.find,
-      'values.searchInResults:',
-      values.searchInResults
-    )
-
     setSearchLevels((prev) => {
       const index = values.searchInResults
       if (index < 0 || index >= prev.length) {
-        console.log('useEffect SYNC: index out of bounds, skipping')
         return prev
       }
       const currentLevel = prev[index]
       if (!currentLevel) {
-        console.log('useEffect SYNC: currentLevel is null, skipping')
         return prev
       }
 
@@ -824,64 +829,23 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
         // Only send to backend if not skipping
         if (!shouldSkipSearch) {
           debouncedPostMessage({ type: 'values', values: next })
-          debouncedTriggerSearch({
-            type: 'search',
-            ...next,
-            searchInResults: next.searchInResults,
-          })
+
+          // CRITICAL OPTIMIZATION:
+          // If we are only navigating BACKWARDS (decreasing searchInResults), trust the cached state.
+          // Even if 'find' is in the changed object (restoring old value), we DO NOT want to trigger a new search.
+          const isBackNav = changed.searchInResults !== undefined &&
+            changed.searchInResults < prev.searchInResults;
+
+          if (!isBackNav) {
+            debouncedTriggerSearch({
+              type: 'search',
+              ...next,
+              searchInResults: next.searchInResults,
+            })
+          }
         }
 
-        // Sync find value to searchLevels for breadcrumb labels
-        if ('find' in changed) {
-          console.log(
-            'postValuesChange: find is in changed, triggering setSearchLevels sync'
-          )
-          setSearchLevels((levels) => {
-            const index = next.searchInResults
-            console.log(
-              'postValuesChange setSearchLevels: index:',
-              index,
-              'levels.length:',
-              levels.length
-            )
 
-            if (index < 0 || index >= levels.length) {
-              console.log(
-                'postValuesChange setSearchLevels: index out of bounds, skipping'
-              )
-              return levels
-            }
-
-            console.log(
-              'postValuesChange setSearchLevels: Updating level',
-              index
-            )
-            console.log(
-              '  Old find:',
-              levels[index].values?.find,
-              'Old label:',
-              levels[index].label
-            )
-            console.log('  New find:', next.find)
-
-            const newLevels = [...levels]
-            newLevels[index] = {
-              ...newLevels[index],
-              values: { ...newLevels[index].values, find: next.find },
-              label: next.find ? next.find : newLevels[index].label,
-            }
-
-            console.log('  Result label:', newLevels[index].label)
-            console.log(
-              '  All levels after postValuesChange sync:',
-              JSON.stringify(
-                newLevels.map((l) => ({ find: l.values?.find, label: l.label }))
-              )
-            )
-
-            return newLevels
-          })
-        }
 
         return next
       })
@@ -914,6 +878,7 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
     replacementResult,
     setReplacementResult,
     isSearchRequested,
+    setIsSearchRequested,
     handleMessage,
     skipSearchUntilRef,
   }

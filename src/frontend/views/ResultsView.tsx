@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useState, useEffect } from 'react';
-import { useAutoAnimate } from '@formkit/auto-animate/react';
 import { useSearchGlobal } from './context/SearchGlobalContext';
+import { useAutoAnimate } from '@formkit/auto-animate/react';
 import { URI } from 'vscode-uri';
 import * as path from 'path-browserify';
 import { Button } from '../components/ui/button';
@@ -34,6 +34,7 @@ interface FolderNode extends FileTreeNodeBase {
 interface FileNode extends FileTreeNodeBase {
     type: 'file';
     absolutePath: string;
+    description?: string;
     results: SerializedTransformResultEvent[];
 }
 
@@ -143,16 +144,16 @@ function buildFileTree(
     // Sorting logic
     const sortNodeChildren = (node: FolderNode) => {
         node.children.sort((a, b) => {
+            // ALWAYS sort folders before files
+            if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
+
             if (customOrder) {
                 // Try both absolute path and relative path for lookup
                 const aOrder = customOrder[a.absolutePath] ?? customOrder[a.relativePath] ?? 999999;
                 const bOrder = customOrder[b.absolutePath] ?? customOrder[b.relativePath] ?? 999999;
 
-                console.log(`[buildFileTree] Sorting: ${a.name} (${aOrder}) vs ${b.name} (${bOrder})`);
-
                 if (aOrder !== bOrder) return aOrder - bOrder;
             }
-            if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
             return a.name.localeCompare(b.name);
         });
         node.children.forEach(child => {
@@ -184,9 +185,6 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
 
     const [visibleResultsLimit, setVisibleResultsLimit] = useState(50);
     const [isLoadingMore, setIsLoadingMore] = useState(false);
-    const [listParent] = useAutoAnimate<HTMLDivElement>();
-    const [treeParent] = useAutoAnimate<HTMLDivElement>();
-
     // Derived Logic for Results
     const level = searchLevels[levelIndex];
 
@@ -250,14 +248,6 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
 
     const handleExcludeFile = useCallback((filePath: string) => {
         vscode.postMessage({ type: 'excludeFile', filePath });
-        // Optimistic update handled in Layout or Context? 
-        // Logic was duplicated in Layout. For specific view, we might relying on global state update.
-        // But we can trigger a local update if needed via setSearchLevels.
-        // For now let's rely on backend sending 'fileUpdated' or similar, OR the Layout logic if it listens to exclude.
-        // Actually Layout has logic to remove from results.
-        // But we need to make sure UI reflects it.
-        // Replicating exclusion logic here safely:
-
         setSearchLevels(prev => {
             const newLevels = [...prev];
             const targetLevel = newLevels[levelIndex];
@@ -429,34 +419,6 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
         return sortedFilePaths.slice(0, visibleResultsLimit);
     }, [sortedFilePaths, visibleResultsLimit]);
 
-    // Compute custom order map for Tree View (absolute paths to indices)
-    // Wait, buildFileTree uses relativePath? 
-    // Let's modify buildFileTree to use Absolute Path if available on node?
-    // Folder nodes don't have absolute paths easily mapped unless we map them?
-    // But Drag and Drop operates on Files.
-    // So if I pass `{ [absolutePath]: index }` to buildFileTree, I need to check `node.absolutePath`.
-    // Let's look at `buildFileTree` again.
-    // It calls `sortNodeChildren`. `a.relativePath` is available. `a.type`.
-    // `FileNode` has `absolutePath`.
-    // So distinct handling:
-    // If we want to sort files in Tree View based on our "Flat List Order", it's weird because Tree View is hierarchical.
-    // But users might drag files within a folder.
-    // If I just pass the map, I can verify in `buildFileTree`.
-    // I will try to map keys -> index.
-
-    // Actually, converting absolute paths in `customFileOrder` to `relativePath` is hard without workspace path logic here or repeatedly calling `path.relative`.
-    // `buildFileTree` computes relative path itself.
-    // Easier: modify `buildFileTree` to accept `fileOrderMap` keyed by `absolutePath` for files.
-    // I can't modify `buildFileTree` easily inside this tool call without replacing the massive function.
-    // Let's stick to List View support primarily, as reordering a Tree structure via flatten list is ambiguous.
-    // BUT user asked for "reorder files left side".
-    // If I drop a file, it reorders.
-    // If I am in List View, works great.
-    // In Tree View, `buildFileTree` is used.
-    // I should generate `customOrder` map using `workspacePath`.
-    // `uriToPath` and `path.relative` are used in `renderListViewResults`.
-    // I can replicate this.
-
     // Use Absolute Paths for the map since we now track them in FolderNode
     const customOrderMap = useMemo(() => {
         if (!customFileOrder || customFileOrder.length === 0) return {};
@@ -481,9 +443,18 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
         return folders instanceof Set ? folders : new Set<string>(folders || []);
     }, [level]);
 
+    // Memoize the File Tree to avoid costly rebuilds on every render
+    const fileTree = useMemo(() => {
+        if (!effectiveResultsByFile || Object.keys(effectiveResultsByFile).length === 0) {
+            return null;
+        }
+        return buildFileTree(effectiveResultsByFile, workspacePath, customOrderMap);
+    }, [effectiveResultsByFile, workspacePath, customOrderMap]);
 
-    // Render Functions
+
     const renderListViewResults = () => {
+        const [listRef] = useAutoAnimate<HTMLDivElement>();
+
         // Use sorted paginated results (derived from sortedFilePaths)
         // ...
         // (existing logic uses paginatedResults which relies on paginatedFilePaths)
@@ -503,8 +474,12 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
             );
         }
 
+        // Disable animation for large lists to prevent layout thrashing
+        // 50s freeze seen in logs suggests massive reflows with useAutoAnimate
+        const shouldAnimate = resultEntries.length < 20;
+
         return (
-            <div className="flex flex-col" ref={listParent}>
+            <div ref={shouldAnimate ? listRef : null} className="flex flex-col">
                 {resultEntries.map(([filePath, results], i) => {
                     const displayPath = workspacePath
                         ? path.relative(uriToPath(workspacePath), uriToPath(filePath))
@@ -518,7 +493,8 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
 
                     const node: FileNode = {
                         type: 'file',
-                        name: cleanDisplayPath,
+                        name: path.basename(filePath),
+                        description: path.dirname(cleanDisplayPath) !== '.' ? path.dirname(cleanDisplayPath) : undefined,
                         relativePath: cleanDisplayPath,
                         absolutePath: filePath,
                         results: results
@@ -563,7 +539,9 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
     };
 
     const renderTreeViewResults = () => {
-        if (!effectiveResultsByFile || Object.keys(effectiveResultsByFile).length === 0) {
+        const [treeRef] = useAutoAnimate<HTMLDivElement>();
+
+        if (!fileTree) {
             return currentStatus.running ? (
                 <div className="p-[10px] text-center flex gap-2 justify-center"><span className="codicon codicon-loading codicon-modifier-spin" /><span>Searching...</span></div>
             ) : (
@@ -571,13 +549,16 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
             );
         }
 
-        // Pass customOrderMap
-        const paginatedFileTree = buildFileTree(effectiveResultsByFile, workspacePath, customOrderMap);
+        // Apply pagination to Top-Level nodes to prevent rendering thousands of items at once
+        const visibleChildren = fileTree.children.slice(0, visibleResultsLimit);
+
+        // Disable animation for large lists to prevent layout thrashing
+        const shouldAnimate = visibleChildren.length < 20;
 
         return (
-            <div className="flex flex-col" ref={treeParent}>
-                {paginatedFileTree.children.length > 0 ? (
-                    paginatedFileTree.children.map((node, i) => (
+            <div ref={shouldAnimate ? treeRef : null} className="flex flex-col">
+                {visibleChildren.length > 0 ? (
+                    visibleChildren.map((node, i) => (
                         <TreeViewNode
                             key={node.relativePath}
                             node={node}
@@ -598,16 +579,23 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
                         />
                     ))
                 ) : null}
-                {Object.keys(effectiveResultsByFile).length > visibleResultsLimit && (
+                {/* Show Load More if there are more children OR if we just want to allow expansion? */
+                    /* Actually visibleResultsLimit checks total FILES, but here we check Root Nodes. 
+                       It's an approximation but better than freezing. 
+                       If fileTree.children.length > visibleResultsLimit, show button.
+                    */
+                }
+                {(fileTree.children.length > visibleResultsLimit) && (
                     <div className="p-[10px] text-center">
                         <button className="bg-[var(--input-background)] border border-[var(--panel-view-border)] text-[var(--panel-tab-active-border)] px-3 py-[6px] rounded-[2px] cursor-pointer hover:border-[var(--panel-tab-active-border)]" onClick={loadMoreResults} disabled={isLoadingMore}>
-                            {isLoadingMore ? 'Loading...' : `Load more results`}
+                            {isLoadingMore ? 'Loading...' : `Load more`}
                         </button>
                     </div>
                 )}
             </div>
         );
     };
+
 
     const status = currentStatus; // Alias for compatibility
 

@@ -11,10 +11,10 @@ import { AnimatedCounter } from './components/AnimatedCounter';
 
 // Inline styles for animations - avoids external CSS dependency
 const STYLES = `
-@keyframes slideInRight { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-@keyframes slideInLeft { from { transform: translateX(-100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-@keyframes slideOutRight { from { transform: translateX(0); opacity: 1; } to { transform: translateX(100%); opacity: 0; } }
-@keyframes slideOutLeft { from { transform: translateX(0); opacity: 1; } to { transform: translateX(-100%); opacity: 0; } }
+@keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
+@keyframes slideInLeft { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+@keyframes slideOutRight { from { transform: translateX(0); } to { transform: translateX(100%); } }
+@keyframes slideOutLeft { from { transform: translateX(0); } to { transform: translateX(-100%); } }
 @keyframes scaleIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
@@ -38,7 +38,11 @@ const STYLES = `
 /**
  * Helper to reduce match count from array of arrays of events
  */
-const reduceMatches = (resultsByFile: any) => {
+
+/**
+ * Helper to reduce match count from array of arrays of events
+ */
+function reduceMatches(resultsByFile: any) {
     return Object.values(resultsByFile || {}).reduce((acc: number, r: any) => {
         // resultsByFile value is an array of SerializedTransformResultEvent
         if (Array.isArray(r)) {
@@ -47,14 +51,14 @@ const reduceMatches = (resultsByFile: any) => {
         }
         return acc;
     }, 0);
-};
+}
 
 /**
  * Live Stats Widget
  * Displays the current number of files and matches for the active results.
  * Uses CSS transitions for smooth expand/collapse.
  */
-const LiveStatsWidget = ({ resultsByFile }: { resultsByFile: any }) => {
+function LiveStatsWidget({ resultsByFile }: { resultsByFile: any }) {
     const stats = useMemo(() => {
         const fileCount = Object.keys(resultsByFile || {}).length;
         const matchCount = reduceMatches(resultsByFile);
@@ -73,17 +77,13 @@ const LiveStatsWidget = ({ resultsByFile }: { resultsByFile: any }) => {
             (<AnimatedCounter value={stats.fileCount} suffix=" files" />, <AnimatedCounter value={stats.matchCount} suffix=" matches" />)
         </span>
     );
-};
+}
 
 /**
  * SlideTransition
  * Manages the slide animations for switching between search levels.
  */
-/**
- * SlideTransition
- * Manages the slide animations for switching between search levels.
- */
-const SlideTransition = ({ children, itemKey, direction }: { children: React.ReactNode, itemKey: number, direction: 'forward' | 'backward' }) => {
+function SlideTransition({ children, itemKey, direction }: { children: React.ReactNode, itemKey: number, direction: 'forward' | 'backward' }) {
     const [prevChild, setPrevChild] = React.useState<React.ReactNode>(null);
     const [prevKey, setPrevKey] = React.useState(itemKey);
     const [animating, setAnimating] = React.useState(false);
@@ -136,10 +136,10 @@ const SlideTransition = ({ children, itemKey, direction }: { children: React.Rea
             </div>
         </div>
     );
-};
+}
 
 
-const NestedSearchInputContent = () => {
+function NestedSearchInputContent({ levelIndex }: { levelIndex: number }) {
     const {
         values,
         searchLevels,
@@ -149,68 +149,83 @@ const NestedSearchInputContent = () => {
         status,
         valuesRef,
         skipSearchUntilRef,
+        setValues,
     } = useSearchGlobal();
 
-    const levelIndex = values.searchInResults;
     const currentLevel = searchLevels[levelIndex];
 
     const handleFindInFound = useCallback(() => {
         // Read from ref to get the LATEST values, not stale closure values
         const currentValues = valuesRef.current;
+        // Use the PASSED levelIndex to determine where we are, not the global one (which might be 0 during exit)
+        // But handleFindInFound only makes sense when we ARE interacting, so levelIndex should match global?
+        // Actually, if we are animating out (levelIndex=1, global=0), we shouldn't be able to click this anyway.
+        // So relying on ref is fine.
 
         console.log('=== NestedSearchInputContent handleFindInFound START ===');
-        console.log('currentValues.searchInResults:', currentValues.searchInResults);
-        console.log('currentValues.find:', currentValues.find);
+
+        // Use levelIndex as the source base
+        const sourceLevelIndex = levelIndex;
 
         setSearchLevels(prev => {
-            const currentLevel = prev[currentValues.searchInResults];
+            const currentLevel = prev[sourceLevelIndex];
             if (!currentLevel) return prev;
 
             // Snapshot stats for the current level before moving deeper
             const fileCount = Object.keys(currentLevel.resultsByFile || {}).length;
             const matchCount = reduceMatches(currentLevel.resultsByFile);
 
+            // We need to use valid values for the current level.
+            // If global `values` has already updated to 0 (root), we can't use `currentValues` blindly if it's synced to global.
+            // `values` from context is the global state.
+            // But `currentLevel.values` is the snapshot for this level.
+            const levelValues = currentLevel.values || currentValues;
+
             const currentLevelWithStats = {
                 ...currentLevel,
-                values: { ...currentLevel.values, find: currentValues.find },
-                label: currentValues.find || currentLevel.label || '',
+                values: levelValues, // Ensure we save the specific level values
+                label: levelValues.find || currentLevel.label || '',
                 stats: { numMatches: matchCount, numFilesWithMatches: fileCount }
             };
 
-            console.log('NestedSearchInputContent: Saved level', currentValues.searchInResults, 'with find:', currentValues.find);
-
             const updatedLevels = [...prev];
-            updatedLevels[currentValues.searchInResults] = currentLevelWithStats;
+            updatedLevels[sourceLevelIndex] = currentLevelWithStats;
 
             const newLevel: SearchLevel = {
                 // Initialize new level with defaults
-                values: { ...currentValues, find: '', replace: '', matchCase: false, wholeWord: false, searchMode: 'text' },
+                values: { ...levelValues, find: '', replace: '', matchCase: false, wholeWord: false, searchMode: 'text' },
                 viewMode: 'tree',
                 resultsByFile: {},
                 matchCase: false, wholeWord: false, searchMode: 'text',
                 isReplaceVisible: false,
                 expandedFiles: new Set<string>(),
                 expandedFolders: new Set<string>(),
-                label: '' // Label will be populated by the search query later
+                label: ''
             };
 
-            if (updatedLevels.length <= currentValues.searchInResults + 1) updatedLevels.push(newLevel);
-            else updatedLevels[currentValues.searchInResults + 1] = newLevel;
+            const newIndex = sourceLevelIndex + 1;
+            if (updatedLevels.length <= newIndex) updatedLevels.push(newLevel);
+            else updatedLevels[newIndex] = newLevel;
 
-            setTimeout(() => postValuesChange({
-                searchInResults: currentValues.searchInResults + 1,
+            // Optimistic update
+            const nextValues = {
+                ...levelValues,
+                searchInResults: newIndex,
                 find: '',
                 replace: '',
                 matchCase: false,
                 wholeWord: false,
-                searchMode: 'text'
-            }), 0);
+                searchMode: 'text' as const
+            };
+            setValues(nextValues);
+
+            setTimeout(() => postValuesChange(nextValues), 0);
             return updatedLevels;
         });
 
         if (status.running) vscode.postMessage({ type: 'stop' });
         console.log('=== NestedSearchInputContent handleFindInFound END ===');
-    }, [postValuesChange, status, setSearchLevels, vscode]);
+    }, [postValuesChange, status, setSearchLevels, vscode, setValues, levelIndex, valuesRef]);
 
     const handleCopyFileNames = useCallback(() => {
         vscode.postMessage({ type: 'copyFileNames' });
@@ -219,9 +234,12 @@ const NestedSearchInputContent = () => {
     const hasResults = currentLevel?.resultsByFile && Object.keys(currentLevel.resultsByFile).length > 0;
 
     // Handle debounced search for nested levels
+    // Only trigger if this is the ACTIVE level
+    const isGlobalActive = values.searchInResults === levelIndex;
     const findValue = currentLevel?.values?.find;
+
     useEffect(() => {
-        if (findValue === undefined) return;
+        if (findValue === undefined || !isGlobalActive) return;
 
         // Skip if we're within the skip window (navigation happened recently)
         const now = Date.now();
@@ -237,8 +255,12 @@ const NestedSearchInputContent = () => {
                 return;
             }
 
-            const currentValues = searchLevels[levelIndex]?.values;
+            // Dependencies:
+            // 1. We are global active -> valuesRef.current is relevant.
+            // 2. We avoid `searchLevels` dependency which causes infinite loops on result updates.
+            const currentValues = valuesRef.current;
             if (currentValues) {
+                // Ensure we are targeting the correct level (though if active, should match)
                 vscode.postMessage({
                     type: 'values',
                     values: { ...currentValues, searchInResults: levelIndex }
@@ -252,7 +274,7 @@ const NestedSearchInputContent = () => {
         }, 300);
 
         return () => clearTimeout(timer);
-    }, [findValue, levelIndex, vscode, skipSearchUntilRef]);
+    }, [findValue, levelIndex, vscode, skipSearchUntilRef, isGlobalActive, valuesRef]); // Added isGlobalActive dependency
 
     const extraActions = (
         <>
@@ -289,7 +311,7 @@ const NestedSearchInputContent = () => {
             </div>
         </SearchItemProvider>
     );
-};
+}
 
 
 export default function SearchNestedView() {
@@ -306,13 +328,30 @@ export default function SearchNestedView() {
 
     const breadcrumbsContainerRef = useRef<HTMLDivElement>(null);
 
-    // Track previous index to determine transition direction
+    // Track transition direction - update ONLY when index changes to ensure stability during animation
     const prevSearchInResults = useRef(values.searchInResults);
-    const direction = values.searchInResults > prevSearchInResults.current ? 'forward' : 'backward';
+    const directionRef = useRef<'forward' | 'backward'>('forward');
+
+    if (values.searchInResults !== prevSearchInResults.current) {
+        directionRef.current = values.searchInResults > prevSearchInResults.current ? 'forward' : 'backward';
+        prevSearchInResults.current = values.searchInResults;
+    }
+    const direction = directionRef.current;
+
+    // Persist the last valid NESTED level index to show during exit animation (Back to Root)
+    // If we go to level 0 (Root), we want to keep showing level 1 (or whatever it was) while sliding out.
+    // Otherwise it renders Level 0 content which duplicates the Root view.
+    const [lastValidNestedLevel, setLastValidNestedLevel] = useState(values.searchInResults > 0 ? values.searchInResults : 1);
 
     useEffect(() => {
-        prevSearchInResults.current = values.searchInResults;
+        if (values.searchInResults > 0) {
+            setLastValidNestedLevel(values.searchInResults);
+        }
     }, [values.searchInResults]);
+
+    // effectiveLevelIndex: use actual level if > 0, otherwise use lastValid (for exit animation)
+    const effectiveLevelIndex = values.searchInResults > 0 ? values.searchInResults : lastValidNestedLevel;
+
 
     // Sync current values to searchLevels to ensure breadcrumbs are always up to date
     useEffect(() => {
@@ -342,8 +381,10 @@ export default function SearchNestedView() {
         if (values.searchInResults === 0) return;
         const newSearchInResults = Math.max(0, values.searchInResults - 1);
         postValuesChange({ searchInResults: newSearchInResults });
-        updateSearchLevelsLength(newSearchInResults);
-    }, [postValuesChange, values.searchInResults, updateSearchLevelsLength]);
+        // Do NOT slice searchLevels here. Let them persist so the exiting view can render.
+        // We can slice them when a NEW search starts if needed, or just overwrite.
+        // Keeping history is actually a nice feature anyway.
+    }, [postValuesChange, values.searchInResults]);
 
 
     // Auto-scroll breadcrumbs
@@ -459,16 +500,16 @@ export default function SearchNestedView() {
 
                 {/* Input Section - Animated */}
                 <div className="relative overflow-visible min-h-[30px]">
-                    <SlideTransition itemKey={values.searchInResults} direction={direction}>
-                        <NestedSearchInputContent />
+                    <SlideTransition itemKey={effectiveLevelIndex} direction={direction}>
+                        <NestedSearchInputContent levelIndex={effectiveLevelIndex} />
                     </SlideTransition>
                 </div>
             </div>
 
             {/* Results Section - Animated */}
             <div className="flex-grow overflow-hidden relative flex flex-col">
-                <SlideTransition itemKey={values.searchInResults} direction={direction}>
-                    <ResultsView levelIndex={values.searchInResults} />
+                <SlideTransition itemKey={effectiveLevelIndex} direction={direction}>
+                    <ResultsView levelIndex={effectiveLevelIndex} />
                 </SlideTransition>
             </div>
         </div>

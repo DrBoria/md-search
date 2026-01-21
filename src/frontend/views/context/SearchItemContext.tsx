@@ -31,7 +31,7 @@ export interface SearchItemViewModel {
 
     // Extra
     extraActions?: React.ReactNode;
-    inputRef?: React.RefObject<HTMLTextAreaElement>;
+    inputRef?: React.RefObject<HTMLTextAreaElement | null>;
 }
 
 const SearchItemContext = createContext<SearchItemViewModel | null>(null);
@@ -51,7 +51,7 @@ export const SearchItemProvider = SearchItemContext.Provider;
 interface UseSearchItemControllerProps {
     levelIndex: number; // 0 for root, >0 for nested
     extraActions?: React.ReactNode;
-    inputRef?: React.RefObject<HTMLTextAreaElement>;
+    inputRef?: React.RefObject<HTMLTextAreaElement | null>;
 }
 
 export const useSearchItemController = ({ levelIndex, extraActions, inputRef }: UseSearchItemControllerProps): SearchItemViewModel => {

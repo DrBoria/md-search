@@ -1,5 +1,5 @@
-import React, { memo, useRef, useState, useEffect } from "react";
-import { useAutoAnimate } from '@formkit/auto-animate/react';
+import React, { memo, useRef, useState, useEffect, useCallback, useMemo } from "react";
+
 import path from 'path-browserify'
 import { SerializedTransformResultEvent } from '../../../model/SearchReplaceViewTypes';
 import { cn } from "../../utils"
@@ -39,21 +39,30 @@ export interface FolderNode extends FileTreeNodeBase {
 export interface FileNode extends FileTreeNodeBase {
     type: 'file'
     absolutePath: string
+    description?: string // Added description support
     results: SerializedTransformResultEvent[]
 }
 
 export type FileTreeNode = FolderNode | FileNode
 
 // --- Collapsible Component ---
-const Collapsible = ({ isOpen, children }: { isOpen: boolean; children: React.ReactNode }) => {
+// --- Collapsible Component ---
+import { useAutoAnimate } from '@formkit/auto-animate/react';
+
+const Collapsible = ({ isOpen, children, itemCount = 0 }: { isOpen: boolean; children: React.ReactNode; itemCount?: number }) => {
     const [height, setHeight] = useState<number | 'auto'>(isOpen ? 'auto' : 0);
     const [overflow, setOverflow] = useState<'hidden' | 'visible'>(isOpen ? 'visible' : 'hidden');
     const [isVisible, setIsVisible] = useState(isOpen);
 
     // Track initial render to avoid animating on load if already open
     const isFirstRender = useRef(true);
-    const ref = useRef<HTMLDivElement>(null);
-    const timeoutRef = useRef<NodeJS.Timeout>();
+    const ref = useRef<HTMLDivElement | null>(null);
+    const timeoutRef = useRef<NodeJS.Timeout>(undefined);
+
+    // Auto-animate the list reordering inside the collapsed area
+    // Disabled (commented out) due to massive layout thrashing (1-2s freeze on large lists)
+    // const [listRef] = useAutoAnimate<HTMLDivElement>();
+    const listRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         if (isFirstRender.current) {
@@ -108,13 +117,28 @@ const Collapsible = ({ isOpen, children }: { isOpen: boolean; children: React.Re
         };
     }, [isOpen]);
 
-    const [animationParent] = useAutoAnimate<HTMLDivElement>();
+
+
 
     const handleRef = React.useCallback((node: HTMLDivElement | null) => {
-        // @ts-ignore
         ref.current = node;
+    }, []);
+
+    // Re-enable auto-animate for DnD, but only for small lists to prevent thrashing
+    const [animationParent] = useAutoAnimate<HTMLDivElement>(
+        itemCount < 100 ? { duration: 150, easing: 'ease-in-out' } : { duration: 0 }
+    );
+
+    // Combine refs: handleRef (for measuring), listRef (internal ref), and animationParent
+    const mergedRef = React.useMemo(() => (node: HTMLDivElement | null) => {
+        handleRef(node);
+        if (listRef && typeof listRef === 'object') {
+            listRef.current = node;
+        }
+        // Always attach animation parent. Control enablement via hook config (duration: 0).
+        // Detaching conditionally causes state loss and broken interactions.
         animationParent(node);
-    }, [animationParent]);
+    }, [handleRef, listRef, animationParent]);
 
     return (
         <div
@@ -143,7 +167,7 @@ const Collapsible = ({ isOpen, children }: { isOpen: boolean; children: React.Re
             }}
         >
             <div
-                ref={handleRef}
+                ref={mergedRef}
                 className="flow-root relative"
             >
                 {children}
@@ -395,7 +419,7 @@ export const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                         </div>
                     </div>
                 </div>
-                <Collapsible isOpen={isExpanded}>
+                <Collapsible isOpen={isExpanded} itemCount={node.children.length}>
                     {node.children.map((child, i) => (
                         <TreeViewNode
                             key={child.relativePath}
@@ -471,15 +495,22 @@ export const TreeViewNode: React.FC<TreeViewNodeProps> = React.memo(({
                                 transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)'
                             }} />
                         <FileIcon filePath={node.name} />
-                        {/* Make filename itself always clickable to open file */}
-                        <span className="font-bold flex-grow cursor-pointer truncate"
+                        {/* Make filename itself always clickable to open file. Flex layout allows proper truncation. */}
+                        <div className="flex-grow flex items-baseline min-w-0 overflow-hidden"
                             onClick={(e) => { e.stopPropagation(); handleFileClick(node.absolutePath); }}
-                            title={`Click to open ${node.name}`}>{node.name}</span>
+                            title={`Click to open ${node.absolutePath}`}>
+                            <span className="font-bold truncate shrink-0 cursor-pointer hover:underline">{node.name}</span>
+                            {/* Render description if present (e.g. path in list view) */}
+                            {node.description && (
+                                <span className="text-[var(--vscode-descriptionForeground)] text-xs ml-2 truncate opacity-90 cursor-pointer">
+                                    {node.description}
+                                </span>
+                            )}
+                        </div>
 
-                        {/* Stats & Replace button container */}
+                        {/* Stats & Replace button container - Flex Item, not absolute */}
                         <div
-                            className="absolute right-1 flex items-center gap-1 h-full z-10 pl-2"
-                            style={{ backgroundColor: 'inherit' }}
+                            className="flex items-center gap-1 h-full z-10 pl-2 ml-auto flex-shrink-0"
                         >
                             {/* Match count or error status */}
                             <span

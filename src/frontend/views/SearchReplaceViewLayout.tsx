@@ -1,6 +1,6 @@
 
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { useAutoAnimate } from '@formkit/auto-animate/react';
+
 import { cn } from '../utils';
 import { SearchInputSection } from './SearchInputSection';
 import SearchNestedView from './SearchNestedView';
@@ -225,6 +225,7 @@ const RootSearchSection = () => {
         staleResultsByFile,
         staleLevel,
         valuesRef,
+        setValues,
         customFileOrder, // Added
         setCustomFileOrder, // Added
         setResultsByFile // Need setter to remove items on Cut
@@ -431,22 +432,27 @@ const RootSearchSection = () => {
             if (updatedLevels.length <= currentValues.searchInResults + 1) updatedLevels.push(newLevel);
             else updatedLevels[currentValues.searchInResults + 1] = newLevel;
 
+            // Optimistic update to prevent "ghosting" of previous level results during transition
+            const nextValues = {
+                ...currentValues,
+                searchInResults: currentValues.searchInResults + 1,
+                find: '',
+                replace: '',
+                matchCase: false,
+                wholeWord: false,
+                searchMode: 'text' as const
+            };
+            setValues(nextValues);
+
             setTimeout(() => {
-                postValuesChange({
-                    searchInResults: currentValues.searchInResults + 1,
-                    find: '',
-                    replace: '',
-                    matchCase: false,
-                    wholeWord: false,
-                    searchMode: 'text'
-                });
+                postValuesChange(nextValues);
             }, 0);
             return updatedLevels;
         });
 
         if (status.running) vscode.postMessage({ type: 'stop' });
         console.log('=== handleFindInFound END ===');
-    }, [postValuesChange, status, setSearchLevels, vscode, valuesRef]);
+    }, [postValuesChange, status, setSearchLevels, vscode, valuesRef, setValues]);
 
     const handleCopyFileNames = useCallback(() => {
         // Use custom order for copy file names too? User didn't specify but likely yes.
@@ -566,49 +572,68 @@ const STYLES = `
 `;
 
 const ViewSlideTransition = ({ showNested, children }: { showNested: boolean, children: [React.ReactNode, React.ReactNode] }) => {
-    // children[0] = Root, children[1] = Nested
+    // We track the "active" view index (0=root, 1=nested)
+    // and the "previous" view index to handle the exit animation.
+    const targetIndex = showNested ? 1 : 0;
+    const [currentIndex, setCurrentIndex] = useState(targetIndex);
+    const [prevIndex, setPrevIndex] = useState<number | null>(null);
     const [animating, setAnimating] = useState(false);
-    const [wasNested, setWasNested] = useState(showNested);
 
-    if (showNested !== wasNested) {
-        setWasNested(showNested);
-        setAnimating(true);
-    }
+    useEffect(() => {
+        if (targetIndex !== currentIndex) {
+            setPrevIndex(currentIndex);
+            setCurrentIndex(targetIndex);
+            setAnimating(true);
+        }
+    }, [targetIndex, currentIndex]);
 
     useEffect(() => {
         if (animating) {
-            const timer = setTimeout(() => setAnimating(false), 300);
+            const timer = setTimeout(() => {
+                setAnimating(false);
+                setPrevIndex(null);
+            }, 300); // Match CSS duration
             return () => clearTimeout(timer);
         }
     }, [animating]);
 
-    // direction: if showing nested -> forward (Root slides out Left, Nested slides in Right)
-    // if hiding nested -> backward (Nested slides out Right, Root slides in Left)
-    const direction = showNested ? 'forward' : 'backward';
+    // Direction:
+    // If going to Nested (1) -> Forward (Root exits Left, Nested enters Right)
+    // If going to Root (0)   -> Backward (Nested exits Right, Root enters Left)
+    const direction = targetIndex === 1 ? 'forward' : 'backward';
 
     return (
-        <div className="relative w-full h-full overflow-hidden">
-            {/* Root View */}
-            <div className={cn(
-                "absolute inset-0 w-full h-full transition-none",
-                !showNested && !animating ? "block" : "", // Stable Root
-                showNested && !animating ? "hidden" : "", // Stable Nested
-                animating && direction === 'forward' ? "animate-slide-out-left" : "",
-                animating && direction === 'backward' ? "animate-slide-in-left" : "",
-                // If stable nested, hide root. If stable root, show root.
-            )} style={{ display: (showNested && !animating) ? 'none' : 'block' }}>
-                {children[0]}
-            </div>
+        <div className="relative w-full h-full overflow-hidden bg-[var(--vscode-sideBar-background)]">
+            {/* Exiting View (Absolute) - Stays beneath or above? 
+                If we want standard "Push":
+                Forward: Old slides LEFT (out), New slides LEFT (in).
+                Backward: Old slides RIGHT (out), New slides RIGHT (in).
+            */}
+            {animating && prevIndex !== null && (
+                <div
+                    key={`exiting-${prevIndex}`}
+                    className={cn(
+                        "absolute inset-0 w-full h-full pointer-events-none z-0",
+                        direction === 'forward' ? 'animate-slide-out-left' : 'animate-slide-out-right'
+                    )}
+                >
+                    {children[prevIndex]}
+                </div>
+            )}
 
-            {/* Nested View */}
-            <div className={cn(
-                "absolute inset-0 w-full h-full transition-none",
-                showNested && !animating ? "block" : "",
-                !showNested && !animating ? "hidden" : "",
-                animating && direction === 'forward' ? "animate-slide-in-right" : "",
-                animating && direction === 'backward' ? "animate-slide-out-right" : ""
-            )} style={{ display: (!showNested && !animating) ? 'none' : 'block' }}>
-                {children[1]}
+            {/* Current/Entering View - Z-index higher to slide OVER if needed, or just same layer.
+                Since both animate, Z-index matters less unless they overlap with transparency.
+            */}
+            <div
+                key={`entering-${currentIndex}`}
+                className={cn(
+                    "w-full h-full z-10 relative",
+                    animating
+                        ? (direction === 'forward' ? 'animate-slide-in-right' : 'animate-slide-in-left')
+                        : ""
+                )}
+            >
+                {children[currentIndex]}
             </div>
         </div>
     );
@@ -640,8 +665,7 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
     // REMOVED shadowed isSearchRequested
     const [visibleResultsLimit, setVisibleResultsLimit] = useState(50);
     const [isLoadingMore, setIsLoadingMore] = useState(false);
-    const [listParent] = useAutoAnimate<HTMLDivElement>();
-    const [treeParent] = useAutoAnimate<HTMLDivElement>();
+
 
     // Determine effective results (current or stale)
     // Determine effective results (current or stale)
@@ -990,8 +1014,8 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
         }
 
         return (
-            <div className="flex flex-col" ref={listParent}>
-                {resultEntries.map(([filePath, results]) => {
+            <div className="flex flex-col">
+                {resultEntries.map(([filePath, results], i) => {
                     let displayPath = uriToPath(filePath);
                     const safeWorkspacePath = uriToPath(workspacePath);
                     if (safeWorkspacePath && displayPath.startsWith(safeWorkspacePath)) {
@@ -1053,7 +1077,7 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
 
 
         return (
-            <div className="flex flex-col" ref={treeParent}>
+            <div className="flex flex-col">
                 {paginatedFileTree && paginatedFileTree.children.length > 0 ? (
                     paginatedFileTree.children.map((node, i) => (
                         <TreeViewNode
@@ -1151,7 +1175,7 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
             <div className="flex-grow overflow-hidden relative">
                 <ViewSlideTransition showNested={isInNestedSearch}>
                     {renderRootView()}
-                    {isInNestedSearch ? <SearchNestedView /> : <div />}
+                    <SearchNestedView />
                 </ViewSlideTransition>
             </div>
         </div>

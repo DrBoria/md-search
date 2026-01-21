@@ -103,6 +103,7 @@ export const VirtualizedListView: React.FC<VirtualizedListViewProps> = ({
                 <div style={style}>
                     <TreeViewNode
                         node={fileNode}
+                        index={index}
                         level={0}
                         expandedFolders={new Set()}
                         toggleFolderExpansion={() => { }}

@@ -125,7 +125,7 @@ export class SearchWorkflow extends EventEmitter {
               if (
                 this.currentLimitIndex < this.MATCH_LIMITS.length &&
                 this.totalMatchesInRun >=
-                  this.MATCH_LIMITS[this.currentLimitIndex]
+                this.MATCH_LIMITS[this.currentLimitIndex]
               ) {
                 this.isPaused = true
                 const limit = this.MATCH_LIMITS[this.currentLimitIndex]
@@ -237,9 +237,17 @@ export class SearchWorkflow extends EventEmitter {
     let filesToScan: string[] = []
     let targetParentNode: any = null
 
+    console.log(
+      `[SearchWorkflow] getFilesToScan called. params.searchInResults: ${searchInResults}`
+    )
+
     if (searchInResults && searchInResults > 0) {
       const targetDepth = searchInResults - 1
       const currentNode = this.cacheService.getCurrentNode()
+      console.log(
+        `[SearchWorkflow] Nested Search. targetDepth: ${targetDepth}, currentNode depth: ${currentNode?.depth}`
+      )
+
       const cachedResults = this.cacheService.getResultsFromDepth(
         targetDepth,
         currentNode
@@ -251,11 +259,21 @@ export class SearchWorkflow extends EventEmitter {
 
       if (cachedResults) {
         filesToScan = Array.from(cachedResults.keys())
+        console.log(
+          `[SearchWorkflow] Found cached results at depth ${targetDepth}. Scanning ${filesToScan.length} files.`
+        )
       } else {
         const current = this.cacheService.getCurrentResults()
         if (current) {
           filesToScan = Array.from(current.keys())
+          console.log(
+            `[SearchWorkflow] Fallback to current results. Scanning ${filesToScan.length} files.`
+          )
         } else {
+          // Verify if we actually wanted a nested search but failed
+          console.log(
+            `[SearchWorkflow] Cache miss for nested search! Falling back to full scan.`
+          )
           const uris = await this.fileService.findFiles(
             include || '**/*',
             exclude || ''
@@ -269,6 +287,7 @@ export class SearchWorkflow extends EventEmitter {
         exclude || ''
       )
       filesToScan = uris.map((u) => u.toString())
+      // console.log(`[SearchWorkflow] Global search. Scanning ${filesToScan.length} files.`)
     }
     return { filesToScan, targetParentNode }
   }
