@@ -4,6 +4,7 @@ import { TreeViewRow } from './TreeViewRow';
 import { flattenList } from './virtualizationUtils';
 import { SearchReplaceViewValues } from '../../../model/SearchReplaceViewTypes';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
+import { createVirtualListAnimatePlugin } from './animations';
 
 interface VirtualTreeViewProps {
     fileTree: FileTreeNode[];
@@ -51,55 +52,8 @@ export const VirtualTreeView: React.FC<VirtualTreeViewProps> = ({
     const [containerHeight, setContainerHeight] = useState(500); // Initial guess
     const containerRef = useRef<HTMLDivElement>(null);
 
-    // Animations - Use formkit/auto-animate specifically for the list container
-    // Custom Plugin to disable "remove" animation (instant vanish) but keep "remain" (slide up)
-    const autoAnimatePlugin = useCallback((el: Element, action: string, oldCoords: any, newCoords: any) => {
-        let keyframes: Keyframe[] = [];
-
-        // Guard against undefined coordinates causing crash
-        if (!oldCoords || !newCoords) return new KeyframeEffect(el, [], { duration: 0 });
-
-        // Supply a different transition for "add" and "remove"
-        if (action === 'add') {
-            // Animate fade-in + slight slide-up to look like refilling from bottom or appearing
-            // We avoid height animation here because it causes the "expanding" look which is weird for refill
-            keyframes = [
-                { transform: 'translateY(10px)', opacity: 0 },
-                { transform: 'translateY(0)', opacity: 1 }
-            ];
-            return new KeyframeEffect(el, keyframes, { duration: 150, easing: 'ease-out' });
-        }
-        // "Remove" action: Animate height to 0 and opacity to 0
-        if (action === 'remove') {
-            if (!oldCoords.height) return new KeyframeEffect(el, [], { duration: 0 });
-            keyframes = [
-                { height: `${oldCoords.height}px`, opacity: 1, transform: 'scale(1)' },
-                { height: '0px', opacity: 0, transform: 'scale(0.98)' }
-            ];
-            return new KeyframeEffect(el, keyframes, { duration: 200, easing: 'ease-out' });
-        }
-        if (action === 'remain') {
-            // Standard slide animation
-            const deltaX = (oldCoords.left || 0) - (newCoords.left || 0);
-            const deltaY = (oldCoords.top || 0) - (newCoords.top || 0);
-
-            const start: any = { transform: `translate(${deltaX}px, ${deltaY}px)` };
-            const end: any = { transform: `translate(0, 0)` };
-
-            // Simple width/height transition if needed, but for rows usually stable
-            if (oldCoords.width !== newCoords.width) {
-                start.width = `${oldCoords.width}px`;
-                end.width = `${newCoords.width}px`;
-            }
-            if (oldCoords.height !== newCoords.height) {
-                start.height = `${oldCoords.height}px`;
-                end.height = `${newCoords.height}px`;
-            }
-
-            return new KeyframeEffect(el, [start, end], { duration: 150, easing: 'ease-out' });
-        }
-        return new KeyframeEffect(el, keyframes, { duration: 150, easing: 'ease-out' });
-    }, []);
+    // Animations - use extracted plugin from animations.ts
+    const autoAnimatePlugin = useCallback(createVirtualListAnimatePlugin(), []);
 
     const [listParent, enableAnimations] = useAutoAnimate<HTMLDivElement>(autoAnimatePlugin);
     const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);

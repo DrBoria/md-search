@@ -46,8 +46,8 @@ export interface FileNode extends FileTreeNodeBase {
 export type FileTreeNode = FolderNode | FileNode
 
 // --- Collapsible Component ---
-// --- Collapsible Component ---
 import { useAutoAnimate } from '@formkit/auto-animate/react';
+import { getAutoAnimateConfig, ANIMATION_DURATION } from './animations';
 
 const Collapsible = ({ isOpen, children, itemCount = 0 }: { isOpen: boolean; children: React.ReactNode; itemCount?: number }) => {
     const [height, setHeight] = useState<number | 'auto'>(isOpen ? 'auto' : 0);
@@ -90,7 +90,7 @@ const Collapsible = ({ isOpen, children, itemCount = 0 }: { isOpen: boolean; chi
                         timeoutRef.current = setTimeout(() => {
                             setHeight('auto');
                             setOverflow('visible');
-                        }, 250); // 200ms duration + 50ms buffer
+                        }, ANIMATION_DURATION + 50);
                     }
                 });
             });
@@ -106,8 +106,7 @@ const Collapsible = ({ isOpen, children, itemCount = 0 }: { isOpen: boolean; chi
                         setHeight(0);
                         timeoutRef.current = setTimeout(() => {
                             setIsVisible(false);
-                            // No need to set height auto/overflow visible for closed state
-                        }, 250);
+                        }, ANIMATION_DURATION + 50);
                     });
                 });
             }
@@ -124,10 +123,8 @@ const Collapsible = ({ isOpen, children, itemCount = 0 }: { isOpen: boolean; chi
         ref.current = node;
     }, []);
 
-    // Re-enable auto-animate for DnD, but only for small lists to prevent thrashing
-    const [animationParent] = useAutoAnimate<HTMLDivElement>(
-        itemCount < 100 ? { duration: 150, easing: 'ease-in-out' } : { duration: 0 }
-    );
+    // Auto-animate for DnD reordering - uses config from animations.ts
+    const [animationParent] = useAutoAnimate<HTMLDivElement>(getAutoAnimateConfig(itemCount));
 
     // Combine refs: handleRef (for measuring), listRef (internal ref), and animationParent
     const mergedRef = React.useMemo(() => (node: HTMLDivElement | null) => {
