@@ -20,6 +20,7 @@ interface VirtualizedListViewProps {
     handleReplace: (paths: string[]) => void;
     handleExcludeFile: (path: string) => void;
     currentSearchValues: SearchReplaceViewValues;
+    sortedFilePaths?: string[];
 }
 
 type FlattenedItem =
@@ -35,12 +36,18 @@ export const VirtualizedListView: React.FC<VirtualizedListViewProps> = ({
     handleResultItemClick,
     handleReplace,
     handleExcludeFile,
-    currentSearchValues
+    currentSearchValues,
+    sortedFilePaths
 }) => {
 
     const flattenedItems = useMemo(() => {
         const items: FlattenedItem[] = [];
-        Object.entries(results).forEach(([filePath, fileResults]) => {
+        const paths = sortedFilePaths || Object.keys(results);
+
+        paths.forEach((filePath) => {
+            const fileResults = results[filePath];
+            if (!fileResults) return;
+
             let displayPath = filePath;
             if (workspacePath) {
                 // Manual relative path calculation to avoid 'process' dependency in browser
@@ -51,18 +58,10 @@ export const VirtualizedListView: React.FC<VirtualizedListViewProps> = ({
                 }
             }
 
-            // Note: workspacePath in parent was uriToPath converted? 
-            // We'll assume parent passes normalized strings or we handle it. 
-            // In SearchReplaceViewLayout, it did: 
-            // path.relative(uriToPath(workspacePath), uriToPath(filePath))
-            // Let's assume passed workspacePath is already a PATH string if possible, or we should convert.
-            // But simplify for now: assume basic relative logic works or just use filePath if complicated.
-            // Actually, let's duplicate the logic from parent if we can import uriToPath or just pass raw props.
-
             items.push({
                 type: 'file',
                 path: filePath,
-                displayPath: displayPath, // logic needs to be accurate
+                displayPath: displayPath,
                 results: fileResults
             });
 
@@ -80,7 +79,7 @@ export const VirtualizedListView: React.FC<VirtualizedListViewProps> = ({
             }
         });
         return items;
-    }, [results, expandedFiles, workspacePath]);
+    }, [results, expandedFiles, workspacePath, sortedFilePaths]);
 
     const getItemSize = (index: number) => {
         const item = flattenedItems[index];
@@ -114,6 +113,7 @@ export const VirtualizedListView: React.FC<VirtualizedListViewProps> = ({
                         handleReplace={handleReplace}
                         currentSearchValues={currentSearchValues}
                         handleExcludeFile={handleExcludeFile}
+                        renderChildren={false}
                     />
                 </div>
             );
@@ -174,7 +174,7 @@ export const VirtualizedListView: React.FC<VirtualizedListViewProps> = ({
             <div style={{ flex: '1 1 auto', height: '100%' }}>
                 <AutoSizer renderProp={({ height, width }: { height?: number; width?: number }) => (
                     <List
-                        style={{ height: height ?? 0, width: width ?? 0 }}
+                        style={{ height: height ?? 0, width: width ?? 0, overflowX: 'hidden' }}
                         rowCount={flattenedItems.length}
                         rowHeight={getItemSize}
                         rowComponent={Row}

@@ -13,6 +13,7 @@ import { MessageFromWebview, MessageToWebview, SearchReplaceViewValues, Serializ
 import { URI } from 'vscode-uri';
 import * as path from 'path-browserify';
 import { TreeViewNode, FileTreeNode, FileNode, FolderNode } from './TreeView';
+import { VirtualTreeView } from './TreeView/VirtualTreeView';
 import { VirtualizedListView } from './VirtualizedListView';
 import { AnimatedCounter } from './components/AnimatedCounter';
 
@@ -535,7 +536,7 @@ const SearchResultSummary = () => {
             <span>
                 <AnimatedCounter value={effectiveStatus.numMatches} suffix="results in" />
                 &nbsp;
-                <AnimatedCounter value={effectiveStatus.numFilesWithMatches} suffix=" files" />
+                <AnimatedCounter value={effectiveStatus.numFilesWithMatches} suffix=" files (v2)" />
             </span>
             {/* Open in editor link - mimicing VS Code style */}
             {/* <span
@@ -663,8 +664,6 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
     // Local UI State
     const [workspacePath, setWorkspacePath] = useState<string>('');
     // REMOVED shadowed isSearchRequested
-    const [visibleResultsLimit, setVisibleResultsLimit] = useState(50);
-    const [isLoadingMore, setIsLoadingMore] = useState(false);
 
 
     // Determine effective results (current or stale)
@@ -696,7 +695,7 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
         return map;
     }, [customFileOrder]);
 
-    const paginatedFilePaths = useMemo(() => {
+    const sortedFilePaths = useMemo(() => {
         let paths = Object.keys(effectiveResultsByFile);
 
         // Apply custom sort if available
@@ -710,26 +709,26 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
             });
         }
 
-        return paths.slice(0, visibleResultsLimit);
-    }, [effectiveResultsByFile, visibleResultsLimit, customOrderMap, customFileOrder]);
+        return paths;
+    }, [effectiveResultsByFile, customOrderMap, customFileOrder]);
 
     // Derived
-    const paginatedResults = useMemo(() => {
-        if (!effectiveResultsByFile || !paginatedFilePaths || paginatedFilePaths.length === 0) {
+    const fullResults = useMemo(() => {
+        if (!effectiveResultsByFile || !sortedFilePaths || sortedFilePaths.length === 0) {
             return {};
         }
-        return paginatedFilePaths.reduce((acc, path) => {
+        return sortedFilePaths.reduce((acc, path) => {
             if (effectiveResultsByFile[path]) {
                 acc[path] = effectiveResultsByFile[path];
             }
             return acc;
         }, {} as Record<string, SerializedTransformResultEvent[]>);
-    }, [paginatedFilePaths, effectiveResultsByFile]);
+    }, [sortedFilePaths, effectiveResultsByFile]);
 
-    const paginatedFileTree = useMemo(() => {
-        if (!paginatedResults || Object.keys(paginatedResults).length === 0) return null;
-        return buildFileTree(paginatedResults, workspacePath, customOrderMap);
-    }, [paginatedResults, workspacePath, customOrderMap]);
+    const fullFileTree = useMemo(() => {
+        if (!fullResults || Object.keys(fullResults).length === 0) return null;
+        return buildFileTree(fullResults, workspacePath, customOrderMap);
+    }, [fullResults, workspacePath, customOrderMap]);
 
 
     const [pausedState, setPausedState] = useState<{ limit: number; count: number } | null>(null);
@@ -776,14 +775,7 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
     }, [handleMessage, vscode]);
 
     // Handlers
-    const loadMoreResults = useCallback(() => {
-        if (isLoadingMore) return;
-        setIsLoadingMore(true);
-        setTimeout(() => {
-            setVisibleResultsLimit(prev => prev + 50);
-            setIsLoadingMore(false);
-        }, 50);
-    }, [isLoadingMore]);
+    // Handlers
 
     const handleFileClick = useCallback((absolutePathOrUri: string) => {
         vscode.postMessage({ type: 'openFile', filePath: absolutePathOrUri });
@@ -889,7 +881,6 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
     const handleDragStart = useCallback((e: React.DragEvent, node: FileTreeNode) => {
         const path = (node as any).absolutePath || node.relativePath;
         e.dataTransfer.setData('text/plain', path);
-        e.dataTransfer.effectAllowed = 'move';
     }, []);
 
     const handleDragOver = useCallback((e: React.DragEvent, targetNode: FileTreeNode) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }, []);
@@ -929,7 +920,7 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
                 return paths;
             };
 
-            const currentVisualOrder = paginatedFileTree ? flattenTree(paginatedFileTree.children) : [];
+            const currentVisualOrder = fullFileTree ? flattenTree(fullFileTree.children) : [];
 
             // If the tree is empty or doesn't contain our items (edge case), fallback
             if (currentVisualOrder.length === 0) {
@@ -973,7 +964,7 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
         } catch (err) {
             console.error('[SearchReplaceViewLayout] DATA DROP ERROR:', err);
         }
-    }, [customFileOrder, effectiveResultsByFile, setCustomFileOrder, paginatedFileTree]);
+    }, [customFileOrder, effectiveResultsByFile, setCustomFileOrder, fullFileTree]);
 
     const handleContinueSearch = useCallback(() => {
         setPausedState(null);
@@ -999,9 +990,7 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
     }, [searchLevels, isInNestedSearch, values.searchInResults]);
 
     const renderListViewResults = () => {
-        // Use visible paginatedFilePaths which are already sorted by customOrderMap
-        const resultEntries = paginatedFilePaths.map(path => [path, effectiveResultsByFile[path]] as [string, SerializedTransformResultEvent[]]);
-        const hasResults = resultEntries.length > 0;
+        const hasResults = sortedFilePaths && sortedFilePaths.length > 0;
 
         if (!hasResults) {
             return isSearchRequested ? (
@@ -1014,59 +1003,25 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
         }
 
         return (
-            <div className="flex flex-col">
-                {resultEntries.map(([filePath, results], i) => {
-                    let displayPath = uriToPath(filePath);
-                    const safeWorkspacePath = uriToPath(workspacePath);
-                    if (safeWorkspacePath && displayPath.startsWith(safeWorkspacePath)) {
-                        displayPath = displayPath.substring(safeWorkspacePath.length);
-                        if (displayPath.startsWith('/') || displayPath.startsWith('\\')) {
-                            displayPath = displayPath.substring(1);
-                        }
-                    }
-
-                    const node: FileNode = {
-                        type: 'file',
-                        name: displayPath,
-                        relativePath: displayPath, // Using display path as relative path for list view
-                        absolutePath: filePath,
-                        results: results
-                    };
-
-                    return (
-                        <TreeViewNode
-                            key={filePath}
-                            node={node}
-                            index={i}
-                            level={0}
-                            expandedFolders={currentExpandedFolders}
-                            toggleFolderExpansion={toggleFolderExpansion}
-                            expandedFiles={currentExpandedFiles}
-                            toggleFileExpansion={toggleFileExpansion}
-                            handleFileClick={handleFileClick}
-                            handleResultItemClick={handleResultItemClick}
-                            handleReplace={handleReplaceSelectedFiles}
-                            currentSearchValues={values}
-                            handleExcludeFile={handleExcludeFile}
-                            onDragStart={handleDragStart}
-                            onDragOver={handleDragOver}
-                            onDrop={handleDrop}
-                        />
-                    );
-                })}
-                {Object.keys(resultsByFile).length > visibleResultsLimit && (
-                    <div className="p-[10px] text-center">
-                        <button className="bg-[var(--input-background)] border border-[var(--panel-view-border)] text-[var(--panel-tab-active-border)] px-3 py-[6px] rounded-[2px] cursor-pointer hover:border-[var(--panel-tab-active-border)]" onClick={loadMoreResults} disabled={isLoadingMore}>
-                            {isLoadingMore ? 'Loading...' : `Load more results`}
-                        </button>
-                    </div>
-                )}
+            <div className="flex flex-col h-full overflow-hidden">
+                <VirtualizedListView
+                    results={effectiveResultsByFile}
+                    workspacePath={uriToPath(workspacePath)}
+                    expandedFiles={currentExpandedFiles}
+                    toggleFileExpansion={toggleFileExpansion}
+                    handleFileClick={handleFileClick}
+                    handleResultItemClick={(path, match) => handleResultItemClick(path, { start: match.start, end: match.end })}
+                    handleReplace={handleReplaceSelectedFiles}
+                    handleExcludeFile={handleExcludeFile}
+                    currentSearchValues={values}
+                    sortedFilePaths={sortedFilePaths}
+                />
             </div>
         );
     };
 
     const renderTreeViewResults = () => {
-        if (!paginatedResults || Object.keys(paginatedResults).length === 0) {
+        if (!fullResults || Object.keys(fullResults).length === 0) {
             return isSearchRequested ? (
                 <div className="p-[10px] text-center flex gap-2 justify-center"><span className="codicon codicon-loading codicon-modifier-spin" /><span>Searching...</span></div>
             ) : (
@@ -1077,37 +1032,24 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
 
 
         return (
-            <div className="flex flex-col">
-                {paginatedFileTree && paginatedFileTree.children.length > 0 ? (
-                    paginatedFileTree.children.map((node, i) => (
-                        <TreeViewNode
-                            key={node.relativePath}
-                            node={node}
-                            index={i}
-                            level={0}
-                            expandedFolders={currentExpandedFolders}
-                            toggleFolderExpansion={toggleFolderExpansion}
-                            expandedFiles={currentExpandedFiles}
-                            toggleFileExpansion={toggleFileExpansion}
-                            handleFileClick={handleFileClick}
-                            handleResultItemClick={handleResultItemClick}
-                            handleReplace={handleReplaceSelectedFiles}
-                            currentSearchValues={values}
-                            handleExcludeFile={handleExcludeFile}
-                            onDragStart={handleDragStart}
-                            onDragOver={handleDragOver}
-                            onDrop={handleDrop}
-                        />
-                    ))
+            <div className="flex flex-col h-full overflow-hidden">
+                {fullFileTree && fullFileTree.children.length > 0 ? (
+                    <VirtualTreeView
+                        fileTree={fullFileTree.children}
+                        expandedFolders={currentExpandedFolders}
+                        toggleFolderExpansion={toggleFolderExpansion}
+                        expandedFiles={currentExpandedFiles}
+                        toggleFileExpansion={toggleFileExpansion}
+                        handleFileClick={handleFileClick}
+                        handleResultItemClick={handleResultItemClick}
+                        handleReplace={handleReplaceSelectedFiles}
+                        handleExcludeFile={handleExcludeFile}
+                        currentSearchValues={values}
+                        onDragStart={handleDragStart}
+                        onDragOver={handleDragOver}
+                        onDrop={handleDrop}
+                    />
                 ) : null}
-                {/* Only show Load More button in TreeView because ListView is virtualized */}
-                {Object.keys(resultsByFile).length > visibleResultsLimit && (
-                    <div className="p-[10px] text-center">
-                        <button className="bg-[var(--input-background)] border border-[var(--panel-view-border)] text-[var(--panel-tab-active-border)] px-3 py-[6px] rounded-[2px] cursor-pointer hover:border-[var(--panel-tab-active-border)]" onClick={loadMoreResults} disabled={isLoadingMore}>
-                            {isLoadingMore ? 'Loading...' : `Load more results`}
-                        </button>
-                    </div>
-                )}
             </div>
         );
     };
@@ -1149,7 +1091,7 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
                 </div>
             )}
 
-            <div className={cn("flex-grow overflow-auto relative", isStale ? "opacity-50 transition-opacity duration-200" : "transition-opacity duration-200")}>
+            <div className={cn("flex-grow overflow-hidden relative", isStale ? "opacity-50 transition-opacity duration-200" : "transition-opacity duration-200")}>
                 {viewMode === 'list' ? renderListViewResults() : renderTreeViewResults()}
             </div>
 
@@ -1169,7 +1111,7 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
     );
 
     return (
-        <div className="flex flex-col h-screen p-[5px] box-border overflow-hidden relative">
+        <div className="flex flex-col h-screen p-[5px] box-border overflow-hidden relative" style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
             <style>{STYLES}</style>
 
             <div className="flex-grow overflow-hidden relative">

@@ -10,6 +10,7 @@ import { getHighlightedMatchContext } from './TreeView/highligtedContext';
 import { getHighlightedMatchContextWithReplacement } from './TreeView/highlightedContextWithReplacement';
 import { SerializedTransformResultEvent, SearchLevel } from '../../model/SearchReplaceViewTypes';
 import { cn } from "../utils";
+import { VirtualTreeView } from './TreeView/VirtualTreeView';
 
 interface ResultsViewProps {
     levelIndex: number;
@@ -183,8 +184,6 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
         setCustomFileOrder // Added
     } = useSearchGlobal();
 
-    const [visibleResultsLimit, setVisibleResultsLimit] = useState(50);
-    const [isLoadingMore, setIsLoadingMore] = useState(false);
     // Derived Logic for Results
     const level = searchLevels[levelIndex];
 
@@ -219,18 +218,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
         }
     }, [level, levelIndex, staleResultsByFile, staleLevel]);
 
-
     // Handlers
-    const loadMoreResults = useCallback(() => {
-        if (isLoadingMore) return;
-        setIsLoadingMore(true);
-        // Simulate async load or just increase limit
-        setTimeout(() => {
-            setVisibleResultsLimit(prev => prev + 50);
-            setIsLoadingMore(false);
-        }, 50);
-    }, [isLoadingMore]);
-
     const handleFileClick = useCallback((absolutePathOrUri: string) => {
         vscode.postMessage({ type: 'openFile', filePath: absolutePathOrUri });
     }, [vscode]);
@@ -415,9 +403,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
         });
     }, [effectiveResultsByFile, customFileOrder]);
 
-    const paginatedFilePaths = useMemo(() => {
-        return sortedFilePaths.slice(0, visibleResultsLimit);
-    }, [sortedFilePaths, visibleResultsLimit]);
+
 
     // Use Absolute Paths for the map since we now track them in FolderNode
     const customOrderMap = useMemo(() => {
@@ -425,9 +411,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
         const map: { [key: string]: number } = {};
 
         customFileOrder.forEach((path, index) => {
-            // We trust the path in customFileOrder is absolute (as stored by handleDrop)
             map[path] = index;
-            // Also store uriToPath version just in case of mismatch
             map[uriToPath(path)] = index;
         });
         return map;
@@ -443,7 +427,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
         return folders instanceof Set ? folders : new Set<string>(folders || []);
     }, [level]);
 
-    // Memoize the File Tree to avoid costly rebuilds on every render
+    // Memoize the File Tree for TREE MODE
     const fileTree = useMemo(() => {
         if (!effectiveResultsByFile || Object.keys(effectiveResultsByFile).length === 0) {
             return null;
@@ -452,159 +436,75 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
     }, [effectiveResultsByFile, workspacePath, customOrderMap]);
 
 
-    const renderListViewResults = () => {
-        const [listRef] = useAutoAnimate<HTMLDivElement>();
-
-        // Use sorted paginated results (derived from sortedFilePaths)
-        // ...
-        // (existing logic uses paginatedResults which relies on paginatedFilePaths)
-        const resultEntries = paginatedFilePaths.map(path => [path, effectiveResultsByFile[path]] as [string, SerializedTransformResultEvent[]]);
-
-        if (resultEntries.length === 0) {
-            // Check if searching
-            if (status.running) {
-                return (
-                    <div className="p-[10px] text-[var(--vscode-descriptionForeground)] text-center flex justify-center items-center gap-2">
-                        <span className="codicon codicon-loading codicon-modifier-spin"></span><span>Searching...</span>
-                    </div>
-                );
-            }
-            return (
-                <div className="p-[10px] text-[var(--vscode-descriptionForeground)] text-center">No matches found.</div>
-            );
-        }
-
-        // Disable animation for large lists to prevent layout thrashing
-        // 50s freeze seen in logs suggests massive reflows with useAutoAnimate
-        const shouldAnimate = resultEntries.length < 20;
-
-        return (
-            <div ref={shouldAnimate ? listRef : null} className="flex flex-col">
-                {resultEntries.map(([filePath, results], i) => {
-                    const displayPath = workspacePath
-                        ? path.relative(uriToPath(workspacePath), uriToPath(filePath))
-                        : uriToPath(filePath);
-
-                    // Normalize path for consistent display
-                    let cleanDisplayPath = displayPath;
-                    if (cleanDisplayPath.startsWith('/') || cleanDisplayPath.startsWith('\\')) {
-                        cleanDisplayPath = cleanDisplayPath.substring(1);
-                    }
-
-                    const node: FileNode = {
-                        type: 'file',
-                        name: path.basename(filePath),
-                        description: path.dirname(cleanDisplayPath) !== '.' ? path.dirname(cleanDisplayPath) : undefined,
-                        relativePath: cleanDisplayPath,
-                        absolutePath: filePath,
-                        results: results
-                    };
-
-                    /* 
-                       Note: In SearchReplaceViewLayout they use '0' level for list view items. 
-                       We should do the same to match styles.
-                    */
-
-                    return (
-                        <TreeViewNode
-                            key={filePath}
-                            node={node}
-                            index={i}
-                            level={0}
-                            expandedFolders={currentExpandedFolders}
-                            toggleFolderExpansion={toggleFolderExpansion}
-                            expandedFiles={currentExpandedFiles}
-                            toggleFileExpansion={toggleFileExpansion}
-                            handleFileClick={handleFileClick}
-                            handleResultItemClick={handleResultItemClick}
-                            handleReplace={handleReplaceSelectedFiles}
-                            currentSearchValues={values}
-                            handleExcludeFile={handleExcludeFile}
-                            onDragStart={handleDragStart}
-                            onDragOver={handleDragOver}
-                            onDrop={handleDrop}
-                        />
-                    );
-                })}
-                {/* Load More Button */}
-                {sortedFilePaths.length > visibleResultsLimit && (
-                    <div className="p-[10px] text-center">
-                        <button className="bg-[var(--input-background)] border border-[var(--panel-view-border)] text-[var(--panel-tab-active-border)] px-3 py-[6px] rounded-[2px] cursor-pointer hover:border-[var(--panel-tab-active-border)]" onClick={loadMoreResults} disabled={isLoadingMore}>
-                            {isLoadingMore ? 'Loading...' : `Load more results`}
-                        </button>
-                    </div>
-                )}
-            </div>
-        );
-    };
-
-    const renderTreeViewResults = () => {
-        const [treeRef] = useAutoAnimate<HTMLDivElement>();
-
-        if (!fileTree) {
-            return currentStatus.running ? (
-                <div className="p-[10px] text-center flex gap-2 justify-center"><span className="codicon codicon-loading codicon-modifier-spin" /><span>Searching...</span></div>
-            ) : (
-                <div className="p-[10px] text-center text-[var(--vscode-descriptionForeground)]">No matches found.</div>
-            );
-        }
-
-        // Apply pagination to Top-Level nodes to prevent rendering thousands of items at once
-        const visibleChildren = fileTree.children.slice(0, visibleResultsLimit);
-
-        // Disable animation for large lists to prevent layout thrashing
-        const shouldAnimate = visibleChildren.length < 20;
-
-        return (
-            <div ref={shouldAnimate ? treeRef : null} className="flex flex-col">
-                {visibleChildren.length > 0 ? (
-                    visibleChildren.map((node, i) => (
-                        <TreeViewNode
-                            key={node.relativePath}
-                            node={node}
-                            index={i}
-                            level={0}
-                            expandedFolders={currentExpandedFolders}
-                            toggleFolderExpansion={toggleFolderExpansion}
-                            expandedFiles={currentExpandedFiles}
-                            toggleFileExpansion={toggleFileExpansion}
-                            handleFileClick={handleFileClick}
-                            handleResultItemClick={handleResultItemClick}
-                            handleReplace={handleReplaceSelectedFiles}
-                            currentSearchValues={values}
-                            handleExcludeFile={handleExcludeFile}
-                            onDragStart={handleDragStart}
-                            onDragOver={handleDragOver}
-                            onDrop={handleDrop}
-                        />
-                    ))
-                ) : null}
-                {/* Show Load More if there are more children OR if we just want to allow expansion? */
-                    /* Actually visibleResultsLimit checks total FILES, but here we check Root Nodes. 
-                       It's an approximation but better than freezing. 
-                       If fileTree.children.length > visibleResultsLimit, show button.
-                    */
-                }
-                {(fileTree.children.length > visibleResultsLimit) && (
-                    <div className="p-[10px] text-center">
-                        <button className="bg-[var(--input-background)] border border-[var(--panel-view-border)] text-[var(--panel-tab-active-border)] px-3 py-[6px] rounded-[2px] cursor-pointer hover:border-[var(--panel-tab-active-border)]" onClick={loadMoreResults} disabled={isLoadingMore}>
-                            {isLoadingMore ? 'Loading...' : `Load more`}
-                        </button>
-                    </div>
-                )}
-            </div>
-        );
-    };
-
-
+    // Prepare data logic
     const status = currentStatus; // Alias for compatibility
+
+    // Determine nodes to show based on view mode
+    const nodesToShow = useMemo(() => {
+        if (viewMode === 'list') {
+            // For List Mode, we create a flat list of FileNodes
+            // Using sortedFilePaths (reusing logic)
+            return sortedFilePaths.map(filePath => {
+                const displayPath = workspacePath
+                    ? path.relative(uriToPath(workspacePath), uriToPath(filePath))
+                    : uriToPath(filePath);
+
+                let cleanDisplayPath = displayPath;
+                if (cleanDisplayPath.startsWith('/') || cleanDisplayPath.startsWith('\\')) {
+                    cleanDisplayPath = cleanDisplayPath.substring(1);
+                }
+
+                const node: FileNode = {
+                    type: 'file',
+                    name: path.basename(filePath),
+                    description: path.dirname(cleanDisplayPath) !== '.' ? path.dirname(cleanDisplayPath) : undefined,
+                    relativePath: cleanDisplayPath,
+                    absolutePath: filePath,
+                    results: effectiveResultsByFile[filePath] || []
+                };
+                return node;
+            });
+        }
+        // Tree Mode
+        return fileTree ? fileTree.children : [];
+    }, [viewMode, sortedFilePaths, effectiveResultsByFile, workspacePath, fileTree]);
+
+
+    const hasResults = nodesToShow.length > 0;
+
+    if (!hasResults) {
+        if (status.running) {
+            return (
+                <div className="p-[10px] text-[var(--vscode-descriptionForeground)] text-center flex justify-center items-center gap-2">
+                    <span className="codicon codicon-loading codicon-modifier-spin"></span><span>Searching...</span>
+                </div>
+            );
+        }
+        return (
+            <div className="p-[10px] text-[var(--vscode-descriptionForeground)] text-center">No matches found.</div>
+        );
+    }
 
     return (
         <div className={cn(
-            "flex-grow overflow-auto mt-2 transition-opacity duration-200",
+            "flex-grow overflow-hidden mt-2 transition-opacity duration-200 h-full", // Use overflow-hidden to let AutoSizer handle scroll
             isStale ? "opacity-50" : ""
         )}>
-            {viewMode === 'list' ? renderListViewResults() : renderTreeViewResults()}
+            <VirtualTreeView
+                fileTree={nodesToShow}
+                expandedFolders={currentExpandedFolders}
+                toggleFolderExpansion={toggleFolderExpansion}
+                expandedFiles={currentExpandedFiles}
+                toggleFileExpansion={toggleFileExpansion}
+                handleFileClick={handleFileClick}
+                handleResultItemClick={handleResultItemClick}
+                handleReplace={handleReplaceSelectedFiles}
+                currentSearchValues={values}
+                handleExcludeFile={handleExcludeFile}
+                onDragStart={handleDragStart}
+                onDragOver={handleDragOver}
+                onDrop={handleDrop}
+            />
         </div>
     );
 };

@@ -27,6 +27,8 @@ export default defineConfig({
   build: {
     outDir: 'out',
     emptyOutDir: false, // Don't wipe out extension build
+    sourcemap: true, // Enable source maps for debugging
+    minify: false, // Disable minification for readable code
     rollupOptions: {
       input: {
         SearchReplaceView: path.resolve(
