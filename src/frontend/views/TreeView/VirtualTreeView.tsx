@@ -349,37 +349,43 @@ export const VirtualTreeView: React.FC<VirtualTreeViewProps> = ({
                 {/* Headers themselves must capture events to be clickable, but should not block scroll. 
                     pointer-events: auto on children overrides parent none. 
                     Wheel event on children will bubble to this parent. */}
-                {stickyHeaderItems.map((item: any) => (
-                    <div
-                        key={`sticky-${item.node.node.relativePath || item.node.node.absolutePath}-${item.top}`}
-                        className="absolute left-0 w-full shadow-sm pointer-events-auto"
-                        style={{
-                            height: ROW_HEIGHT,
-                            top: item.top,
-                            zIndex: item.zIndex
-                        }}
-                    >
-                        <TreeViewRow
-                            node={item.node.node}
-                            depth={item.node.depth}
-                            style={{ height: ROW_HEIGHT, width: '100%' }}
-                            expandedFolders={expandedFolders}
-                            toggleFolderExpansion={toggleFolderExpansion}
-                            handleFolderClick={handleFolderClick}
-                            expandedFiles={expandedFiles}
-                            toggleFileExpansion={toggleFileExpansion}
-                            handleFileClick={handleFileClick}
-                            handleResultItemClick={handleResultItemClick}
-                            handleReplace={handleReplace}
-                            handleExcludeFile={handleExcludeFile}
-                            currentSearchValues={currentSearchValues}
-                            onDragStart={onDragStart}
-                            onDragOver={onDragOver}
-                            onDrop={onDrop}
-                        />
-                        <div className="absolute bottom-0 left-0 w-full h-[1px] bg-[var(--vscode-tree-tableColumnsBorder)]" />
-                    </div>
-                ))}
+                {stickyHeaderItems.map((item: any, index: number) => {
+                    const isLast = index === stickyHeaderItems.length - 1;
+                    return (
+                        <div
+                            key={`sticky-${item.node.node.relativePath || item.node.node.absolutePath}-${item.top}`}
+                            className="absolute left-0 w-full shadow-sm pointer-events-auto"
+                            style={{
+                                height: ROW_HEIGHT,
+                                top: item.top,
+                                zIndex: item.zIndex
+                            }}
+                        >
+                            <TreeViewRow
+                                node={item.node.node}
+                                depth={item.node.depth}
+                                style={{ height: ROW_HEIGHT, width: '100%' }}
+                                expandedFolders={expandedFolders}
+                                toggleFolderExpansion={toggleFolderExpansion}
+                                handleFolderClick={handleFolderClick}
+                                expandedFiles={expandedFiles}
+                                toggleFileExpansion={toggleFileExpansion}
+                                handleFileClick={handleFileClick}
+                                handleResultItemClick={handleResultItemClick}
+                                handleReplace={handleReplace}
+                                handleExcludeFile={handleExcludeFile}
+                                currentSearchValues={currentSearchValues}
+                                onDragStart={onDragStart}
+                                onDragOver={onDragOver}
+                                onDrop={onDrop}
+                                isSticky={true}
+                            />
+                            {isLast && (
+                                <div className="absolute bottom-0 left-0 w-full h-[1px] bg-[var(--vscode-tree-tableColumnsBorder)]" />
+                            )}
+                        </div>
+                    )
+                })}
             </div>
 
             <div
@@ -412,7 +418,7 @@ export const VirtualTreeView: React.FC<VirtualTreeViewProps> = ({
                                     style={{ height: ROW_HEIGHT, width: '100%' }}
                                     expandedFolders={expandedFolders}
                                     toggleFolderExpansion={toggleFolderExpansion}
-                                    handleFolderClick={handleFolderClick}
+                                    // handleFolderClick -- REMOVED for regular items, forcing default toggle behavior
                                     expandedFiles={expandedFiles}
                                     toggleFileExpansion={toggleFileExpansion}
                                     handleFileClick={handleFileClick}

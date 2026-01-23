@@ -30,6 +30,7 @@ interface TreeViewRowProps {
     onDragStart?: (e: React.DragEvent, node: FileTreeNode) => void;
     onDragOver?: (e: React.DragEvent, node: FileTreeNode) => void;
     onDrop?: (e: React.DragEvent, node: FileTreeNode) => void;
+    isSticky?: boolean;
 }
 
 export const TreeViewRow = memo(({
@@ -48,7 +49,8 @@ export const TreeViewRow = memo(({
     currentSearchValues,
     onDragStart,
     onDragOver,
-    onDrop
+    onDrop,
+    isSticky
 }: TreeViewRowProps) => {
     const [isHovered, setIsHovered] = React.useState(false);
     const [isDragOver, setIsDragOver] = React.useState(false);
@@ -227,11 +229,17 @@ export const TreeViewRow = memo(({
                 <div className="flex items-center gap-1.5 flex-grow py-0.5 min-h-[22px]" style={{ paddingLeft: `${paddingLeft + 4}px` }}>
                     <span
                         className={`codicon codicon-chevron-down transition-transform duration-200`}
-                        style={{ transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)' }}
+                        style={{
+                            transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',
+                            visibility: isSticky ? 'hidden' : 'visible', // Hide chevron if sticky
+                            pointerEvents: isSticky ? 'none' : 'auto'
+                        }}
                         onClick={(e) => {
                             e.stopPropagation();
-                            // DIRECT toggle, bypassing the "smart scroll" logic of the row click
-                            toggleFolderExpansion(node.relativePath);
+                            if (!isSticky) {
+                                // DIRECT toggle, bypassing the "smart scroll" logic of the row click
+                                toggleFolderExpansion(node.relativePath);
+                            }
                         }}
                     />
                     <span className="codicon codicon-folder text-[var(--vscode-icon-foreground)]" />
