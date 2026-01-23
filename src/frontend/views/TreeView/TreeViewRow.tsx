@@ -31,6 +31,7 @@ interface TreeViewRowProps {
     onDragOver?: (e: React.DragEvent, node: FileTreeNode) => void;
     onDrop?: (e: React.DragEvent, node: FileTreeNode) => void;
     isSticky?: boolean;
+    isDragActive?: boolean;
 }
 
 export const TreeViewRow = memo(({
@@ -50,7 +51,8 @@ export const TreeViewRow = memo(({
     onDragStart,
     onDragOver,
     onDrop,
-    isSticky
+    isSticky,
+    isDragActive
 }: TreeViewRowProps) => {
     const [isHovered, setIsHovered] = React.useState(false);
     const [isDragOver, setIsDragOver] = React.useState(false);
@@ -174,6 +176,7 @@ export const TreeViewRow = memo(({
                 )}
                 onClick={(e) => {
                     e.stopPropagation();
+                    if (isDragActive) return; // Prevent click action when drag is active
                     // Use smart handler if available, otherwise fallback to toggle
                     if (handleFolderClick) handleFolderClick(node.relativePath);
                     else toggleFolderExpansion(node.relativePath);
@@ -320,7 +323,10 @@ export const TreeViewRow = memo(({
                 "relative flex items-center cursor-pointer hover:bg-[var(--vscode-list-hoverBackground)] group bg-[var(--vscode-sideBar-background)] select-none",
                 isDragOver ? "bg-[var(--vscode-list-dropBackground)]" : ""
             )}
-            onClick={() => toggleFileExpansion(node.absolutePath)}
+            onClick={() => {
+                if (isDragActive) return;
+                toggleFileExpansion(node.absolutePath);
+            }}
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
             onDragStart={(e) => {

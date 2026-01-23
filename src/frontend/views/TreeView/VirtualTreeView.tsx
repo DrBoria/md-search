@@ -1,6 +1,8 @@
 import React, { useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import { FileTreeNode } from './index';
 import { TreeViewRow } from './TreeViewRow';
+import { useAutoAnimate } from '@formkit/auto-animate/react';
+import { createVirtualListAnimatePlugin } from './animations';
 import { flattenList } from './virtualizationUtils';
 import { SearchReplaceViewValues } from '../../../model/SearchReplaceViewTypes';
 
@@ -109,8 +111,40 @@ export const VirtualTreeView: React.FC<VirtualTreeViewProps> = ({
     const [scrollTop, setScrollTop] = useState(0);
     const [containerHeight, setContainerHeight] = useState(500); // Initial guess
     const containerRef = useRef<HTMLDivElement>(null);
+    const isScrollingRef = useRef(false);
+    const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     // Animations - use extracted plugin from animations.ts
+    // We use a ref to track drag state to avoid re-rendering the tree while dragging
+    // and to gate the animation plugin synchronously.
+    // We use a specific plugin to only animate reorders (moves) and ignore add/remove.
+    const [animationParent] = useAutoAnimate(createVirtualListAnimatePlugin(isScrollingRef));
+
+    // We conditionally attach the animation ref ONLY when dragging.
+    // This ensures ZERO overhead/glitches during normal scrolling.
+    const [isDragActive, setIsDragActive] = useState(false);
+
+    useEffect(() => {
+        const handleDragEnd = () => {
+            // Delay disabling animations to allow the Drop reorder (FLIP) to initialize
+            setTimeout(() => {
+                setIsDragActive(false);
+            }, 400);
+        };
+
+        window.addEventListener('dragend', handleDragEnd);
+        window.addEventListener('drop', handleDragEnd);
+
+        return () => {
+            window.removeEventListener('dragend', handleDragEnd);
+            window.removeEventListener('drop', handleDragEnd);
+        };
+    }, []);
+
+    const handleNodeDragStart = (e: React.DragEvent, node: FileTreeNode) => {
+        setIsDragActive(true);
+        onDragStart?.(e, node);
+    };
 
 
     // Resize Observer to handle container size changes
@@ -131,6 +165,15 @@ export const VirtualTreeView: React.FC<VirtualTreeViewProps> = ({
 
     // Scroll Handler
     const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+        // Set scrolling flag
+        isScrollingRef.current = true;
+        if (scrollTimeoutRef.current) {
+            clearTimeout(scrollTimeoutRef.current);
+        }
+        scrollTimeoutRef.current = setTimeout(() => {
+            isScrollingRef.current = false;
+        }, 150);
+
         const newScrollTop = e.currentTarget.scrollTop;
         setScrollTop(newScrollTop);
     };
@@ -448,7 +491,7 @@ export const VirtualTreeView: React.FC<VirtualTreeViewProps> = ({
                                 handleReplace={handleReplace}
                                 handleExcludeFile={handleExcludeFile}
                                 currentSearchValues={currentSearchValues}
-                                onDragStart={onDragStart}
+                                onDragStart={handleNodeDragStart}
                                 onDragOver={onDragOver}
                                 onDrop={onDrop}
                                 isSticky={true}
@@ -472,10 +515,20 @@ export const VirtualTreeView: React.FC<VirtualTreeViewProps> = ({
             >
                 <div key="top-spacer" style={{ height: paddingTop, width: '100%', flexShrink: 0 }} />
 
-                <div className="flex flex-col w-full relative">
+                <div
+                    ref={isDragActive ? animationParent : null}
+                    className="flex flex-col w-full relative"
+                >
                     {visibleNodes.map((flatNode, i) => {
                         const node = flatNode.node as any;
-                        const key = node.absolutePath || node.relativePath || `node-${Math.random()}`;
+                        let key = node.absolutePath || node.relativePath;
+                        if (!key && node.type === 'match') {
+                            // Stable key for match nodes
+                            key = `${node.parentFile.absolutePath}-match-${node.resultIndex}-${node.matchIndex}`;
+                        }
+                        if (!key) {
+                            key = `node-${Math.random()}`; // Fallback should ideally never be reached
+                        }
 
                         const metaIndex = startIndex + i;
                         const meta = metadata[metaIndex];
@@ -495,6 +548,7 @@ export const VirtualTreeView: React.FC<VirtualTreeViewProps> = ({
                                     style={{ height: height, width: '100%' }}
                                     expandedFolders={expandedFolders}
                                     toggleFolderExpansion={toggleFolderExpansion}
+                                    isDragActive={isDragActive}
                                     // handleFolderClick -- REMOVED for regular items, forcing default toggle behavior
                                     expandedFiles={expandedFiles}
                                     toggleFileExpansion={toggleFileExpansion}
@@ -503,7 +557,7 @@ export const VirtualTreeView: React.FC<VirtualTreeViewProps> = ({
                                     handleReplace={handleReplace}
                                     handleExcludeFile={handleExcludeFile}
                                     currentSearchValues={currentSearchValues}
-                                    onDragStart={onDragStart}
+                                    onDragStart={handleNodeDragStart}
                                     onDragOver={onDragOver}
                                     onDrop={onDrop}
                                 />
