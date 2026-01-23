@@ -3,8 +3,7 @@ import { FileTreeNode } from './index';
 import { TreeViewRow } from './TreeViewRow';
 import { flattenList } from './virtualizationUtils';
 import { SearchReplaceViewValues } from '../../../model/SearchReplaceViewTypes';
-import { useAutoAnimate } from '@formkit/auto-animate/react';
-import { createVirtualListAnimatePlugin } from './animations';
+
 
 interface VirtualTreeViewProps {
     fileTree: FileTreeNode[];
@@ -53,10 +52,7 @@ export const VirtualTreeView: React.FC<VirtualTreeViewProps> = ({
     const containerRef = useRef<HTMLDivElement>(null);
 
     // Animations - use extracted plugin from animations.ts
-    const autoAnimatePlugin = useCallback(createVirtualListAnimatePlugin(), []);
 
-    const [listParent, enableAnimations] = useAutoAnimate<HTMLDivElement>(autoAnimatePlugin);
-    const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     // Resize Observer to handle container size changes
     useEffect(() => {
@@ -78,15 +74,13 @@ export const VirtualTreeView: React.FC<VirtualTreeViewProps> = ({
     const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
         const newScrollTop = e.currentTarget.scrollTop;
         setScrollTop(newScrollTop);
+    };
 
-        // Disable animations while scrolling to prevent chaos
-        enableAnimations(false);
-
-        // Re-enable animations after scroll stops
-        if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
-        scrollTimeoutRef.current = setTimeout(() => {
-            enableAnimations(true);
-        }, 150);
+    // Explicit Scroll Forwarding for Sticky Header
+    const handleStickyWheel = (e: React.WheelEvent) => {
+        if (containerRef.current) {
+            containerRef.current.scrollTop += e.deltaY;
+        }
     };
 
     // Virtualization Calculations
@@ -99,52 +93,221 @@ export const VirtualTreeView: React.FC<VirtualTreeViewProps> = ({
     const paddingTop = startIndex * ROW_HEIGHT;
     const paddingBottom = Math.max(0, (totalCount - endIndex) * ROW_HEIGHT);
 
-    // Sticky Header Calculation - Stacked
-    const stickyNodes = useMemo(() => {
-        if (startIndex === 0 || !flatNodes[startIndex] || flatNodes.length === 0) return []; // No sticky header if at top
+    // Sticky Header Calculation - Collision Resolved
+    const stickyHeaderItems = useMemo(() => {
+        const visibleStartIndex = Math.floor(scrollTop / ROW_HEIGHT);
 
-        const currentFirstNode = flatNodes[startIndex].node as any;
-        // Robustly determine the path of the current visible item (for strict ancestry check)
-        const currentData = currentFirstNode.type === 'match' ? currentFirstNode.parentFile : currentFirstNode;
-        const currentAbsPath = currentData.absolutePath || '';
-        const currentRelPath = currentData.relativePath || '';
+        if (visibleStartIndex < 0 || visibleStartIndex >= flatNodes.length) return [];
 
-        const potentialParents: any[] = [];
-        let minDepthFound = flatNodes[startIndex].depth;
+        const naiveNode = flatNodes[visibleStartIndex];
+        const naiveTop = (visibleStartIndex * ROW_HEIGHT) - scrollTop;
 
-        // Search backwards to find the chain of parents
-        for (let i = startIndex - 1; i >= 0; i--) {
-            const flatNode = flatNodes[i];
-            const node = flatNode.node as any;
+        // Pre-Scan: Identify Files with Visible Content (Matches).
+        const activeFilePaths = new Set<string>();
+        for (const node of visibleNodes) {
+            const raw = node.node as any;
+            if (raw.type === 'match' && raw.parentFile) {
+                activeFilePaths.add(raw.parentFile.absolutePath);
+            }
+        }
 
-            // Check strictly for ancestry to prevent "cousin" folders from appearing
-            if (node.type === 'folder' && expandedFolders.has(node.relativePath)) {
-                // Hybrid Check: Absolute preferred, Relative fallback
-                const parentAbsPath = node.absolutePath || '';
-                const parentRelPath = node.relativePath || '';
+        // 1. Context Identification (Primary Sticky Set)
+        // We do basic detection. If overlap at top, we might need normalization.
+        // But mainly we rely on "Context Normalization" to select the right stack base.
 
-                let isAncestor = false;
+        let invaderAtTop: any = null; // Legacy support for normalization trigger
+        if (visibleStartIndex > 0) {
+            const prevIndex = visibleStartIndex - 1;
+            const prevNode = flatNodes[prevIndex];
+            const prevStackHeight = prevNode.depth * ROW_HEIGHT;
+            const isChild = naiveNode.depth > prevNode.depth;
 
-                if (currentAbsPath && parentAbsPath) {
-                    const sep = currentAbsPath.includes('\\') ? '\\' : '/';
-                    isAncestor = currentAbsPath.startsWith(parentAbsPath + sep);
-                } else if (currentRelPath && parentRelPath) {
-                    // Ensure we don't match "src/auth" -> "src/authen"
-                    // Add separator check if not root
-                    const sep = '/';
-                    isAncestor = currentRelPath.startsWith(parentRelPath + sep);
-                }
+            if (naiveTop < prevStackHeight && !isChild && naiveTop > 0) {
+                invaderAtTop = naiveNode;
+            }
+        }
 
-                if (isAncestor && flatNode.depth < minDepthFound) {
-                    potentialParents.unshift(flatNode); // Add to beginning (Top -> Down order)
-                    minDepthFound = flatNode.depth; // Next parent must be strictly shallower
+        // 2. Build Sticky List
+        let effectiveContextIndex = (invaderAtTop) ? (visibleStartIndex - 1) : visibleStartIndex;
+        let contextNode = flatNodes[effectiveContextIndex];
 
-                    if (minDepthFound === 0) break; // Reached root
+        // Normalization I: Inactive File Drop
+        if (contextNode) {
+            const rawCtx = contextNode.node as any;
+            if (rawCtx.type === 'file' && !activeFilePaths.has(rawCtx.absolutePath)) {
+                for (let k = effectiveContextIndex - 1; k >= 0; k--) {
+                    if (flatNodes[k].depth < contextNode.depth) {
+                        effectiveContextIndex = k;
+                        contextNode = flatNodes[k];
+                        break;
+                    }
                 }
             }
         }
-        return potentialParents;
-    }, [startIndex, flatNodes, expandedFolders]);
+
+        // Normalization II: Sibling/Deep Replacement (Invader Priority)
+        if (invaderAtTop && contextNode) {
+            let candidate = contextNode;
+            let candidateIndex = effectiveContextIndex;
+
+            while (candidate.depth >= invaderAtTop.depth && candidateIndex > 0) {
+                let foundParent = false;
+                for (let k = candidateIndex - 1; k >= 0; k--) {
+                    if (flatNodes[k].depth < candidate.depth) {
+                        candidateIndex = k;
+                        candidate = flatNodes[k];
+                        foundParent = true;
+                        break;
+                    }
+                }
+                if (!foundParent) break;
+            }
+            contextNode = candidate;
+            effectiveContextIndex = candidateIndex;
+        }
+
+        if (!contextNode) return [];
+
+        // Collect Ancestors
+        const ancestorItems: { node: any, index: number }[] = [];
+        const isContextMatch = (contextNode.node as any).type === 'match';
+        if (!isContextMatch) {
+            ancestorItems.unshift({ node: contextNode, index: effectiveContextIndex });
+        }
+
+        let currentDepth = contextNode.depth;
+        for (let i = effectiveContextIndex - 1; i >= 0; i--) {
+            const node = flatNodes[i];
+            const isMatch = (node.node as any).type === 'match';
+            if (node.depth < currentDepth && !isMatch) {
+                ancestorItems.unshift({ node: node, index: i });
+                currentDepth = node.depth;
+                if (currentDepth === 0) break;
+            }
+        }
+
+        // Collect Pinned Visible Items
+        const pageSize = Math.ceil(containerHeight / ROW_HEIGHT) + 2;
+        const endScan = Math.min(flatNodes.length, visibleStartIndex + pageSize);
+        const pinnedItems: { node: any, index: number }[] = [];
+
+        for (let i = visibleStartIndex; i < endScan; i++) {
+            const node = flatNodes[i];
+            const raw = node.node as any;
+            const isMatch = raw.type === 'match';
+            const isFile = raw.type === 'file';
+
+            if (!isMatch) {
+                if (isFile && !activeFilePaths.has(raw.absolutePath)) {
+                    continue;
+                }
+                const naturalTop = (i * ROW_HEIGHT) - scrollTop;
+                const staticTop = node.depth * ROW_HEIGHT;
+                if (naturalTop <= staticTop + 1) {
+                    pinnedItems.push({ node: node, index: i });
+                }
+            }
+        }
+
+        // Merge
+        const combined = new Map<number, { node: any, index: number }>();
+        ancestorItems.forEach(item => combined.set(item.index, item));
+        pinnedItems.forEach(item => combined.set(item.index, item));
+        const sortedItems = Array.from(combined.values()).sort((a, b) => a.index - b.index);
+
+        interface ProcessedItem { node: any, index: number, currentTop: number };
+
+        let processedItems: ProcessedItem[] = sortedItems.map(item => {
+            const staticTop = item.node.depth * ROW_HEIGHT;
+            const naturalTop = (item.index * ROW_HEIGHT) - scrollTop;
+            const initialTop = Math.max(staticTop, naturalTop);
+            return {
+                ...item,
+                currentTop: initialTop
+            };
+        });
+
+        // 3. Robust Collision Resolution (Multi-Pusher)
+        // Instead of just checking neighbor or top invader, we scan visible nodes to find
+        // any content that physically pushes the stickies.
+
+        // Helper: Find closest pusher in visible nodes for a given victim
+        processedItems.forEach(victim => {
+            const victimDepth = victim.node.depth;
+            const victimBottom = victim.currentTop + ROW_HEIGHT;
+
+            // Scan visible nodes for potential pushers
+            // A Pusher is: visible, depth <= victim, top < victimBottom
+            // We want the HIGHEST pusher that satisfies this (closest to the victim from below)
+            // Actually, the pusher 'closest from below' corresponds to the lowest index that is > victim index?
+
+            // We just iterate visible nodes. If we find an overlap, we apply push.
+            // Optimize: Limit scan to relevant range?
+            // Simple loop is fine for page size 50.
+
+            for (let i = 0; i < visibleNodes.length; i++) {
+                const node = visibleNodes[i];
+                const realIndex = startIndex + i;
+
+                // Pusher must be visually BELOW (or AT) the victim content-wise
+                // (Index > VictimIndex). BUT visually appearing ABOVE the victim bottom?
+                if (realIndex <= victim.index) continue;
+
+                const nodeTop = (realIndex * ROW_HEIGHT) - scrollTop;
+
+                // Push condition: Overlap + Rank
+                if (node.depth <= victimDepth) {
+                    if (nodeTop < victimBottom) {
+                        // Detected physical overlap with a stronger node.
+                        // Force Victim to retract.
+                        const pushLimit = nodeTop - ROW_HEIGHT;
+                        if (victim.currentTop > pushLimit) {
+                            victim.currentTop = pushLimit;
+                        }
+                    }
+                }
+
+                // If we find ONE valid pusher that is overlapping, that's enough to define position?
+                // Wait. Multiple pushers? The highest one (lowest Top) limits the most.
+                // Correct to iterate all.
+            }
+        });
+
+        // 3c. Cascade Folding (Top-Down Parent Drag)
+        // Maintain hierarchy after pushing.
+        for (let i = 0; i < processedItems.length; i++) {
+            const item = processedItems[i];
+
+            let parentItem: ProcessedItem | null = null;
+            for (let k = i - 1; k >= 0; k--) {
+                if (processedItems[k].node.depth < item.node.depth) {
+                    parentItem = processedItems[k];
+                    break;
+                }
+            }
+
+            if (parentItem) {
+                const depthDiff = item.node.depth - parentItem.node.depth;
+                const maxAllowedTop = parentItem.currentTop + (depthDiff * ROW_HEIGHT);
+
+                if (item.currentTop > maxAllowedTop) {
+                    item.currentTop = maxAllowedTop;
+                }
+            }
+        }
+
+        // 4. Map to Render
+        return processedItems
+            .map((item) => {
+                return {
+                    node: item.node,
+                    depth: item.node.depth,
+                    top: item.currentTop,
+                    zIndex: 100 - item.node.depth
+                };
+            });
+
+    }, [scrollTop, flatNodes, containerHeight, startIndex, visibleNodes]);
 
     // Intercept Folder Click for Scroll-to-Top behavior
     const handleFolderClick = (path: string) => {
@@ -178,27 +341,30 @@ export const VirtualTreeView: React.FC<VirtualTreeViewProps> = ({
 
     return (
         <div className="relative flex-grow w-full h-full overflow-hidden">
-            {/* Sticky Header Overlay - MOVED OUTSIDE SCROLL CONTAINER */}
-            <div className="absolute top-0 left-0 w-full z-20 pointer-events-none">
-                {/* Pointer events none by default, but children (headers) need pointer-events-auto */}
-                {stickyNodes.map((stickyNode: any, i) => (
+            {/* Sticky Header Overlay */}
+            <div
+                className="absolute top-0 left-0 w-full z-20 pointer-events-none"
+                onWheel={handleStickyWheel}
+            >
+                {/* Headers themselves must capture events to be clickable, but should not block scroll. 
+                    pointer-events: auto on children overrides parent none. 
+                    Wheel event on children will bubble to this parent. */}
+                {stickyHeaderItems.map((item: any) => (
                     <div
-                        key={`sticky-${stickyNode.node.relativePath}`}
-                        className="w-full shadow-sm pointer-events-auto"
+                        key={`sticky-${item.node.node.relativePath || item.node.node.absolutePath}-${item.top}`}
+                        className="absolute left-0 w-full shadow-sm pointer-events-auto"
                         style={{
                             height: ROW_HEIGHT,
-                            // Static position! 
+                            top: item.top,
+                            zIndex: item.zIndex
                         }}
                     >
                         <TreeViewRow
-                            node={stickyNode.node}
-                            depth={stickyNode.depth}
+                            node={item.node.node}
+                            depth={item.node.depth}
                             style={{ height: ROW_HEIGHT, width: '100%' }}
                             expandedFolders={expandedFolders}
-                            toggleFolderExpansion={toggleFolderExpansion} // Stickies always toggle on click? Or should strictly follow new logic?
-                            // Actually, Stickies are just proxies.
-                            // Logic: If I click sticky header name -> Scroll to it (it's already at top... so close?)
-                            // Yes, if I click sticky header name, it should close if open.
+                            toggleFolderExpansion={toggleFolderExpansion}
                             handleFolderClick={handleFolderClick}
                             expandedFiles={expandedFiles}
                             toggleFileExpansion={toggleFileExpansion}
@@ -225,54 +391,44 @@ export const VirtualTreeView: React.FC<VirtualTreeViewProps> = ({
                     height: '100%'
                 }}
             >
-                {/* Top Spacer */}
                 <div key="top-spacer" style={{ height: paddingTop, width: '100%', flexShrink: 0 }} />
 
-                {/* Content Container - Animated */}
-                <div ref={listParent} className="flex flex-col w-full relative">
+                <div className="flex flex-col w-full relative">
                     {visibleNodes.map((flatNode) => {
                         const node = flatNode.node as any;
-                        // Use absolute path or relative path or constructed ID as key
-                        let uniqueKey = node.absolutePath || node.relativePath;
-
-                        if (node.type === 'match') {
-                            // Matches don't have absolutePath on their own, but have parentFile
-                            uniqueKey = `${node.parentFile.absolutePath}-match-${node.match?.start}-${node.match?.end}`;
-                        }
-
-                        if (!uniqueKey) {
-                            uniqueKey = `node-${flatNode.index}`;
-                        }
+                        const key = node.absolutePath || node.relativePath || `node-${Math.random()}`;
 
                         return (
-                            <TreeViewRow
-                                key={uniqueKey}
-                                node={flatNode.node}
-                                depth={flatNode.depth}
+                            <div
+                                key={key}
                                 style={{
                                     height: ROW_HEIGHT,
                                     width: '100%',
-                                    boxSizing: 'border-box'
                                 }}
-                                expandedFolders={expandedFolders}
-                                toggleFolderExpansion={toggleFolderExpansion} // Pass Raw Toggle
-                                handleFolderClick={handleFolderClick} // Pass Smart Click
-                                expandedFiles={expandedFiles}
-                                toggleFileExpansion={toggleFileExpansion}
-                                handleFileClick={handleFileClick}
-                                handleResultItemClick={handleResultItemClick}
-                                handleReplace={handleReplace}
-                                handleExcludeFile={handleExcludeFile}
-                                currentSearchValues={currentSearchValues}
-                                onDragStart={onDragStart}
-                                onDragOver={onDragOver}
-                                onDrop={onDrop}
-                            />
+                            >
+                                <TreeViewRow
+                                    node={node}
+                                    depth={flatNode.depth}
+                                    style={{ height: ROW_HEIGHT, width: '100%' }}
+                                    expandedFolders={expandedFolders}
+                                    toggleFolderExpansion={toggleFolderExpansion}
+                                    handleFolderClick={handleFolderClick}
+                                    expandedFiles={expandedFiles}
+                                    toggleFileExpansion={toggleFileExpansion}
+                                    handleFileClick={handleFileClick}
+                                    handleResultItemClick={handleResultItemClick}
+                                    handleReplace={handleReplace}
+                                    handleExcludeFile={handleExcludeFile}
+                                    currentSearchValues={currentSearchValues}
+                                    onDragStart={onDragStart}
+                                    onDragOver={onDragOver}
+                                    onDrop={onDrop}
+                                />
+                            </div>
                         );
                     })}
                 </div>
 
-                {/* Bottom Spacer */}
                 <div key="bottom-spacer" style={{ height: paddingBottom, width: '100%', flexShrink: 0 }} />
             </div>
         </div>
