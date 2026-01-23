@@ -115,7 +115,7 @@ export const TreeViewRow = memo(({
             >
                 {renderIndentationGuides()}
 
-                <div className="pl-4 w-full overflow-hidden min-h-[22px] py-0.5 flex flex-col justify-center" style={{ paddingLeft: `${paddingLeft + 16}px` }}>
+                <div className="pl-4 w-full overflow-x-auto min-h-[22px] py-0 flex flex-col" style={{ paddingLeft: `${paddingLeft + 16}px` }}>
                     {currentSearchValues.replace && currentSearchValues.replace.length > 0
                         ? getHighlightedMatchContextWithReplacement(
                             source,
@@ -231,7 +231,7 @@ export const TreeViewRow = memo(({
                         className={`codicon codicon-chevron-down transition-transform duration-200`}
                         style={{
                             transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',
-                            visibility: isSticky ? 'hidden' : 'visible', // Hide chevron if sticky
+                            opacity: isSticky ? 0.4 : 1, // Visual indication of inactive state
                             pointerEvents: isSticky ? 'none' : 'auto'
                         }}
                         onClick={(e) => {
@@ -325,13 +325,20 @@ export const TreeViewRow = memo(({
             onMouseLeave={() => setIsHovered(false)}
             onDragStart={(e) => {
                 e.stopPropagation();
-                debugger;
 
                 if (onDragStart) {
                     const rect = e.currentTarget.getBoundingClientRect();
                     const offsetX = e.clientX - rect.left;
                     const offsetY = e.clientY - rect.top;
-                    e.dataTransfer.setDragImage(e.currentTarget, offsetX, offsetY);
+
+                    // Default drag image usually works, but if custom is needed:
+                    // e.dataTransfer.setDragImage(e.currentTarget, offsetX, offsetY);
+
+                    // User had custom preview logic in Folder rendering but default logic in File rendering.
+                    // The file rendering block (lines 286+) uses:
+                    // e.dataTransfer.setDragImage(e.currentTarget, offsetX, offsetY); 
+                    // This sets the ROW itself as image.
+
                     onDragStart(e, node);
                 }
             }}

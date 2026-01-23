@@ -46,6 +46,65 @@ export const VirtualTreeView: React.FC<VirtualTreeViewProps> = ({
         [fileTree, expandedFolders, expandedFiles]
     );
 
+    // Variable Height Metadata
+    interface ItemMetadata {
+        index: number;
+        offset: number;
+        size: number;
+    }
+
+    const { metadata, totalHeight } = useMemo(() => {
+        const meta: ItemMetadata[] = [];
+        let currentOffset = 0;
+        const isRegex = currentSearchValues.searchMode === 'regex';
+
+        flatNodes.forEach((node, index) => {
+            let size = ROW_HEIGHT; // Default
+
+            // Variable height for Regex Matches
+            if (isRegex && (node.node as any).type === 'match') {
+                const matchNode = node.node as any;
+                const { match, parentFile } = matchNode;
+
+                if (match && parentFile && parentFile.results) {
+                    // Find the result that contains this match
+                    const result = parentFile.results[matchNode.resultIndex];
+                    if (result && result.source) {
+                        const start = match.start;
+                        const end = match.end;
+                        const text = result.source.slice(start, end);
+                        // Count newlines. 1 line = 0 newlines.
+                        const lineCount = (text.match(/\n/g) || []).length + 1;
+
+                        // Tighter line height for code (text-xs is approx 16px)
+                        // Add padding for container (my-1 = 8px, plus borders)
+                        const CODE_LINE_HEIGHT = 16;
+                        const PADDING_V = 8;
+
+                        let calculatedHeight = (lineCount * CODE_LINE_HEIGHT) + PADDING_V;
+
+                        // Add extra height for replacement preview if it exists
+                        if (currentSearchValues.replace) {
+                            const REPLACEMENT_HEIGHT = 26; // approx height for replace badge
+                            calculatedHeight += REPLACEMENT_HEIGHT;
+                        }
+
+                        size = Math.max(ROW_HEIGHT, calculatedHeight);
+                    }
+                }
+            }
+
+            meta.push({
+                index,
+                offset: currentOffset,
+                size
+            });
+            currentOffset += size;
+        });
+
+        return { metadata: meta, totalHeight: currentOffset };
+    }, [flatNodes, currentSearchValues.searchMode, currentSearchValues.replace]);
+
     // State
     const [scrollTop, setScrollTop] = useState(0);
     const [containerHeight, setContainerHeight] = useState(500); // Initial guess
@@ -83,24 +142,50 @@ export const VirtualTreeView: React.FC<VirtualTreeViewProps> = ({
         }
     };
 
+    // Binary Search
+    const findStartIndex = (offset: number) => {
+        let low = 0;
+        let high = metadata.length - 1;
+
+        while (low <= high) {
+            const mid = Math.floor((low + high) / 2);
+            const item = metadata[mid];
+
+            if (item.offset <= offset && item.offset + item.size > offset) {
+                return mid;
+            } else if (item.offset < offset) {
+                low = mid + 1;
+            } else {
+                high = mid - 1;
+            }
+        }
+        return Math.max(0, Math.min(low, metadata.length - 1));
+    };
+
     // Virtualization Calculations
-    const totalCount = flatNodes.length;
-    const startIndex = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
-    const endIndex = Math.min(totalCount, Math.ceil((scrollTop + containerHeight) / ROW_HEIGHT) + OVERSCAN);
+    const exactStartIndex = findStartIndex(scrollTop);
+    const startIndex = Math.max(0, exactStartIndex - OVERSCAN);
+
+    const scrollBottom = scrollTop + containerHeight;
+    const exactEndIndex = findStartIndex(scrollBottom);
+    const endIndex = Math.min(metadata.length, exactEndIndex + OVERSCAN + 1);
 
     const visibleNodes = flatNodes.slice(startIndex, endIndex);
 
-    const paddingTop = startIndex * ROW_HEIGHT;
-    const paddingBottom = Math.max(0, (totalCount - endIndex) * ROW_HEIGHT);
+    const paddingTop = metadata.length > 0 ? metadata[startIndex].offset : 0;
+    const paddingBottom = metadata.length > 0 && endIndex > 0
+        ? totalHeight - (metadata[endIndex - 1].offset + metadata[endIndex - 1].size)
+        : 0;
+
 
     // Sticky Header Calculation - Collision Resolved
     const stickyHeaderItems = useMemo(() => {
-        const visibleStartIndex = Math.floor(scrollTop / ROW_HEIGHT);
+        const visibleStartIndex = exactStartIndex;
 
         if (visibleStartIndex < 0 || visibleStartIndex >= flatNodes.length) return [];
 
         const naiveNode = flatNodes[visibleStartIndex];
-        const naiveTop = (visibleStartIndex * ROW_HEIGHT) - scrollTop;
+        const naiveTop = metadata[visibleStartIndex].offset - scrollTop;
 
         // Pre-Scan: Identify Files with Visible Content (Matches).
         const activeFilePaths = new Set<string>();
@@ -122,6 +207,7 @@ export const VirtualTreeView: React.FC<VirtualTreeViewProps> = ({
             const prevStackHeight = prevNode.depth * ROW_HEIGHT;
             const isChild = naiveNode.depth > prevNode.depth;
 
+            // Use exact naïve top from metadata
             if (naiveTop < prevStackHeight && !isChild && naiveTop > 0) {
                 invaderAtTop = naiveNode;
             }
@@ -201,7 +287,7 @@ export const VirtualTreeView: React.FC<VirtualTreeViewProps> = ({
                 if (isFile && !activeFilePaths.has(raw.absolutePath)) {
                     continue;
                 }
-                const naturalTop = (i * ROW_HEIGHT) - scrollTop;
+                const naturalTop = metadata[i].offset - scrollTop;
                 const staticTop = node.depth * ROW_HEIGHT;
                 if (naturalTop <= staticTop + 1) {
                     pinnedItems.push({ node: node, index: i });
@@ -219,7 +305,7 @@ export const VirtualTreeView: React.FC<VirtualTreeViewProps> = ({
 
         let processedItems: ProcessedItem[] = sortedItems.map(item => {
             const staticTop = item.node.depth * ROW_HEIGHT;
-            const naturalTop = (item.index * ROW_HEIGHT) - scrollTop;
+            const naturalTop = metadata[item.index].offset - scrollTop;
             const initialTop = Math.max(staticTop, naturalTop);
             return {
                 ...item,
@@ -228,32 +314,24 @@ export const VirtualTreeView: React.FC<VirtualTreeViewProps> = ({
         });
 
         // 3. Robust Collision Resolution (Multi-Pusher)
-        // Instead of just checking neighbor or top invader, we scan visible nodes to find
-        // any content that physically pushes the stickies.
-
-        // Helper: Find closest pusher in visible nodes for a given victim
+        // Scan visible nodes for potential pushers
         processedItems.forEach(victim => {
             const victimDepth = victim.node.depth;
             const victimBottom = victim.currentTop + ROW_HEIGHT;
 
-            // Scan visible nodes for potential pushers
-            // A Pusher is: visible, depth <= victim, top < victimBottom
-            // We want the HIGHEST pusher that satisfies this (closest to the victim from below)
-            // Actually, the pusher 'closest from below' corresponds to the lowest index that is > victim index?
-
-            // We just iterate visible nodes. If we find an overlap, we apply push.
-            // Optimize: Limit scan to relevant range?
-            // Simple loop is fine for page size 50.
-
             for (let i = 0; i < visibleNodes.length; i++) {
                 const node = visibleNodes[i];
                 const realIndex = startIndex + i;
+                // Wait, visibleNodes is slice.
 
-                // Pusher must be visually BELOW (or AT) the victim content-wise
-                // (Index > VictimIndex). BUT visually appearing ABOVE the victim bottom?
+                if (realIndex >= metadata.length) continue;
+
+                const meta = metadata[realIndex];
+
+                // Pusher must be visually BELOW (or AT) the victim
                 if (realIndex <= victim.index) continue;
 
-                const nodeTop = (realIndex * ROW_HEIGHT) - scrollTop;
+                const nodeTop = meta.offset - scrollTop;
 
                 // Push condition: Overlap + Rank
                 if (node.depth <= victimDepth) {
@@ -266,15 +344,10 @@ export const VirtualTreeView: React.FC<VirtualTreeViewProps> = ({
                         }
                     }
                 }
-
-                // If we find ONE valid pusher that is overlapping, that's enough to define position?
-                // Wait. Multiple pushers? The highest one (lowest Top) limits the most.
-                // Correct to iterate all.
             }
         });
 
         // 3c. Cascade Folding (Top-Down Parent Drag)
-        // Maintain hierarchy after pushing.
         for (let i = 0; i < processedItems.length; i++) {
             const item = processedItems[i];
 
@@ -307,7 +380,7 @@ export const VirtualTreeView: React.FC<VirtualTreeViewProps> = ({
                 };
             });
 
-    }, [scrollTop, flatNodes, containerHeight, startIndex, visibleNodes]);
+    }, [scrollTop, flatNodes, containerHeight, startIndex, visibleNodes, metadata, exactStartIndex]);
 
     // Intercept Folder Click for Scroll-to-Top behavior
     const handleFolderClick = (path: string) => {
@@ -400,22 +473,26 @@ export const VirtualTreeView: React.FC<VirtualTreeViewProps> = ({
                 <div key="top-spacer" style={{ height: paddingTop, width: '100%', flexShrink: 0 }} />
 
                 <div className="flex flex-col w-full relative">
-                    {visibleNodes.map((flatNode) => {
+                    {visibleNodes.map((flatNode, i) => {
                         const node = flatNode.node as any;
                         const key = node.absolutePath || node.relativePath || `node-${Math.random()}`;
+
+                        const metaIndex = startIndex + i;
+                        const meta = metadata[metaIndex];
+                        const height = meta ? meta.size : ROW_HEIGHT;
 
                         return (
                             <div
                                 key={key}
                                 style={{
-                                    height: ROW_HEIGHT,
+                                    height: height,
                                     width: '100%',
                                 }}
                             >
                                 <TreeViewRow
                                     node={node}
                                     depth={flatNode.depth}
-                                    style={{ height: ROW_HEIGHT, width: '100%' }}
+                                    style={{ height: height, width: '100%' }}
                                     expandedFolders={expandedFolders}
                                     toggleFolderExpansion={toggleFolderExpansion}
                                     // handleFolderClick -- REMOVED for regular items, forcing default toggle behavior
