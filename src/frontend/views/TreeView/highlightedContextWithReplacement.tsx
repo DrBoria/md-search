@@ -186,7 +186,7 @@ export function getHighlightedMatchContextWithReplacement(
                 const endLine = loc.end.line - 1;
 
                 return (
-                    <div className="whitespace-pre overflow-x-auto font-mono text-xs my-1 border-l-2 border-[var(--vscode-editor-lineHighlightBorder)] pl-2">
+                    <div className="whitespace-pre overflow-x-auto overflow-y-hidden font-mono text-xs my-1 border-l-2 border-[var(--vscode-editor-lineHighlightBorder)] pl-2">
                         {lines.slice(startLine, endLine + 1).map((line, i) => {
                             const currentLineNum = loc.start.line + i;
                             let hlStart = 0;

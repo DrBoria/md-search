@@ -58,7 +58,7 @@ export const NotificationBanner: React.FC<NotificationBannerProps> = ({
     return (
         <div
             className={cn(
-                "w-full overflow-hidden flex items-center justify-center px-4 border-l-4 shadow-sm select-none",
+                "w-full overflow-hidden flex items-center justify-center px-4 border-l-4 shadow-sm select-none relative z-50",
                 "bg-[var(--vscode-editorWrapper-background)] border-[var(--vscode-focusBorder)]", // Theme integration
                 "text-[var(--vscode-foreground)]",
                 isExiting ? "animate-banner-out" : "animate-banner-in"

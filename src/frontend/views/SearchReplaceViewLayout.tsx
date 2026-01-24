@@ -246,119 +246,8 @@ const RootSearchSection = () => {
 
     // -- Handlers --
 
-    const handleCopyMatches = useCallback(() => {
-        // Send message to backend to Copy, respecting custom order if present
-        // If resultsByFile is empty, maybe nothing to copy? (Or use stale?)
-        if (Object.keys(resultsByFile).length === 0) return;
+    // -- Keybindings moved to SearchReplaceViewLayout / SearchReplaceViewInner to access sortedFilePaths --
 
-        // Construct file order based on customFileOrder or default keys
-        // Note: customFileOrder might contain keys not in resultsByFile if results changed, 
-        // OR resultsByFile might have keys not in customFileOrder (new results).
-        // Logic: Use customFileOrder filtered by existence in resultsByFile, then append remaining unique results keys.
-
-        const currentKeys = Object.keys(resultsByFile);
-        let orderedKeys = currentKeys;
-
-        if (customFileOrder && customFileOrder.length > 0) {
-            const keysSet = new Set(currentKeys);
-            const ordered = customFileOrder.filter(k => keysSet.has(k));
-            const remaining = currentKeys.filter(k => !ordered.includes(k)); // simplified check
-            // Set-based check for remaining for performance
-            const orderedSet = new Set(ordered);
-            const remainingOptimized = currentKeys.filter(k => !orderedSet.has(k));
-            orderedKeys = [...ordered, ...remainingOptimized];
-        }
-
-        vscode.postMessage({
-            type: 'copyMatches',
-            fileOrder: orderedKeys
-        });
-        // We catch 'copyMatchesComplete' to show feedback
-    }, [resultsByFile, customFileOrder, vscode]);
-
-    const handleCutMatches = useCallback(() => {
-        if (Object.keys(resultsByFile).length === 0) return;
-
-        // Similar order logic
-        const currentKeys = Object.keys(resultsByFile);
-        let orderedKeys = currentKeys;
-        if (customFileOrder && customFileOrder.length > 0) {
-            const ordered = customFileOrder.filter(k => resultsByFile[k]); // simple existence check works for obj keys
-            const orderedSet = new Set(ordered);
-            const remaining = currentKeys.filter(k => !orderedSet.has(k));
-            orderedKeys = [...ordered, ...remaining];
-        }
-
-        vscode.postMessage({
-            type: 'cutMatches',
-            fileOrder: orderedKeys
-        });
-
-        // Optimistic UI update? Or wait for backend 'cutMatchesComplete'?
-        // The backend processes the Cut (Copy + probably tells us to remove specific files or just remove all?)
-        // Wait, "Cut All Matches" usually implies clearing them from the view?
-        // Or adding to exclude?
-        // Let's assume Backend will handle the logic and send us a "remove keys" or we clear them?
-        // The original task plan said "Remove from resultsByFile locally".
-        // Let's do that cleanly after confirmation or optimistically.
-        // For 'undo' support, best to let backend orchestrate or handle Undo independently.
-        // We'll rely on backend sending 'cutMatchesComplete' then we clear?
-        // Actually, `cutMatches` message implies the backend does the work.
-        // Let's assume backend sends a response.
-    }, [resultsByFile, customFileOrder, vscode]);
-
-    const handlePasteMatches = useCallback(() => {
-        // Trigger paste logic in backend (which reads clipboard and potentially merges results)
-
-        // Construct file order based on customFileOrder or default keys
-        const currentKeys = Object.keys(resultsByFile);
-        let orderedKeys = currentKeys;
-
-        if (customFileOrder && customFileOrder.length > 0) {
-            const ordered = customFileOrder.filter(k => resultsByFile[k]);
-            const orderedSet = new Set(ordered);
-            const remaining = currentKeys.filter(k => !orderedSet.has(k));
-            orderedKeys = [...ordered, ...remaining];
-        }
-
-        vscode.postMessage({
-            type: 'pasteToMatches',
-            fileOrder: orderedKeys
-        });
-    }, [resultsByFile, customFileOrder, vscode]);
-
-
-    // -- Message Listener logic moved to SearchReplaceViewInner --
-
-
-    // -- Keybindings --
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            // Check for Ctrl+Shift (Mac: Cmd+Shift)
-            const isCmd = e.metaKey || e.ctrlKey;
-            const isShift = e.shiftKey;
-
-            if (isCmd && isShift) {
-                switch (e.key.toLowerCase()) {
-                    case 'c':
-                        e.preventDefault();
-                        handleCopyMatches();
-                        break;
-                    case 'x':
-                        e.preventDefault();
-                        handleCutMatches();
-                        break;
-                    case 'v':
-                        e.preventDefault();
-                        handlePasteMatches();
-                        break;
-                }
-            }
-        };
-
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [handleCopyMatches, handleCutMatches, handlePasteMatches]);
 
     const handleFindInFound = useCallback(() => {
         // Read from ref to get the LATEST values, not stale closure values
@@ -691,44 +580,96 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
         return map;
     }, [customFileOrder]);
 
-    const sortedFilePaths = useMemo(() => {
-        let paths = Object.keys(effectiveResultsByFile);
-
-        // Apply custom sort if available
-        if (customFileOrder && customFileOrder.length > 0) {
-            paths.sort((a, b) => {
-                const orderA = customOrderMap[a] ?? Number.MAX_SAFE_INTEGER;
-                const orderB = customOrderMap[b] ?? Number.MAX_SAFE_INTEGER;
-                // standard string sort if neither in map or same order (unlikely)
-                if (orderA === orderB) return a.localeCompare(b);
-                return orderA - orderB;
-            });
-        }
-
-        return paths;
-    }, [effectiveResultsByFile, customOrderMap, customFileOrder]);
-
     // Derived
-    const fullResults = useMemo(() => {
-        if (!effectiveResultsByFile || !sortedFilePaths || sortedFilePaths.length === 0) {
-            return {};
-        }
-        return sortedFilePaths.reduce((acc, path) => {
-            if (effectiveResultsByFile[path]) {
-                acc[path] = effectiveResultsByFile[path];
-            }
-            return acc;
-        }, {} as Record<string, SerializedTransformResultEvent[]>);
-    }, [sortedFilePaths, effectiveResultsByFile]);
-
+    // 1. Build the Tree first (it handles sorting internally: Custom > Folders > Files > Alpha)
     const fullFileTree = useMemo(() => {
-        if (!fullResults || Object.keys(fullResults).length === 0) return null;
-        return buildFileTree(fullResults, workspacePath, customOrderMap);
-    }, [fullResults, workspacePath, customOrderMap]);
+        const resultKeys = Object.keys(effectiveResultsByFile || {});
+        console.log('[SearchReplaceViewLayout] Re-calculating fullFileTree. Results count:', resultKeys.length);
+        if (!effectiveResultsByFile || resultKeys.length === 0) return null;
+        // buildFileTree handles the sorting logic internally based on customOrderMap or default alpha
+        const tree = buildFileTree(effectiveResultsByFile, workspacePath, customOrderMap);
+        console.log('[SearchReplaceViewLayout] fullFileTree built. Children:', tree.children.length);
+        return tree;
+    }, [effectiveResultsByFile, workspacePath, customOrderMap]);
+
+    // 2. Flatten the Tree to get the exact linear visual order for List View and Copy/Cut operations
+    const sortedFilePaths = useMemo(() => {
+        if (!fullFileTree) {
+            console.log('[SearchReplaceViewLayout] sortedFilePaths: fullFileTree is null/empty');
+            return [];
+        }
+
+        const flatten = (nodes: FileTreeNode[]): string[] => {
+            let paths: string[] = [];
+            nodes.forEach(node => {
+                if (node.type === 'file') {
+                    // Use absolute path if available, or relative
+                    const p = (node as any).absolutePath || node.relativePath;
+                    // Only add if it exists in results (it should, based on buildFileTree)
+                    paths.push(p);
+                } else if (node.type === 'folder' && node.children) {
+                    paths = paths.concat(flatten(node.children));
+                }
+            });
+            return paths;
+        };
+        const paths = flatten(fullFileTree.children);
+        console.log('[SearchReplaceViewLayout] sortedFilePaths calculated. Length:', paths.length);
+        return paths;
+    }, [fullFileTree]);
 
 
     const [pausedState, setPausedState] = useState<{ limit: number; count: number } | null>(null);
     const [skippedCount, setSkippedCount] = useState<number>(0);
+
+    // --- Command Handlers using Sorted Order ---
+    const handleCopyMatches = useCallback(() => {
+        const order = sortedFilePaths && sortedFilePaths.length > 0 ? sortedFilePaths : Object.keys(effectiveResultsByFile);
+
+        console.log('[SearchReplaceViewLayout] handleCopyMatches EXECUTION STARTED');
+        console.log(`[SearchReplaceViewLayout] Visual Order Length: ${order.length}`);
+        console.log('[SearchReplaceViewLayout] Visual Order First 5:', JSON.stringify(order.slice(0, 5), null, 2));
+
+        if (order.length === 0) {
+            console.log('[SearchReplaceViewLayout] Order empty, skipping copy');
+            return;
+        }
+
+        vscode.postMessage({
+            type: 'copyMatches',
+            fileOrder: order
+        });
+    }, [sortedFilePaths, effectiveResultsByFile, vscode]);
+
+    const handleCutMatches = useCallback(() => {
+        const order = sortedFilePaths && sortedFilePaths.length > 0 ? sortedFilePaths : Object.keys(effectiveResultsByFile);
+
+        console.log('[SearchReplaceViewLayout] handleCutMatches EXECUTION STARTED');
+        console.log(`[SearchReplaceViewLayout] Visual Order Length: ${order.length}`);
+        console.log('[SearchReplaceViewLayout] Visual Order First 5:', JSON.stringify(order.slice(0, 5), null, 2));
+
+        if (order.length === 0) {
+            console.log('[SearchReplaceViewLayout] Order empty, skipping cut');
+            return;
+        }
+
+        vscode.postMessage({
+            type: 'cutMatches',
+            fileOrder: order
+        });
+    }, [sortedFilePaths, effectiveResultsByFile, vscode]);
+
+    const handlePasteMatches = useCallback(() => {
+        const order = sortedFilePaths && sortedFilePaths.length > 0 ? sortedFilePaths : Object.keys(effectiveResultsByFile);
+
+        console.log('[SearchReplaceViewLayout] handlePasteMatches EXECUTION STARTED');
+        console.log(`[SearchReplaceViewLayout] Visual Order Length: ${order.length}`);
+
+        vscode.postMessage({
+            type: 'pasteToMatches',
+            fileOrder: order
+        });
+    }, [sortedFilePaths, effectiveResultsByFile, vscode]);
 
     useEffect(() => {
         const onMessage = (event: MessageEvent) => {
@@ -758,6 +699,14 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
                     setSkippedCount(message.count);
                     break;
 
+                // --- Command Triggers (from Backend via Shortcut) ---
+                case 'triggerAction':
+                    console.log('[SearchReplaceViewLayout] triggerAction received:', message.action);
+                    if (message.action === 'copy') handleCopyMatches();
+                    if (message.action === 'cut') handleCutMatches();
+                    if (message.action === 'paste') handlePasteMatches();
+                    break;
+
                 // --- Animation & Feedback Handlers ---
                 case 'copyMatchesComplete':
                     showFeedback(`Copied ${message.count} matches`, undefined, 'copy');
@@ -767,7 +716,7 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
                     break;
 
                 case 'cutMatchesComplete':
-                    showFeedback(`Cut ${message.count} matches`, undefined, 'cut');
+                    showFeedback(`Cut ${message.count} matches`, '(Undo: Ctrl+Shift+Z)', 'cut');
                     setAnimationState({ type: 'cut', timestamp: Date.now() });
                     // Wait for animation (e.g. 400ms) BEFORE clearing results
                     setTimeout(() => {
@@ -777,9 +726,15 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
                     break;
 
                 case 'pasteToMatchesComplete':
-                    showFeedback(`Pasted ${message.count} matches`, undefined, 'paste');
+                    showFeedback(`Pasted ${message.count} matches`, '(Undo: Ctrl+Shift+Z)', 'paste');
                     setAnimationState({ type: 'paste', timestamp: Date.now() });
                     setTimeout(() => setAnimationState({ type: null, timestamp: 0 }), 1000);
+                    break;
+
+                case 'undoComplete':
+                    showFeedback(message.restored ? 'Undo performed' : 'Nothing to undo', undefined, 'info');
+                    // Reset results logic is handled by 'status'/'addBatchResults' which typically follow a re-run in backend?
+                    // Extension.ts calls runSoon() after undo, so results will stream in.
                     break;
 
                 case 'copyFileNamesComplete':
@@ -796,7 +751,11 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
             window.removeEventListener('message', onMessage);
             window.removeEventListener('blur', handleBlur);
         };
-    }, [handleMessage, vscode, showFeedback, setResultsByFile]);
+    }, [handleMessage, vscode, showFeedback, setResultsByFile, handleCopyMatches, handleCutMatches, handlePasteMatches]);
+
+    // -- Global Keybindings REMOVED --
+    // We now rely on 'triggerAction' messages from the backend (VS Code Keybindings -> Command -> Message)
+
 
     // Handlers
     // Handlers
@@ -1045,7 +1004,7 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
     };
 
     const renderTreeViewResults = () => {
-        if (!fullResults || Object.keys(fullResults).length === 0) {
+        if (!effectiveResultsByFile || Object.keys(effectiveResultsByFile).length === 0) {
             return isSearchRequested ? (
                 <div className="p-[10px] text-center flex gap-2 justify-center"><span className="codicon codicon-loading codicon-modifier-spin" /><span>Searching...</span></div>
             ) : (

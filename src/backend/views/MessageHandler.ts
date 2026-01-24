@@ -43,6 +43,11 @@ export class MessageHandler {
 
     const message = validation.data
 
+    // Debug log for relevant messages
+    if (['copyMatches', 'cutMatches', 'pasteToMatches'].includes(message.type)) {
+      this.extension.channel.appendLine(`[MessageHandler] Received message: ${message.type}`)
+    }
+
     try {
       switch (message.type) {
         case 'mount':
@@ -67,6 +72,7 @@ export class MessageHandler {
           await this.handleCopyMatches(message.fileOrder)
           break
         case 'cutMatches':
+          console.log('cutMatches', message.fileOrder)
           await this.handleCutMatches(message.fileOrder)
           break
         case 'pasteToMatches':
@@ -194,16 +200,19 @@ export class MessageHandler {
   }
 
   private async handleCopyMatches(fileOrder?: string[]): Promise<void> {
+    console.log(`[MessageHandler] handleCopyMatches called. Order provided: ${!!fileOrder}`)
     const count = await this.extension.copyMatches(fileOrder)
     this.viewProvider.notifyCopyMatchesComplete(count)
   }
 
   private async handleCutMatches(fileOrder?: string[]): Promise<void> {
+    console.log(`[MessageHandler] handleCutMatches called. Order provided: ${!!fileOrder}`)
     const count = await this.extension.cutMatches(fileOrder)
     this.viewProvider.notifyCutMatchesComplete(count)
   }
 
   private async handlePasteToMatches(fileOrder?: string[]): Promise<void> {
+    this.extension.channel.appendLine(`[MessageHandler] handlePasteToMatches called. Order provided: ${!!fileOrder}`)
     const count = await this.extension.pasteToMatches(fileOrder)
     this.viewProvider.notifyPasteToMatchesComplete(count)
   }

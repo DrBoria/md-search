@@ -462,6 +462,15 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     this._pendingMessages = []
   }
 
+  // Method to trigger an action in the webview (for command redirection)
+  triggerAction(action: 'copy' | 'cut' | 'paste'): void {
+    this.extension.channel.appendLine(`[Provider] triggerAction calling webview with action: ${action}`)
+    this.postMessage({
+      type: 'triggerAction',
+      action
+    })
+  }
+
   // Method to send notification about replacement completion
   notifyReplacementComplete(
     totalReplacements: number,

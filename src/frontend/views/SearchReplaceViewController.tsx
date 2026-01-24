@@ -26,57 +26,11 @@ export interface Props {
 }
 
 export default function SearchReplaceViewController({ vscode }: Props): React.ReactElement {
-  // Send mount message and setup hotkeys
+  // Send mount message
   React.useEffect(() => {
     vscode.postMessage({
       type: 'mount',
     })
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      const isCmdOrCtrl = event.metaKey || event.ctrlKey
-      const isShift = event.shiftKey
-      if (isCmdOrCtrl && isShift) {
-        switch (event.key.toLowerCase()) {
-          case 'c': {
-            // Get file order for proper copy ordering
-            const getDisplayedFileOrder = (window as any).getDisplayedFileOrder;
-            const fileOrder = getDisplayedFileOrder ? getDisplayedFileOrder() : undefined;
-            vscode.postMessage({ type: 'copyMatches', fileOrder })
-            event.preventDefault()
-            break
-          }
-          case 'x': {
-            // Get file order for proper cut ordering
-            const getDisplayedFileOrder = (window as any).getDisplayedFileOrder;
-            const fileOrder = getDisplayedFileOrder ? getDisplayedFileOrder() : undefined;
-            vscode.postMessage({ type: 'cutMatches', fileOrder })
-            event.preventDefault()
-            break
-          }
-          case 'v': {
-            // Get file order for proper paste ordering
-            const getDisplayedFileOrder = (window as any).getDisplayedFileOrder;
-            const fileOrder = getDisplayedFileOrder ? getDisplayedFileOrder() : undefined;
-            vscode.postMessage({ type: 'pasteToMatches', fileOrder })
-            event.preventDefault()
-            break
-          }
-          case 'n':
-            vscode.postMessage({ type: 'copyFileNames' })
-            event.preventDefault()
-            break
-          case 'z':
-            vscode.postMessage({ type: 'undoLastOperation' })
-            event.preventDefault()
-            break
-        }
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown)
-    }
   }, [])
 
   // Handle messages from Webview

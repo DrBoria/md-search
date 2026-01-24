@@ -202,6 +202,10 @@ export const MessageToWebviewSchema = z.discriminatedUnion('type', [
     type: z.literal('restoreViewState'),
     viewState: ViewUndoStateSchema,
   }),
+  z.object({
+    type: z.literal('triggerAction'),
+    action: z.enum(['copy', 'cut', 'paste']),
+  }),
 ])
 export type MessageToWebview = z.infer<typeof MessageToWebviewSchema>
 

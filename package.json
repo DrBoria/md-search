@@ -140,32 +140,27 @@
       {
         "command": "mdSearch.copyMatches",
         "key": "ctrl+shift+c",
-        "mac": "cmd+shift+o",
-        "when": "focusedView == mdSearch.SearchReplaceView"
+        "mac": "cmd+shift+o"
       },
       {
         "command": "mdSearch.cutMatches",
         "key": "ctrl+shift+x",
-        "mac": "cmd+shift+x",
-        "when": "focusedView == mdSearch.SearchReplaceView"
+        "mac": "cmd+shift+x"
       },
       {
         "command": "mdSearch.pasteToMatches",
         "key": "ctrl+shift+v",
-        "mac": "cmd+shift+v",
-        "when": "focusedView == mdSearch.SearchReplaceView"
+        "mac": "cmd+shift+v"
       },
       {
         "command": "mdSearch.copyFileNames",
         "key": "ctrl+shift+n",
-        "mac": "cmd+shift+n",
-        "when": "focusedView == mdSearch.SearchReplaceView"
+        "mac": "cmd+shift+n"
       },
       {
         "command": "mdSearch.undoLastOperation",
         "key": "ctrl+shift+z",
-        "mac": "cmd+shift+z",
-        "when": "focusedView == mdSearch.SearchReplaceView"
+        "mac": "cmd+shift+z"
       }
     ],
     "menus": {
