@@ -436,17 +436,18 @@ export const VirtualTreeView: React.FC<VirtualTreeViewProps> = ({
                 const currentScrollTop = containerRef.current?.scrollTop || 0;
                 const targetScrollTop = index * ROW_HEIGHT;
 
+                // Calculate Sticky Offset for this node
+                const depth = flatNodes[index].depth;
+                const stickyOffset = depth * ROW_HEIGHT;
+
+                // Ideally, the node should be at 'stickyOffset' pixels from the top of the viewport
+                // effectively meaning scrollTop should be 'targetScrollTop - stickyOffset'
+                const idealScrollTop = Math.max(0, targetScrollTop - stickyOffset);
+
                 // Allow some tolerance (e.g. 5px)
-                if (Math.abs(currentScrollTop - targetScrollTop) > 5) {
+                if (Math.abs(currentScrollTop - idealScrollTop) > 5) {
                     // It is NOT at the top -> Scroll to it
-                    // Calculate "Sticky Offset": How many parents are sticky?
-                    // We can estimate depth * ROW_HEIGHT.
-                    const depth = flatNodes[index].depth;
-                    const stickyOffset = depth * ROW_HEIGHT;
-
-                    const adjustedScrollTop = Math.max(0, targetScrollTop - stickyOffset);
-
-                    containerRef.current?.scrollTo({ top: adjustedScrollTop, behavior: 'smooth' });
+                    containerRef.current?.scrollTo({ top: idealScrollTop, behavior: 'smooth' });
                     return; // Do NOT close
                 }
             }
