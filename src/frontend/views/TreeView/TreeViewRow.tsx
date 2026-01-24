@@ -32,6 +32,7 @@ interface TreeViewRowProps {
     onDrop?: (e: React.DragEvent, node: FileTreeNode) => void;
     isSticky?: boolean;
     isDragActive?: boolean;
+    animationState?: { type: 'copy' | 'cut' | 'paste' | null, timestamp: number };
 }
 
 export const TreeViewRow = memo(({
@@ -52,10 +53,33 @@ export const TreeViewRow = memo(({
     onDragOver,
     onDrop,
     isSticky,
-    isDragActive
+    isDragActive,
+    animationState
 }: TreeViewRowProps) => {
     const [isHovered, setIsHovered] = React.useState(false);
     const [isDragOver, setIsDragOver] = React.useState(false);
+
+    // Animation Class Logic
+    const animationClass = React.useMemo(() => {
+        if (!animationState?.type) return '';
+
+        // Copy: Affects only Matches
+        if (animationState.type === 'copy' && node.type === 'match') return 'animate-copy-pulse';
+
+        // Cut: Affects Matches? Or everything? Users said "Text... which was found". Usually Matches.
+        // If we affect folders/files, the whole tree shrinks.
+        // Let's target matches for precision, but if a file is empty after cut?
+        // User said "Text... found".
+        if (animationState.type === 'cut') {
+            if (node.type === 'match') return 'animate-cut-shrink';
+            // If we cut all matches, maybe we animate file collapse too?
+        }
+
+        // Paste: Affects Matches (newly inserted)
+        if (animationState.type === 'paste' && node.type === 'match') return 'animate-paste-expand';
+
+        return '';
+    }, [animationState, node.type]);
 
     // Indentation
     const indentSize = 16;
@@ -111,7 +135,10 @@ export const TreeViewRow = memo(({
         return (
             <div
                 style={style}
-                className="flex items-stretch cursor-pointer relative hover:bg-[var(--vscode-list-hoverBackground)] group bg-[var(--vscode-sideBar-background)]"
+                className={cn(
+                    "flex items-stretch cursor-pointer relative hover:bg-[var(--vscode-list-hoverBackground)] group bg-[var(--vscode-sideBar-background)]",
+                    animationClass
+                )}
                 onClick={() => handleResultItemClick(parentFile.absolutePath, { start: match.start, end: match.end })}
                 title={getLineFromSource(source, match.start, match.end)}
             >

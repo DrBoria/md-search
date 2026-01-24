@@ -7,6 +7,7 @@ import path from 'path-browserify';
 import { getHighlightedMatchContext } from './TreeView/highligtedContext';
 import { getHighlightedMatchContextWithReplacement } from './TreeView/highlightedContextWithReplacement';
 import { getLineFromSource } from './utils';
+import { cn } from '../utils';
 
 type SerializedTransformResultEventMatch = NonNullable<SerializedTransformResultEvent['matches']>[number];
 
@@ -21,6 +22,7 @@ interface VirtualizedListViewProps {
     handleExcludeFile: (path: string) => void;
     currentSearchValues: SearchReplaceViewValues;
     sortedFilePaths?: string[];
+    animationState?: { type: 'copy' | 'cut' | 'paste' | null, timestamp: number };
 }
 
 type FlattenedItem =
@@ -37,7 +39,8 @@ export const VirtualizedListView: React.FC<VirtualizedListViewProps> = ({
     handleReplace,
     handleExcludeFile,
     currentSearchValues,
-    sortedFilePaths
+    sortedFilePaths,
+    animationState
 }) => {
 
     const flattenedItems = useMemo(() => {
@@ -128,8 +131,22 @@ export const VirtualizedListView: React.FC<VirtualizedListViewProps> = ({
             const indentSize = 12; // Should match TreeViewNode
             const level = 0; // List view matches have level 1 relative to file (level 0)
 
+            const animationClass = useMemo(() => {
+                if (!animationState?.type) return '';
+                if (animationState.type === 'copy') return 'animate-copy-pulse';
+                if (animationState.type === 'cut') return 'animate-cut-shrink';
+                // Paste: new items will animate on mount if we had a way to track "newness", 
+                // but since we just re-render, applying it to ALL matches during "paste animation" state creates the effect of "popping in"
+                // provided the state is active.
+                if (animationState.type === 'paste') return 'animate-paste-expand';
+                return '';
+            }, [animationState]);
+
             return (
-                <div style={style} className="flex items-center cursor-pointer h-[24px] hover:bg-[var(--vscode-list-hoverBackground)] group"
+                <div style={style} className={cn(
+                    "flex items-center cursor-pointer h-[24px] hover:bg-[var(--vscode-list-hoverBackground)] group",
+                    animationClass
+                )}
                     onClick={() => handleResultItemClick(filePath, match)}
                     title={getLineFromSource(result.source, match.start, match.end)}
                 >

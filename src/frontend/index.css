@@ -1,3 +1,56 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer utilities {
+  .animate-copy-pulse {
+    animation: copyPulse 0.6s ease-in-out forwards;
+  }
+  
+  .animate-cut-shrink {
+    animation: cutShrink 0.3s ease-in-out forwards;
+    transform-origin: left;
+  }
+  
+  .animate-paste-expand {
+    animation: pasteExpand 0.4s ease-out forwards;
+    transform-origin: left;
+  }
+  
+  /* Notification Banner Animation */
+  .animate-banner-in {
+    animation: bannerIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  
+  .animate-banner-out {
+    animation: bannerOut 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+}
+
+@keyframes copyPulse {
+  0% { transform: scale(1); filter: brightness(1); }
+  25% { transform: scale(0.9); filter: brightness(0.8); } /* Dim & Shrink */
+  50% { transform: scale(1.2); filter: brightness(1.2); } /* Expand & Bright */
+  75% { transform: scale(0.9); filter: brightness(0.9); } /* Shrink */
+  100% { transform: scale(1); filter: brightness(1); }
+}
+
+@keyframes cutShrink {
+  0% { width: 100%; opacity: 1; }
+  100% { width: 0%; opacity: 0; padding-left: 0; padding-right: 0; margin: 0; }
+}
+
+@keyframes pasteExpand {
+  0% { width: 0%; opacity: 0; }
+  100% { width: 100%; opacity: 1; }
+}
+
+@keyframes bannerIn {
+  from { height: 0; opacity: 0; margin-bottom: 0; }
+  to { height: var(--banner-height, 28px); opacity: 1; margin-bottom: 4px; }
+}
+
+@keyframes bannerOut {
+  from { height: var(--banner-height, 28px); opacity: 1; margin-bottom: 4px; }
+  to { height: 0; opacity: 0; margin-bottom: 0; }
+}

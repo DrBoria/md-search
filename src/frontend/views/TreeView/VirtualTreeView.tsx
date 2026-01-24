@@ -21,6 +21,7 @@ interface VirtualTreeViewProps {
     onDragStart?: (e: React.DragEvent, node: FileTreeNode) => void;
     onDragOver?: (e: React.DragEvent, node: FileTreeNode) => void;
     onDrop?: (e: React.DragEvent, node: FileTreeNode) => void;
+    animationState?: { type: 'copy' | 'cut' | 'paste' | null, timestamp: number };
 }
 
 export const VirtualTreeView: React.FC<VirtualTreeViewProps> = ({
@@ -36,7 +37,8 @@ export const VirtualTreeView: React.FC<VirtualTreeViewProps> = ({
     currentSearchValues,
     onDragStart,
     onDragOver,
-    onDrop
+    onDrop,
+    animationState
 }) => {
     // Constants
     const ROW_HEIGHT = 22;
@@ -496,6 +498,7 @@ export const VirtualTreeView: React.FC<VirtualTreeViewProps> = ({
                                 onDragOver={onDragOver}
                                 onDrop={onDrop}
                                 isSticky={true}
+                                animationState={animationState}
                             />
                             {isLast && (
                                 <div className="absolute bottom-0 left-0 w-full h-[1px] bg-[var(--vscode-tree-tableColumnsBorder)]" />
@@ -561,6 +564,7 @@ export const VirtualTreeView: React.FC<VirtualTreeViewProps> = ({
                                     onDragStart={handleNodeDragStart}
                                     onDragOver={onDragOver}
                                     onDrop={onDrop}
+                                    animationState={animationState}
                                 />
                             </div>
                         );

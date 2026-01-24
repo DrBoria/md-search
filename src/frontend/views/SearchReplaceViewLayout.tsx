@@ -6,7 +6,6 @@ import { SearchInputSection } from './SearchInputSection';
 import SearchNestedView from './SearchNestedView';
 import { Button } from '../components/ui/button';
 import { FindInFoundButton } from './components/FindInFoundButton';
-import { ClipboardFeedbackOverlay } from './components/ClipboardFeedbackOverlay';
 import { SearchGlobalProvider, useSearchGlobal } from './context/SearchGlobalContext';
 import { SearchItemProvider, useSearchItemController } from './context/SearchItemContext';
 import { MessageFromWebview, MessageToWebview, SearchReplaceViewValues, SerializedTransformResultEvent, SearchLevel } from '../../model/SearchReplaceViewTypes';
@@ -16,6 +15,7 @@ import { TreeViewNode, FileTreeNode, FileNode, FolderNode } from './TreeView';
 import { VirtualTreeView } from './TreeView/VirtualTreeView';
 import { VirtualizedListView } from './VirtualizedListView';
 import { AnimatedCounter } from './components/AnimatedCounter';
+import { NotificationBanner } from './components/NotificationBanner';
 
 // --- Interfaces ---
 
@@ -328,34 +328,7 @@ const RootSearchSection = () => {
     }, [resultsByFile, customFileOrder, vscode]);
 
 
-    // -- Message Listener for Feedback --
-    useEffect(() => {
-        const handler = (event: MessageEvent) => {
-            const message = event.data;
-            switch (message.type) {
-                case 'copyMatchesComplete':
-                    showFeedback(`Copied ${message.count} matches`, undefined, 'copy');
-                    break;
-                case 'cutMatchesComplete':
-                    showFeedback(`Cut ${message.count} matches`, undefined, 'cut');
-                    // Perform local removal if backend doesn't trigger a full refresh
-                    // Assuming 'cut' clears the current view results?
-                    setResultsByFile({});
-                    // Also clear stale to avoid ghosting
-                    // setStaleResultsByFile({}); // We don't have access to this setter here via context destructuring yet? 
-                    // Actually we do via useSearchGlobal if checking updated destructuring.
-                    break;
-                case 'pasteToMatchesComplete':
-                    showFeedback(`Pasted ${message.count} matches`, undefined, 'paste');
-                    break;
-                case 'copyFileNamesComplete':
-                    showFeedback(`Copied ${message.count} file paths`, undefined, 'copy');
-                    break;
-            }
-        };
-        window.addEventListener('message', handler);
-        return () => window.removeEventListener('message', handler);
-    }, [showFeedback, setResultsByFile]);
+    // -- Message Listener logic moved to SearchReplaceViewInner --
 
 
     // -- Keybindings --
@@ -490,6 +463,27 @@ const RootSearchSection = () => {
         </>
     );
 
+    // ... (rest of logic same)
+
+    // Note: We removed the local feedbackState from here since it is now managed in the parent (for banner integration)
+    // However, if RootSearchSection needs to TRIGGER feedback, it should use the context or props?
+    // Actually, trigger mechanism is via postMessage -> Backend -> Message Listener in Parent.
+    // So RootSearchSection just posts messages.
+    // The previous implementation had feedbackState LOCALLY in RootSearchSection, but the `useEffect` listener was ALSO there.
+    // I moved the listener to `SearchReplaceViewInner`. 
+    // So RootSearchSection should NOT have the listener anymore.
+    // It just renders the Input Section.
+    // The InputSection needs `useSearchItem` context.
+
+    // NOTE: `RootSearchSection` was defining the `SearchItemProvider`.
+    // We should keep that structure or move it up?
+    // User wants "notification banner... above tree view". If I put it in root, it pushes input? 
+    // "above tree view or list view... push down the tree view". 
+    // This implies it should be BETWEEN Input and Tree.
+    // So `RootSearchSection` (Input) stays as is, `NotificationBanner` is sibling below it.
+
+    // So RootSearchSection can be simplified to just providing the context and input section.
+
     const controller = useSearchItemController({
         levelIndex: 0,
         extraActions,
@@ -502,13 +496,7 @@ const RootSearchSection = () => {
                 className="flex-grow"
                 summary={<SearchResultSummary />}
             />
-            <ClipboardFeedbackOverlay
-                visible={feedbackState.visible}
-                message={feedbackState.message}
-                subMessage={feedbackState.subMessage}
-                type={feedbackState.type}
-                onClose={() => setFeedbackState(prev => ({ ...prev, visible: false }))}
-            />
+            {/* Overlay Removed - handled by NotificationBanner in parent */}
         </SearchItemProvider>
     );
 
@@ -663,18 +651,26 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
 
     // Local UI State
     const [workspacePath, setWorkspacePath] = useState<string>('');
-    // REMOVED shadowed isSearchRequested
+    const [animationState, setAnimationState] = useState<{ type: 'copy' | 'cut' | 'paste' | null, timestamp: number }>({ type: null, timestamp: 0 });
 
+    // -- Notification Banner State --
+    const [feedbackState, setFeedbackState] = useState<{
+        visible: boolean;
+        message: string;
+        subMessage?: string;
+        type: 'copy' | 'cut' | 'paste' | 'info';
+    }>({ visible: false, message: '', type: 'info' });
 
-    // Determine effective results (current or stale)
+    const showFeedback = useCallback((message: string, subMessage: string | undefined, type: 'copy' | 'cut' | 'paste' | 'info') => {
+        setFeedbackState({ visible: true, message, subMessage, type });
+    }, []);
+
     // Determine effective results (current or stale)
     const effectiveResultsByFile = useMemo(() => {
+        // ... (existing logic)
         const hasCurrent = Object.keys(resultsByFile).length > 0;
         if (hasCurrent) return resultsByFile;
-
-        // Only use stale results if they belong to the root level (level 0)
-        // or if staleLevel is null/undefined (legacy behavior fallback, though we set it explicitly now)
-        // But strictly for root view, we want staleLevel === 0.
+        // ...
         if (staleResultsByFile && Object.keys(staleResultsByFile).length > 0 && (staleLevel === 0 || staleLevel === undefined || staleLevel === null)) {
             return staleResultsByFile;
         }
@@ -761,6 +757,34 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
                 case 'skipped-large-files':
                     setSkippedCount(message.count);
                     break;
+
+                // --- Animation & Feedback Handlers ---
+                case 'copyMatchesComplete':
+                    showFeedback(`Copied ${message.count} matches`, undefined, 'copy');
+                    setAnimationState({ type: 'copy', timestamp: Date.now() });
+                    // Reset animation state after duration
+                    setTimeout(() => setAnimationState({ type: null, timestamp: 0 }), 1000);
+                    break;
+
+                case 'cutMatchesComplete':
+                    showFeedback(`Cut ${message.count} matches`, undefined, 'cut');
+                    setAnimationState({ type: 'cut', timestamp: Date.now() });
+                    // Wait for animation (e.g. 400ms) BEFORE clearing results
+                    setTimeout(() => {
+                        setResultsByFile({});
+                        setAnimationState({ type: null, timestamp: 0 });
+                    }, 400);
+                    break;
+
+                case 'pasteToMatchesComplete':
+                    showFeedback(`Pasted ${message.count} matches`, undefined, 'paste');
+                    setAnimationState({ type: 'paste', timestamp: Date.now() });
+                    setTimeout(() => setAnimationState({ type: null, timestamp: 0 }), 1000);
+                    break;
+
+                case 'copyFileNamesComplete':
+                    showFeedback(`Copied ${message.count} file paths`, undefined, 'copy');
+                    break;
             }
         };
 
@@ -772,7 +796,7 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
             window.removeEventListener('message', onMessage);
             window.removeEventListener('blur', handleBlur);
         };
-    }, [handleMessage, vscode]);
+    }, [handleMessage, vscode, showFeedback, setResultsByFile]);
 
     // Handlers
     // Handlers
@@ -1062,6 +1086,15 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
                 </div>
             </div>
 
+            {/* Notification Banner - Pushes content down */}
+            <NotificationBanner
+                visible={feedbackState.visible}
+                message={feedbackState.message}
+                subMessage={feedbackState.subMessage}
+                type={feedbackState.type}
+                onClose={() => setFeedbackState(prev => ({ ...prev, visible: false }))}
+            />
+
             {/* Pause Warning Banner */}
             {pausedState && (
                 <div className="bg-[var(--vscode-inputValidation-warningBackground)] border border-[var(--vscode-inputValidation-warningBorder)] p-2 mb-2 rounded-sm flex flex-col gap-2 animate-in fade-in slide-in-from-top-1 duration-300">
@@ -1092,7 +1125,48 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
             )}
 
             <div className={cn("flex-grow overflow-hidden relative", isStale ? "opacity-50 transition-opacity duration-200" : "transition-opacity duration-200")}>
-                {viewMode === 'list' ? renderListViewResults() : renderTreeViewResults()}
+                {viewMode === 'list' ? (
+                    <div className="flex flex-col h-full overflow-hidden">
+                        <VirtualizedListView
+                            results={effectiveResultsByFile}
+                            workspacePath={uriToPath(workspacePath)}
+                            expandedFiles={currentExpandedFiles}
+                            toggleFileExpansion={toggleFileExpansion}
+                            handleFileClick={handleFileClick}
+                            handleResultItemClick={(path, match) => handleResultItemClick(path, { start: match.start, end: match.end })}
+                            handleReplace={handleReplaceSelectedFiles}
+                            handleExcludeFile={handleExcludeFile}
+                            currentSearchValues={values}
+                            sortedFilePaths={sortedFilePaths}
+                            animationState={animationState} // Pass Animation State
+                        />
+                    </div>
+                ) : (
+                    <div className="flex flex-col h-full overflow-hidden">
+                        {fullFileTree && fullFileTree.children.length > 0 ? (
+                            <VirtualTreeView
+                                fileTree={fullFileTree.children}
+                                expandedFolders={currentExpandedFolders}
+                                toggleFolderExpansion={toggleFolderExpansion}
+                                expandedFiles={currentExpandedFiles}
+                                toggleFileExpansion={toggleFileExpansion}
+                                handleFileClick={handleFileClick}
+                                handleResultItemClick={handleResultItemClick}
+                                handleReplace={handleReplaceSelectedFiles}
+                                handleExcludeFile={handleExcludeFile}
+                                currentSearchValues={values}
+                                onDragStart={handleDragStart}
+                                onDragOver={handleDragOver}
+                                onDrop={handleDrop}
+                                animationState={animationState} // Pass Animation State
+                            />
+                        ) : isSearchRequested ? (
+                            <div className="p-[10px] text-center flex gap-2 justify-center"><span className="codicon codicon-loading codicon-modifier-spin" /><span>Searching...</span></div>
+                        ) : (
+                            <div className="p-[10px] text-center text-[var(--vscode-descriptionForeground)]">No matches found.</div>
+                        )}
+                    </div>
+                )}
             </div>
 
             {/* Skipped Files Notification */}
