@@ -543,28 +543,42 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
 
         case 'addBatchResults': {
           const messageNonce = message.nonce
-          const currentNonce = valuesRef.current.searchNonce
+          const currentNonce = valuesRef.current.searchNonce // Active level nonce
           const batchSize = message.data.length
-          console.log(`DEBUG: FE addBatchResults received. Size: ${batchSize}. Nonce: ${messageNonce} (Current: ${currentNonce})`)
+          // console.log(`DEBUG: FE addBatchResults received. Size: ${batchSize}. Nonce: ${messageNonce}`)
 
-          // NONCE VALIDATION: Ignore results from stale/outdated searches
-          if (messageNonce && currentNonce && messageNonce !== currentNonce) {
-            console.log(
-              `WARNING: Stale results ignored! Message nonce: ${messageNonce}, Current nonce: ${currentNonce}`
-            )
+          if (!messageNonce) {
+            console.warn('Received batch results without nonce. Ignoring.')
             break
           }
 
           const batchResults = message.data
 
+          // NONCE-AWARE ROUTING: Find which level this nonce belongs to
+          // We check searchLevelsRef to match the nonce.
+          const matchingLevelIndex = searchLevelsRef.current.findIndex(l => l.values?.searchNonce === messageNonce)
+          const isForActiveLevel = matchingLevelIndex === values.searchInResults
+
+          // If we can't find a matching level, check if it matches the current active values nonce (in case levels aren't synced yet)
+          // But searchLevels should be synced by the time we search.
+          // If it matches NOTHING, we assume it's stale and ignore it.
+          // EXCEPTION: If it matches `valuesRef.current.searchNonce` but not in searchLevels (rare race?), treat as active.
+
+          if (matchingLevelIndex === -1 && messageNonce !== currentNonce) {
+            console.log(`WARNING: Stale results ignored! Nonce ${messageNonce} matches no level.`)
+            break
+          }
+
+          // Effective Index: if found in levels, use that. If not but matches active, use active.
+          const targetLevelIndex = matchingLevelIndex !== -1 ? matchingLevelIndex : values.searchInResults
+
           // Clear results if this is the first batch of a new search
-          if (shouldClearResultsRef.current) {
+          if (shouldClearResultsRef.current && isForActiveLevel) {
             console.log('DEBUG: Clearing results (Ref Trigger)')
             shouldClearResultsRef.current = false
             setIsSearchRequested(false)
 
-            // Set stale results here too if triggered by frontend logic
-            // Determine Stale Results Snapshot
+            // ... (clear logic same as before, but only for active level) ...
             if (isInNestedSearch) {
               const currentLevelIndex = values.searchInResults
               const currentLevelResults =
@@ -583,66 +597,88 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
                 setStaleLevel(0)
               }
             }
-
             setStaleStatus((prev) => {
               if (status.numMatches > 0) return status
               return prev
             })
-
-            // Clear Pending
             pendingResultsRef.current = {}
 
-            if (isInNestedSearch) {
-              // ... existing nested clear logic
-              setSearchLevels((prev) => {
-                const currentLevel = prev[values.searchInResults]
-                if (!currentLevel) return prev
-                const newLevels = [...prev]
-                newLevels[values.searchInResults] = {
-                  ...currentLevel,
-                  resultsByFile: {},
-                  expandedFiles: new Set(),
-                  expandedFolders: new Set(),
-                }
-                return newLevels
-              })
-            } else {
-              setResultsByFile({})
-            }
+            // Clear the TARGET level results
+            setSearchLevels((prev) => {
+              if (!prev[targetLevelIndex]) return prev
+              const newLevels = [...prev]
+              newLevels[targetLevelIndex] = {
+                ...newLevels[targetLevelIndex],
+                resultsByFile: {},
+                expandedFiles: new Set(),
+                expandedFolders: new Set(),
+              }
+              return newLevels
+            })
+
+            if (isForActiveLevel) setResultsByFile({})
           }
 
-          // If we have new results, clear the stale results
-          if (batchResults.length > 0) {
+          // If we have new results for ACTIVE level, clear the stale results
+          if (isForActiveLevel && batchResults.length > 0) {
             setStaleResultsByFile(null)
             setStaleStatus(null)
             setStaleLevel(null)
-          } else {
-            console.log('DEBUG: Received EMPTY batch results')
-          }
-
-          // Debug Content
-          if (batchResults.length > 0) {
-            const firstMatch = batchResults[0]
-            if (firstMatch && firstMatch.matches && firstMatch.matches.length > 0) {
-              const firstSubMatch = firstMatch.matches[0]
-              if (firstMatch.source) {
-                const preview = firstMatch.source.substring(firstSubMatch.start, Math.min(firstSubMatch.end, firstSubMatch.start + 50)).replace(/\n/g, '\\n')
-                console.log(`DEBUG: FE First Batch Match Content: "${preview}" (File: ${firstMatch.file})`)
-              }
-            }
           }
 
           // Append to pending
           batchResults.forEach((newResult: SerializedTransformResultEvent) => {
+            // ... existing pending push ...
             const hasMatches = newResult.matches && newResult.matches.length > 0
             if (!hasMatches && !newResult.error) return
-
             if (!pendingResultsRef.current[newResult.file]) {
               pendingResultsRef.current[newResult.file] = []
             }
             pendingResultsRef.current[newResult.file].push(newResult)
           })
 
+          // Flush logic must be updated to target the SPECIFIC level, not just active.
+          // But `flushPendingResults` currently reads `values.searchInResults`.
+          // To support background updates, force flush to look at the target level?
+          // For now, let's just use flushPendingResults and rely on it picking up tokens... 
+          // WAIT. `flushPendingResults` uses `values.searchInResults` to decide where to write. 
+          // If we are writing to a background level, `flushPendingResults` will write to the WRONG level (the active one).
+          // WE MUST FIX `flushPendingResults` too.
+          // Or simpler: Only loop the batch processing in `addBatchResults` and inline the update logic?
+          // Refactoring `flushPendingResults` is risky.
+
+          // Temporary Fix: If the message is for a background level, we can't use `flushPendingResults` effectively
+          // because it aggregates pending results for ONE update cycle.
+          // However, we determined the issue is corruption of Level 0 by Level 1 results.
+          // With `matchingLevelIndex`, we know where it SHOULD go.
+          // If `targetLevelIndex !== values.searchInResults`, we should manually update the state for that level and SKIP pending/flush.
+          // Directly update `searchLevels`.
+
+          if (targetLevelIndex !== values.searchInResults) {
+            // Background Update
+            setSearchLevels(prev => {
+              const newLevels = [...prev]
+              const level = newLevels[targetLevelIndex]
+              if (!level) return prev
+
+              const updatedResultsByFile = { ...level.resultsByFile }
+              batchResults.forEach(res => {
+                if (!res.matches || res.matches.length === 0) return
+                // Simple replace/append? Backend sends full file results.
+                updatedResultsByFile[res.file] = [res] // Assuming full replacement per file
+              })
+
+              newLevels[targetLevelIndex] = {
+                ...level,
+                resultsByFile: updatedResultsByFile
+              }
+              return newLevels
+            })
+            // Stop here. Don't flush to active view.
+            break;
+          }
+
+          // If it IS for active level, proceed with standard flush
           flushPendingResults()
           break
         }
@@ -766,6 +802,7 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
           matchCase: values.matchCase,
           wholeWord: values.wholeWord,
           searchMode: values.searchMode,
+          searchNonce: values.searchNonce,
         },
         label: values.find ? values.find : currentLevel.label,
       }
@@ -778,6 +815,7 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
     values.wholeWord,
     values.searchMode,
     values.searchInResults,
+    values.searchNonce,
   ])
 
   // --- Debounced Message Sender ---
@@ -854,18 +892,14 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
         console.log(
           'postValuesChange: within skip window, skipping backend message'
         )
-      } else {
-        // Mark validation as requested so we know to clear current results when new ones arrive
-        setIsSearchRequested(true)
-        shouldClearResultsRef.current = true
       }
 
       setValues((prev) => {
-        const nonce =
-          Date.now().toString() + Math.random().toString().slice(2, 5)
+        // Calculate new state
+        const nonce = Date.now().toString() + Math.random().toString().slice(2, 5)
         const next = { ...prev, ...changed, searchNonce: nonce }
 
-        // Update ref SYNCHRONOUSLY so callbacks always have latest values
+        // Update ref SYNCHRONOUSLY
         valuesRef.current = next
 
         console.log(
@@ -874,6 +908,29 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
           'next.searchInResults:',
           next.searchInResults
         )
+
+        // IMMEDIATE SYNC: Update searchLevels to ensure history captures the new Nonce
+        // This prevents race conditions where results arrive before useEffect fires.
+        setSearchLevels(prevLevels => {
+          const idx = next.searchInResults;
+          if (idx < 0 || idx >= prevLevels.length) return prevLevels;
+
+          const currentLevel = prevLevels[idx];
+          // If skipping search (e.g. back nav), we might not want to overwrite history logic? 
+          // Actually, syncing history is always good. 
+          // BUT careful not to overwrite 'resultsByFile' or other state.
+
+          const newLevels = [...prevLevels];
+          newLevels[idx] = {
+            ...currentLevel,
+            values: {
+              ...currentLevel.values,
+              ...next, // Capture find, nonce, etc.
+            },
+            label: next.find || currentLevel.label // Sync label
+          };
+          return newLevels;
+        });
 
         // Only send to backend if not skipping
         if (!shouldSkipSearch) {
@@ -884,6 +941,10 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
             changed.searchInResults < prev.searchInResults;
 
           if (!isBackNav) {
+            // Mark validation as requested so we know to clear current results when new ones arrive
+            setIsSearchRequested(true)
+            shouldClearResultsRef.current = true
+
             console.log('DEBUG: Calling debouncedTriggerSearch', next.searchNonce)
             debouncedTriggerSearch({
               type: 'search',
@@ -891,12 +952,12 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
               searchInResults: next.searchInResults,
             })
           } else {
-            console.log('DEBUG: Calling debouncedPostMessage (values)', next.searchNonce)
-            debouncedPostMessage({ type: 'values', values: next })
+            console.log('DEBUG: BackNav optimization. Skipping Search. Nonce:', next.searchNonce)
+            // Do NOT set isSearchRequested logic here, as we expect cache to be sufficient.
           }
+        } else {
+          // If skipping, we also don't request search.
         }
-
-
 
         return next
       })

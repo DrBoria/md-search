@@ -2,9 +2,10 @@ import { TypedEmitter } from 'tiny-typed-emitter'
 import * as vscode from 'vscode'
 import { debounce } from 'lodash'
 import { Params, IMdSearchExtension } from '../types'
-import { SearchRunnerEvents } from '../../model/SearchRunnerTypes'
+import { SearchRunnerEvents, TransformResultEvent } from '../../model/SearchRunnerTypes'
 import { SearchWorkflow } from '../search/workflow/SearchWorkflow'
 import { TextSearchService } from '../search/services/TextSearchService'
+import { SearchCache } from '../search/services/CacheService'
 
 /**
  * Controller class that manages the SearchWorkflow.
@@ -15,9 +16,13 @@ export class SearchOrchestrator extends TypedEmitter<SearchRunnerEvents> {
   private extension: IMdSearchExtension
 
   // Dependencies
+  // Dependencies
   private workflow: SearchWorkflow
   private cacheService: SearchCache
   private textSearchService: TextSearchService
+
+  // Track files that have changed since the last search run
+  private dirtyFiles = new Set<string>()
 
   constructor(
     extension: IMdSearchExtension,
@@ -85,8 +90,12 @@ export class SearchOrchestrator extends TypedEmitter<SearchRunnerEvents> {
       return
     }
 
+    // Clone and clear dirty files to pass to workflow
+    const currentDirtyFiles = new Set(this.dirtyFiles)
+    this.dirtyFiles.clear()
+
     // Delegate to workflow
-    await this.workflow.run(this.params)
+    await this.workflow.run(this.params, currentDirtyFiles)
   }
 
   stop(): void {
@@ -120,6 +129,8 @@ export class SearchOrchestrator extends TypedEmitter<SearchRunnerEvents> {
   }
 
   invalidateFileInCache(uri: vscode.Uri): void {
+    // Add to dirty files so next run picks it up for Nested Search scope merging
+    this.dirtyFiles.add(uri.toString())
     this.cacheService.invalidateFileInCache(uri)
   }
 

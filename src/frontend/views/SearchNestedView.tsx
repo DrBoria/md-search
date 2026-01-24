@@ -445,6 +445,13 @@ export default function SearchNestedView() {
                                     ? `${searchLevels[0].values.find.substring(0, 10)}...`
                                     : searchLevels[0].values.find)
                                 : 'Root'}
+
+
+                            {values.searchInResults > 0 && searchLevels[0]?.stats && (
+                                <span className="ml-1 opacity-70 font-normal">
+                                    ({searchLevels[0].stats.numMatches})
+                                </span>
+                            )}
                         </span>
 
                         {/* Nested Levels */}

@@ -28,29 +28,23 @@ export class SearchWorkflow extends EventEmitter {
   private skippedLargeFiles = new Set<string>()
   private currentParams: Params | null = null
 
-  async run(params: Params): Promise<void> {
+  async run(params: Params, dirtyFiles?: Set<string>): Promise<void> {
     if (this.isRunning) {
-      this.stop()
+      if (this.abortController) {
+        this.emit('stop')
+        this.abortController.abort()
+      }
     }
+
     this.isRunning = true
     this.isPaused = false
     this.totalMatchesInRun = 0
     this.currentLimitIndex = 0
-    this.pauseResolver = null
     this.skippedLargeFiles.clear()
     this.currentParams = params
 
-    // Generate ID for logging
-    const runId = Math.floor(Math.random() * 100000)
-    console.log(`[SearchWorkflow] STARTING run ID ${runId}. Query: "${params.find}". Nonce: ${params.searchNonce}`)
-
-    // Create a new controller for THIS run
     const controller = new AbortController()
-    // (controller as any)._id = runId // Store ID on controller for stop logging? No, hard to access in stop() without casting.
-
     this.abortController = controller
-    // this.textSearchService.setAbortController(this.abortController) // Removed
-
 
     this.emit('start')
 
@@ -59,7 +53,7 @@ export class SearchWorkflow extends EventEmitter {
 
       // 1. Determine Source Files & Parent Node
       const { filesToScan, targetParentNode } =
-        await this.getFilesToScan(params)
+        await this.getFilesToScan(params, dirtyFiles)
 
       // 2. Setup Cache Node
       const cacheNode = this.setupCacheNode(params, targetParentNode)
@@ -118,15 +112,11 @@ export class SearchWorkflow extends EventEmitter {
               } else {
                 // Even if no matches, we might need to clear previous matches for this file
                 // IF the file was previously in the results (e.g. nested search).
-                // However, we only have 'result' if we create it.
-                // Let's create an empty result logic.
                 const result: TransformResultEvent = {
                   file: vscode.Uri.parse(fileUri),
                   matches: [],
                   source: content
                 }
-                // We don't necessarily emit 'result' for empty files (to reduce noise),
-                // BUT we MUST update the cache.
                 this.cacheService.addResult(result)
               }
             } catch (err) {
@@ -256,8 +246,12 @@ export class SearchWorkflow extends EventEmitter {
   }
 
   private async getFilesToScan(
-    params: Params
-  ): Promise<{ filesToScan: string[]; targetParentNode: any }> {
+    params: Params,
+    dirtyFiles?: Set<string>
+  ): Promise<{
+    filesToScan: string[]
+    targetParentNode: any
+  }> {
     const { searchInResults, include, exclude } = params
     let filesToScan: string[] = []
     let targetParentNode: any = null
@@ -267,50 +261,55 @@ export class SearchWorkflow extends EventEmitter {
     )
 
     if (searchInResults && searchInResults > 0) {
-      // Use the stable parent node based on the nearest GLOBAL ancestor.
-      // This ensures that whether we are starting a nested search or typing inside one,
-      // we always reference the "Base Results" from the last Global Search (e.g. "function"),
-      // instead of drilling down into intermediate nested typing states or forcing Depth 0 (which might be just "f").
-
+      // Nested Search: Identify Stable Global Scope
       const scopeNode = this.cacheService.getNearestGlobalNode()
-      const currentNode = this.cacheService.getCurrentNode()
-
-      console.log(
-        `[SearchWorkflow] Nested Search. Scope Node (Global Base): ${scopeNode?.query} (Depth ${scopeNode?.depth}). Current Node: ${currentNode?.query} (Depth ${currentNode?.depth})`
-      )
 
       if (scopeNode) {
-        // Use results from the scope node as the file list
         const currentResults = scopeNode.results
+        // If we have scope results, use them
         if (currentResults && currentResults.size > 0) {
-          filesToScan = Array.from(currentResults.keys())
+          const scopeFiles = Array.from(currentResults.keys())
+
+          // MERGE Dirty Files into scope
+          if (dirtyFiles && dirtyFiles.size > 0) {
+            const dirtyArray = Array.from(dirtyFiles)
+            // We want union, excluding duplicates
+            // Note: scopeFiles are just paths (strings)
+            const union = new Set([...scopeFiles, ...dirtyArray])
+            filesToScan = Array.from(union)
+            console.log(`[SearchWorkflow] Merged dirty files. Scope size: ${scopeFiles.length} + Dirty: ${dirtyArray.length} -> Total: ${filesToScan.length}`)
+          } else {
+            filesToScan = scopeFiles
+          }
+
           targetParentNode = scopeNode
-          console.log(
-            `[SearchWorkflow] Found ${filesToScan.length} files in stable global scope.`
-          )
         } else {
-          filesToScan = []
-          targetParentNode = scopeNode
-          console.log(`[SearchWorkflow] Stable global scope is empty.`)
+          // Scope node exists but empty results?
+          // If dirty files exist, they might be new matches!
+          if (dirtyFiles && dirtyFiles.size > 0) {
+            filesToScan = Array.from(dirtyFiles)
+            targetParentNode = scopeNode
+          } else {
+            filesToScan = []
+            targetParentNode = scopeNode
+            console.log(`[SearchWorkflow] Scope empty and no dirty files.`)
+          }
         }
       } else {
-        // Fallback if no global scope found (e.g. cache cleared or started directly in nested mode)
-        // Fallback to global scan
-        const uris = await this.fileService.findFiles(
-          include || '**/*',
-          exclude || ''
-        )
-        filesToScan = uris.map((u) => u.toString())
-        console.log(`[SearchWorkflow] No global cache scope found. Falling back to global scan.`)
+        // No scope node found (cache issue?), fallback to global scan
+        console.log(`[SearchWorkflow] No global scope node found. Fallback to full scan.`)
+        const uris = await this.fileService.findFiles(include || '**/*', exclude || '')
+        filesToScan = uris.map(u => u.toString())
       }
     } else {
+      // Global Search
       const uris = await this.fileService.findFiles(
         include || '**/*',
         exclude || ''
       )
       filesToScan = uris.map((u) => u.toString())
-      // console.log(`[SearchWorkflow] Global search. Scanning ${filesToScan.length} files.`)
     }
+
     return { filesToScan, targetParentNode }
   }
 
