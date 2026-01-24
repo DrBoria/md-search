@@ -52,6 +52,7 @@ export interface IMdSearchExtension {
   pasteToMatches(fileOrder?: string[]): Promise<number>
   copyFileNames(): Promise<number>
   undoLastOperation(): Promise<boolean>
+  undoLastOperation(): Promise<boolean>
   setCustomFileOrder(order: { [key: string]: number }): void
   getCustomFileOrder(): { [key: string]: number }
   triggerSearch(): void

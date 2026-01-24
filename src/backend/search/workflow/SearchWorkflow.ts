@@ -267,43 +267,41 @@ export class SearchWorkflow extends EventEmitter {
     )
 
     if (searchInResults && searchInResults > 0) {
-      // Use the current node as the scope for the nested search
+      // Use the stable parent node based on the nearest GLOBAL ancestor.
+      // This ensures that whether we are starting a nested search or typing inside one,
+      // we always reference the "Base Results" from the last Global Search (e.g. "function"),
+      // instead of drilling down into intermediate nested typing states or forcing Depth 0 (which might be just "f").
+
+      const scopeNode = this.cacheService.getNearestGlobalNode()
       const currentNode = this.cacheService.getCurrentNode()
 
       console.log(
-        `[SearchWorkflow] Nested Search. Using currentNode (Depth ${currentNode?.depth}) as scope.`
+        `[SearchWorkflow] Nested Search. Scope Node (Global Base): ${scopeNode?.query} (Depth ${scopeNode?.depth}). Current Node: ${currentNode?.query} (Depth ${currentNode?.depth})`
       )
 
-      if (currentNode) {
-        // Use results from the current node as the file list
-        // This effectively locks the scope to what the user was just seeing
-        const currentResults = currentNode.results
+      if (scopeNode) {
+        // Use results from the scope node as the file list
+        const currentResults = scopeNode.results
         if (currentResults && currentResults.size > 0) {
           filesToScan = Array.from(currentResults.keys())
-          targetParentNode = currentNode
+          targetParentNode = scopeNode
           console.log(
-            `[SearchWorkflow] Found ${filesToScan.length} files in current scope.`
+            `[SearchWorkflow] Found ${filesToScan.length} files in stable global scope.`
           )
         } else {
-          // Fallback or empty?
-          // If current node has no results, nested search usually returns nothing
-          // But if it's the root and empty, maybe we shouldn't have active searchInResults?
-          // We'll respect the empty scope.
           filesToScan = []
-          targetParentNode = currentNode
-          console.log(`[SearchWorkflow] Current scope is empty.`)
+          targetParentNode = scopeNode
+          console.log(`[SearchWorkflow] Stable global scope is empty.`)
         }
       } else {
-        // No current node, fallback to global? Or empty?
-        // If searchInResults is checked but no search run yet, it behaves like global
-        // But parameters suggest we want nested.
-        // Let's fallback to global scan if no cache exists.
+        // Fallback if no global scope found (e.g. cache cleared or started directly in nested mode)
+        // Fallback to global scan
         const uris = await this.fileService.findFiles(
           include || '**/*',
           exclude || ''
         )
         filesToScan = uris.map((u) => u.toString())
-        console.log(`[SearchWorkflow] No active cache for nested search. Falling back to global scan.`)
+        console.log(`[SearchWorkflow] No global cache scope found. Falling back to global scan.`)
       }
     } else {
       const uris = await this.fileService.findFiles(

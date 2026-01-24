@@ -516,27 +516,22 @@ export class MdSearchExtension implements IMdSearchExtension {
         if (!success) {
           this.logError(new Error('Failed to apply workspace edit'))
         } else {
-          // Save all modified documents
-          // Optional: user might want to review? simpler to save for "Replace All" behavior
-          // But standard VS Code replace all doesn't always autosave.
-          // For "Cut", we definitely want to save or at least keep dirty.
-          // If we keep dirty, `scanFile` needs to read from dirtied document.
-          // `SearchRunner.ts` `scanFile` uses `document.getText()` which gets dirty content.
-          // So we are good!
-
-          // However, if we want to mimic "Replace All" which usually saves files in many extensions:
-          // Let's explicitly save if it's a "Replace All" action, 
-          // but for "Cut" maybe just leave it dirty?
-          // The user said "blinks ... then shows data from cache".
-          // If we leave it dirty, `scanFile` sees new content.
-          // If we previously wrote to disk, checking "dirty" vs "disk" might have raced.
-
-          // Let's Try to Save to be consistent with previous fs.writeFile behavior.
-          // But purely using WorkspaceEdit is enough to update the view.
-          // We can iterate and save.
-
-          // Actually, saving might trigger the watcher again.
-          // We should probably save.
+          // Explicitly save the modified documents
+          // We can identify them from filesToProcess or just save all dirty files associated with them
+          // Since we might not have the doc references handy in scope unless we collected them,
+          // let's rely on saveAll but ensure we wait a bit or try to save specific URIs if possible.
+          // Better: Open and save.
+          for (const [uriString] of filesToProcess) {
+            try {
+              const doc = await vscode.workspace.openTextDocument(vscode.Uri.parse(uriString))
+              if (doc.isDirty) {
+                await doc.save()
+              }
+            } catch (e) {
+              // ignore
+            }
+          }
+          // Also call saveAll as backup
           await vscode.workspace.saveAll()
         }
       }
@@ -665,6 +660,7 @@ export class MdSearchExtension implements IMdSearchExtension {
       ] of this.undoState.savedFileContents.entries()) {
         try {
           const uri = vscode.Uri.parse(uriString)
+          this.channel.appendLine(`[Undo] Restoring ${uriString} (${originalContent.length} bytes)`)
           const contentBytes = Buffer.from(originalContent, 'utf8')
           await vscode.workspace.fs.writeFile(uri, contentBytes as any)
           restoredCount++

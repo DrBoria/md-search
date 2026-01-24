@@ -809,17 +809,37 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
   }, [debouncedPostMessage, debouncedTriggerSearch])
 
   // Sync customFileOrder to backend
+  const prevCustomOrderRef = useRef<Record<string, number>>({})
   useEffect(() => {
+    console.log('[useSearchState] Sync Effect Running. CustomFileOrder Len:', customFileOrder.length)
     const customOrder: Record<string, number> = {}
     customFileOrder.forEach((path, index) => {
       customOrder[path] = index
     })
+
+    const prevStr = JSON.stringify(prevCustomOrderRef.current)
+    const currStr = JSON.stringify(customOrder)
+
+    if (prevStr === currStr) {
+      // console.log('[useSearchState] Sync Effect: No change detected. Skipping.')
+      return
+    }
+
+    console.log(`[useSearchState] Sync Effect: Change detected! Prev: ${prevStr.substring(0, 50)}... Curr: ${currStr.substring(0, 50)}...`)
+
+    prevCustomOrderRef.current = customOrder
+
     console.log('Sending updateFileOrder to backend:', customOrder)
     debouncedPostMessage({
       type: 'updateFileOrder',
       customOrder,
     })
   }, [customFileOrder, debouncedPostMessage])
+
+  useEffect(() => {
+    console.log('[useSearchState] MOUNTED')
+    return () => console.log('[useSearchState] UNMOUNTED')
+  }, [])
 
   const postValuesChange = useCallback(
     (changed: Partial<SearchReplaceViewValues>) => {

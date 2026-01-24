@@ -119,7 +119,8 @@ export const useSearchItemController = ({ levelIndex, extraActions, inputRef }: 
     };
 
     const setReplace = (val: string) => {
-        if (isRoot) {
+        const isActiveLevel = global.values.searchInResults === levelIndex;
+        if (isRoot || isActiveLevel) {
             global.postValuesChange({ replace: val });
         } else {
             global.setSearchLevels(prev => {
@@ -140,7 +141,8 @@ export const useSearchItemController = ({ levelIndex, extraActions, inputRef }: 
     const exclude = values.exclude || '';
 
     const setInclude = (val: string) => {
-        if (isRoot) {
+        const isActiveLevel = global.values.searchInResults === levelIndex;
+        if (isRoot || isActiveLevel) {
             global.postValuesChange({ include: val });
         } else {
             global.setSearchLevels(prev => {
@@ -157,7 +159,8 @@ export const useSearchItemController = ({ levelIndex, extraActions, inputRef }: 
     };
 
     const setExclude = (val: string) => {
-        if (isRoot) {
+        const isActiveLevel = global.values.searchInResults === levelIndex;
+        if (isRoot || isActiveLevel) {
             global.postValuesChange({ exclude: val });
         } else {
             global.setSearchLevels(prev => {
@@ -195,7 +198,8 @@ export const useSearchItemController = ({ levelIndex, extraActions, inputRef }: 
     // Matches logic
     const toggleMatchCase = () => {
         const newVal = !matchCase;
-        if (isRoot) global.postValuesChange({ matchCase: newVal });
+        const isActiveLevel = global.values.searchInResults === levelIndex;
+        if (isRoot || isActiveLevel) global.postValuesChange({ matchCase: newVal });
         else {
             // Nested update
             global.setSearchLevels(prev => {
@@ -214,7 +218,8 @@ export const useSearchItemController = ({ levelIndex, extraActions, inputRef }: 
 
     const toggleWholeWord = () => {
         const newVal = !wholeWord;
-        if (isRoot) global.postValuesChange({ wholeWord: newVal });
+        const isActiveLevel = global.values.searchInResults === levelIndex;
+        if (isRoot || isActiveLevel) global.postValuesChange({ wholeWord: newVal });
         else {
             // Nested update
             // ... similar to matchCase
@@ -233,7 +238,8 @@ export const useSearchItemController = ({ levelIndex, extraActions, inputRef }: 
 
     const toggleRegex = () => {
         const newVal: "text" | "regex" = searchMode === 'regex' ? 'text' : 'regex';
-        if (isRoot) global.postValuesChange({ searchMode: newVal });
+        const isActiveLevel = global.values.searchInResults === levelIndex;
+        if (isRoot || isActiveLevel) global.postValuesChange({ searchMode: newVal });
         else {
             // ... similar
             global.setSearchLevels(prev => {

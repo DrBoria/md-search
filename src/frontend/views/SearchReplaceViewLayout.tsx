@@ -413,7 +413,7 @@ const SearchResultSummary = () => {
             <span>
                 <AnimatedCounter value={effectiveStatus.numMatches} suffix="results in" />
                 &nbsp;
-                <AnimatedCounter value={effectiveStatus.numFilesWithMatches} suffix=" files (v2)" />
+                <AnimatedCounter value={effectiveStatus.numFilesWithMatches} suffix=" files" />
             </span>
             {/* Open in editor link - mimicing VS Code style */}
             {/* <span
@@ -584,20 +584,14 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
     // 1. Build the Tree first (it handles sorting internally: Custom > Folders > Files > Alpha)
     const fullFileTree = useMemo(() => {
         const resultKeys = Object.keys(effectiveResultsByFile || {});
-        console.log('[SearchReplaceViewLayout] Re-calculating fullFileTree. Results count:', resultKeys.length);
         if (!effectiveResultsByFile || resultKeys.length === 0) return null;
         // buildFileTree handles the sorting logic internally based on customOrderMap or default alpha
-        const tree = buildFileTree(effectiveResultsByFile, workspacePath, customOrderMap);
-        console.log('[SearchReplaceViewLayout] fullFileTree built. Children:', tree.children.length);
-        return tree;
+        return buildFileTree(effectiveResultsByFile, workspacePath, customOrderMap);
     }, [effectiveResultsByFile, workspacePath, customOrderMap]);
 
     // 2. Flatten the Tree to get the exact linear visual order for List View and Copy/Cut operations
     const sortedFilePaths = useMemo(() => {
-        if (!fullFileTree) {
-            console.log('[SearchReplaceViewLayout] sortedFilePaths: fullFileTree is null/empty');
-            return [];
-        }
+        if (!fullFileTree) return [];
 
         const flatten = (nodes: FileTreeNode[]): string[] => {
             let paths: string[] = [];
@@ -613,10 +607,9 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
             });
             return paths;
         };
-        const paths = flatten(fullFileTree.children);
-        console.log('[SearchReplaceViewLayout] sortedFilePaths calculated. Length:', paths.length);
-        return paths;
+        return flatten(fullFileTree.children);
     }, [fullFileTree]);
+
 
 
     const [pausedState, setPausedState] = useState<{ limit: number; count: number } | null>(null);
@@ -671,6 +664,18 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
         });
     }, [sortedFilePaths, effectiveResultsByFile, vscode]);
 
+
+    // Effect: Mount/Unmount & Blur - Runs once (or when vscode changes)
+    useEffect(() => {
+        vscode.postMessage({ type: 'mount' });
+        const handleBlur = () => vscode.postMessage({ type: 'unmount' });
+        window.addEventListener('blur', handleBlur);
+        return () => {
+            window.removeEventListener('blur', handleBlur);
+        };
+    }, [vscode]);
+
+    // Effect 2: Message Listener - Re-binds when handlers change (to capture fresh state)
     useEffect(() => {
         const onMessage = (event: MessageEvent) => {
             const message = event.data as MessageToWebview;
@@ -701,7 +706,6 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
 
                 // --- Command Triggers (from Backend via Shortcut) ---
                 case 'triggerAction':
-                    console.log('[SearchReplaceViewLayout] triggerAction received:', message.action);
                     if (message.action === 'copy') handleCopyMatches();
                     if (message.action === 'cut') handleCutMatches();
                     if (message.action === 'paste') handlePasteMatches();
@@ -744,12 +748,8 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
         };
 
         window.addEventListener('message', onMessage);
-        vscode.postMessage({ type: 'mount' });
-        const handleBlur = () => vscode.postMessage({ type: 'unmount' });
-        window.addEventListener('blur', handleBlur);
         return () => {
             window.removeEventListener('message', onMessage);
-            window.removeEventListener('blur', handleBlur);
         };
     }, [handleMessage, vscode, showFeedback, setResultsByFile, handleCopyMatches, handleCutMatches, handlePasteMatches]);
 

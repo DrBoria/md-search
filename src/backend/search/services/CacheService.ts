@@ -557,6 +557,23 @@ export class SearchCache {
   }
 
   /**
+   * Gets the nearest ancestor (or self) that is a global search node.
+   * Used for stabilizing the scope of nested searches.
+   */
+  getNearestGlobalNode(
+    startNode: SearchCacheNode | null = this.currentNode
+  ): SearchCacheNode | null {
+    let node = startNode
+    while (node) {
+      if (node.isGlobal) {
+        return node
+      }
+      node = node.parent
+    }
+    return null
+  }
+
+  /**
    * Gets results from the current cache
    */
   getCurrentResults(): Map<string, TransformResultEvent> | null {
