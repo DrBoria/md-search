@@ -29,20 +29,6 @@ export const SearchActions = () => {
 
     return (
         <div className="flex items-center gap-1">
-            {/* Stop Button (Animated) */}
-            <div className={`overflow-hidden transition-all duration-700 ease-in-out ${showStop ? 'max-w-[24px] opacity-100 scale-100' : 'max-w-0 opacity-0 scale-75'
-                }`}>
-                <Button
-                    onClick={stopSearch}
-                    title="Stop search"
-                    variant="ghost"
-                    size="icon"
-                    className="flex-shrink-0"
-                >
-                    <span className="codicon codicon-debug-pause"></span>
-                </Button>
-            </div>
-
             {/* Extra Actions from Parent (Animated) */}
             <div className={`flex items-center transition-all duration-300 ease-in-out transform origin-right ${extraActions ? 'translate-x-0 opacity-100 scale-100 max-w-[100px]' : 'translate-x-2 opacity-0 scale-75 max-w-0'
                 }`}>

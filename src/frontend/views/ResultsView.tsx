@@ -1,13 +1,7 @@
 import React, { useCallback, useMemo, useState, useEffect } from 'react';
 import { useSearchGlobal } from './context/SearchGlobalContext';
-import { useAutoAnimate } from '@formkit/auto-animate/react';
 import { URI } from 'vscode-uri';
 import * as path from 'path-browserify';
-import { Button } from '../components/ui/button';
-import { TreeViewNode } from './TreeView';
-import { FileIcon } from '../components/icons';
-import { getHighlightedMatchContext } from './TreeView/highligtedContext';
-import { getHighlightedMatchContextWithReplacement } from './TreeView/highlightedContextWithReplacement';
 import { SerializedTransformResultEvent, SearchLevel } from '../../model/SearchReplaceViewTypes';
 import { cn } from "../utils";
 import { VirtualTreeView } from './TreeView/VirtualTreeView';

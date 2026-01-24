@@ -8,12 +8,12 @@ import { Button } from '../components/ui/button';
 import { FindInFoundButton } from './components/FindInFoundButton';
 import { SearchGlobalProvider, useSearchGlobal } from './context/SearchGlobalContext';
 import { SearchItemProvider, useSearchItemController } from './context/SearchItemContext';
-import { MessageFromWebview, MessageToWebview, SearchReplaceViewValues, SerializedTransformResultEvent, SearchLevel } from '../../model/SearchReplaceViewTypes';
+import { MessageFromWebview, MessageToWebview, SerializedTransformResultEvent, SearchLevel } from '../../model/SearchReplaceViewTypes';
 import { URI } from 'vscode-uri';
 import * as path from 'path-browserify';
-import { TreeViewNode, FileTreeNode, FileNode, FolderNode } from './TreeView';
+import { FileTreeNode, FileNode, FolderNode } from './TreeView';
 import { VirtualTreeView } from './TreeView/VirtualTreeView';
-import { VirtualizedListView } from './VirtualizedListView';
+
 import { AnimatedCounter } from './components/AnimatedCounter';
 import { NotificationBanner } from './components/NotificationBanner';
 
@@ -972,71 +972,6 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
         return folders instanceof Set ? folders : new Set<string>(folders || []);
     }, [searchLevels, isInNestedSearch, values.searchInResults]);
 
-    const renderListViewResults = () => {
-        const hasResults = sortedFilePaths && sortedFilePaths.length > 0;
-
-        if (!hasResults) {
-            return isSearchRequested ? (
-                <div className="p-[10px] text-[var(--vscode-descriptionForeground)] text-center flex justify-center items-center gap-2">
-                    <span className="codicon codicon-loading codicon-modifier-spin"></span><span>Searching...</span>
-                </div>
-            ) : (
-                <div className="p-[10px] text-[var(--vscode-descriptionForeground)] text-center">No matches found.</div>
-            );
-        }
-
-        return (
-            <div className="flex flex-col h-full overflow-hidden">
-                <VirtualizedListView
-                    results={effectiveResultsByFile}
-                    workspacePath={uriToPath(workspacePath)}
-                    expandedFiles={currentExpandedFiles}
-                    toggleFileExpansion={toggleFileExpansion}
-                    handleFileClick={handleFileClick}
-                    handleResultItemClick={(path, match) => handleResultItemClick(path, { start: match.start, end: match.end })}
-                    handleReplace={handleReplaceSelectedFiles}
-                    handleExcludeFile={handleExcludeFile}
-                    currentSearchValues={values}
-                    sortedFilePaths={sortedFilePaths}
-                />
-            </div>
-        );
-    };
-
-    const renderTreeViewResults = () => {
-        if (!effectiveResultsByFile || Object.keys(effectiveResultsByFile).length === 0) {
-            return isSearchRequested ? (
-                <div className="p-[10px] text-center flex gap-2 justify-center"><span className="codicon codicon-loading codicon-modifier-spin" /><span>Searching...</span></div>
-            ) : (
-                <div className="p-[10px] text-center text-[var(--vscode-descriptionForeground)]">No matches found.</div>
-            );
-        }
-
-
-
-        return (
-            <div className="flex flex-col h-full overflow-hidden">
-                {fullFileTree && fullFileTree.children.length > 0 ? (
-                    <VirtualTreeView
-                        fileTree={fullFileTree.children}
-                        expandedFolders={currentExpandedFolders}
-                        toggleFolderExpansion={toggleFolderExpansion}
-                        expandedFiles={currentExpandedFiles}
-                        toggleFileExpansion={toggleFileExpansion}
-                        handleFileClick={handleFileClick}
-                        handleResultItemClick={handleResultItemClick}
-                        handleReplace={handleReplaceSelectedFiles}
-                        handleExcludeFile={handleExcludeFile}
-                        currentSearchValues={values}
-                        onDragStart={handleDragStart}
-                        onDragOver={handleDragOver}
-                        onDrop={handleDrop}
-                    />
-                ) : null}
-            </div>
-        );
-    };
-
     const renderRootView = () => (
         <div className="flex flex-col h-full">
             <div className="flex flex-col gap-1.5 mb-2">
@@ -1069,7 +1004,7 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
                     <div className="flex gap-2 justify-end mt-1">
                         <button
                             className="bg-[var(--vscode-button-secondaryBackground)] text-[var(--vscode-button-secondaryForeground)] hover:bg-[var(--vscode-button-secondaryHoverBackground)] px-3 py-1 rounded-sm text-xs border border-[var(--vscode-button-border)] cursor-pointer"
-                            onClick={() => vscode.postMessage({ type: 'stop' })}
+                            onClick={() => setPausedState(null)}
                         >
                             Stop
                         </button>
@@ -1084,27 +1019,46 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
             )}
 
             <div className={cn("flex-grow overflow-hidden relative", isStale ? "opacity-50 transition-opacity duration-200" : "transition-opacity duration-200")}>
-                {viewMode === 'list' ? (
-                    <div className="flex flex-col h-full overflow-hidden">
-                        <VirtualizedListView
-                            results={effectiveResultsByFile}
-                            workspacePath={uriToPath(workspacePath)}
-                            expandedFiles={currentExpandedFiles}
-                            toggleFileExpansion={toggleFileExpansion}
-                            handleFileClick={handleFileClick}
-                            handleResultItemClick={(path, match) => handleResultItemClick(path, { start: match.start, end: match.end })}
-                            handleReplace={handleReplaceSelectedFiles}
-                            handleExcludeFile={handleExcludeFile}
-                            currentSearchValues={values}
-                            sortedFilePaths={sortedFilePaths}
-                            animationState={animationState} // Pass Animation State
-                        />
-                    </div>
-                ) : (
-                    <div className="flex flex-col h-full overflow-hidden">
-                        {fullFileTree && fullFileTree.children.length > 0 ? (
+                <div className="flex flex-col h-full overflow-hidden">
+                    {(() => {
+                        // Consolidate View Data Logic
+                        const nodesToShow: FileTreeNode[] = viewMode === 'list' && sortedFilePaths
+                            ? sortedFilePaths.map(filePath => {
+                                const workspacePathStr = uriToPath(workspacePath);
+                                const displayPath = workspacePathStr
+                                    ? path.relative(workspacePathStr, uriToPath(filePath))
+                                    : uriToPath(filePath);
+
+                                let cleanDisplayPath = displayPath;
+                                if (cleanDisplayPath.startsWith('/') || cleanDisplayPath.startsWith('\\')) {
+                                    cleanDisplayPath = cleanDisplayPath.substring(1);
+                                }
+
+                                const node: FileNode = {
+                                    type: 'file',
+                                    name: path.basename(filePath),
+                                    description: path.dirname(cleanDisplayPath) !== '.' ? path.dirname(cleanDisplayPath) : undefined,
+                                    relativePath: cleanDisplayPath,
+                                    absolutePath: filePath,
+                                    results: effectiveResultsByFile[filePath] || []
+                                };
+                                return node;
+                            })
+                            : (fullFileTree ? fullFileTree.children : []);
+
+                        if (nodesToShow.length === 0) {
+                            return isSearchRequested ? (
+                                <div className="p-[10px] text-[var(--vscode-descriptionForeground)] text-center flex justify-center items-center gap-2">
+                                    <span className="codicon codicon-loading codicon-modifier-spin"></span><span>Searching...</span>
+                                </div>
+                            ) : (
+                                <div className="p-[10px] text-[var(--vscode-descriptionForeground)] text-center">No matches found.</div>
+                            );
+                        }
+
+                        return (
                             <VirtualTreeView
-                                fileTree={fullFileTree.children}
+                                fileTree={nodesToShow}
                                 expandedFolders={currentExpandedFolders}
                                 toggleFolderExpansion={toggleFolderExpansion}
                                 expandedFiles={currentExpandedFiles}
@@ -1117,15 +1071,11 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
                                 onDragStart={handleDragStart}
                                 onDragOver={handleDragOver}
                                 onDrop={handleDrop}
-                                animationState={animationState} // Pass Animation State
+                                animationState={animationState}
                             />
-                        ) : isSearchRequested ? (
-                            <div className="p-[10px] text-center flex gap-2 justify-center"><span className="codicon codicon-loading codicon-modifier-spin" /><span>Searching...</span></div>
-                        ) : (
-                            <div className="p-[10px] text-center text-[var(--vscode-descriptionForeground)]">No matches found.</div>
-                        )}
-                    </div>
-                )}
+                        );
+                    })()}
+                </div>
             </div>
 
             {/* Skipped Files Notification */}
