@@ -140,7 +140,7 @@
       {
         "command": "mdSearch.copyMatches",
         "key": "ctrl+shift+c",
-        "mac": "alt+shift+c",
+        "mac": "cmd+shift+o",
         "when": "focusedView == mdSearch.SearchReplaceView"
       },
       {

@@ -89,6 +89,9 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
         // Clear processed files Set on new search
         this._processedFiles.clear()
         this.isSearchRunning = true
+
+        // Ensure webview clears previous results
+        this._notifyWebviewIfActive('clearResults', {})
       },
       stop: () => {
         // Send remaining buffered results before clearing
@@ -271,9 +274,13 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
 
     // Отправляем весь буфер результатов в webview
     // Каждый файл в буфере уже проверен на дублирование в _addResult
+    const nonce = this.extension.getParams().searchNonce;
+    console.log(`[SearchReplaceViewProvider] Sending batch results. Count: ${this._resultBuffer.length}. Nonce: ${nonce}`)
+
     this._notifyWebviewIfActive('addBatchResults', {
       data: this._resultBuffer,
       isSearchRunning: this.isSearchRunning,
+      nonce: nonce,
     })
     this.isSearchRunning = false
     // Очищаем буфер после отправки

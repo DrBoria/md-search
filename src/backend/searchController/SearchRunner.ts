@@ -137,7 +137,16 @@ export class SearchRunner extends TypedEmitter<SearchRunnerEvents> {
   }
 
   clearCacheForFile(uri: vscode.Uri): void {
-    this.cacheService.clearCacheForFile(uri)
+    // Deprecated: use removeFileFromCache or invalidateFileInCache
+    this.cacheService.removeFileFromCache(uri)
+  }
+
+  removeFileFromCache(uri: vscode.Uri): void {
+    this.cacheService.removeFileFromCache(uri)
+  }
+
+  invalidateFileInCache(uri: vscode.Uri): void {
+    this.cacheService.invalidateFileInCache(uri)
   }
 
   excludeFileFromCache(uri: vscode.Uri): void {
@@ -153,15 +162,17 @@ export class SearchRunner extends TypedEmitter<SearchRunnerEvents> {
     if (!find) return
 
     try {
-      // Clear cache for this file first
-      this.clearCacheForFile(document.uri)
+      // Invalidate cache for this file first (preserve in results so we don't lose context)
+      // Actually scanFile is simpler - we just want to force a re-scan.
+      this.invalidateFileInCache(document.uri)
 
       // Run search using service directly
       const content = document.getText()
       const matches = await this.textSearchService.searchInFile(
         document.uri.fsPath,
         content,
-        this.params
+        this.params,
+        undefined // No abort signal for single file scan? Or distinct one?
       )
 
       // Create result event - Emit even if matches are empty so frontend can clear entries
@@ -176,9 +187,7 @@ export class SearchRunner extends TypedEmitter<SearchRunnerEvents> {
       // Update cache only if there are matches (or should we cache empty results? 
       // CacheService usually caches positive results. If we don't cache empty, next search might re-scan. 
       // But clearing cache above ensures correctness.)
-      if (matches.length > 0) {
-        this.cacheService.addResult(result)
-      }
+      this.cacheService.addResult(result)
     } catch (e) {
       console.error(`Error scanning file ${document.uri.fsPath}:`, e)
     }

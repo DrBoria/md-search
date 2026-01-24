@@ -468,7 +468,6 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
         // ... (inside handleMessage)
 
         case 'clearResults':
-          console.log('DEBUG: FE clearResults received')
           // Save current results as stale before clearing
           if (Object.keys(resultsByFile).length > 0) {
             setStaleResultsByFile(resultsByFile)
@@ -528,7 +527,6 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
               return newLevels
             })
           } else {
-            console.log('DEBUG: FE clearResults - Clearing resultsByFile')
             setResultsByFile({})
             // Sync searchLevels[0]
             setSearchLevels((prev) => {
@@ -542,18 +540,7 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
           break
 
         case 'addBatchResults': {
-          const messageNonce = message.nonce
-          const currentNonce = valuesRef.current.searchNonce
-          const batchSize = message.data.length
-          console.log(`DEBUG: FE addBatchResults received. Size: ${batchSize}. Nonce: ${messageNonce} (Current: ${currentNonce})`)
-
-          // NONCE VALIDATION: Ignore results from stale/outdated searches
-          if (messageNonce && currentNonce && messageNonce !== currentNonce) {
-            console.log(
-              `WARNING: Stale results ignored! Message nonce: ${messageNonce}, Current nonce: ${currentNonce}`
-            )
-            break
-          }
+          console.log('DEBUG: addBatchResults', JSON.stringify(message))
 
           const batchResults = message.data
 
@@ -616,20 +603,6 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
             setStaleResultsByFile(null)
             setStaleStatus(null)
             setStaleLevel(null)
-          } else {
-            console.log('DEBUG: Received EMPTY batch results')
-          }
-
-          // Debug Content
-          if (batchResults.length > 0) {
-            const firstMatch = batchResults[0]
-            if (firstMatch && firstMatch.matches && firstMatch.matches.length > 0) {
-              const firstSubMatch = firstMatch.matches[0]
-              if (firstMatch.source) {
-                const preview = firstMatch.source.substring(firstSubMatch.start, Math.min(firstSubMatch.end, firstSubMatch.start + 50)).replace(/\n/g, '\\n')
-                console.log(`DEBUG: FE First Batch Match Content: "${preview}" (File: ${firstMatch.file})`)
-              }
-            }
           }
 
           // Append to pending
@@ -784,7 +757,6 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
   const debouncedPostMessage = useMemo(
     () =>
       debounce((msg: MessageFromWebview) => {
-        console.log('DEBUG: debouncedPostMessage EXECUTING', msg.type)
         vscode.postMessage(msg)
       }, 50),
     [vscode]
@@ -794,9 +766,8 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
   const debouncedTriggerSearch = useMemo(
     () =>
       debounce((msg: MessageFromWebview) => {
-        console.log('DEBUG: debouncedTriggerSearch EXECUTING', msg.type, (msg as any).searchNonce)
         vscode.postMessage(msg)
-      }, 300),
+      }, 50),
     [vscode]
   )
 
@@ -857,6 +828,8 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
 
         // Only send to backend if not skipping
         if (!shouldSkipSearch) {
+          debouncedPostMessage({ type: 'values', values: next })
+
           // CRITICAL OPTIMIZATION:
           // If we are only navigating BACKWARDS (decreasing searchInResults), trust the cached state.
           // Even if 'find' is in the changed object (restoring old value), we DO NOT want to trigger a new search.
@@ -864,15 +837,11 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
             changed.searchInResults < prev.searchInResults;
 
           if (!isBackNav) {
-            console.log('DEBUG: Calling debouncedTriggerSearch', next.searchNonce)
             debouncedTriggerSearch({
               type: 'search',
               ...next,
               searchInResults: next.searchInResults,
             })
-          } else {
-            console.log('DEBUG: Calling debouncedPostMessage (values)', next.searchNonce)
-            debouncedPostMessage({ type: 'values', values: next })
           }
         }
 

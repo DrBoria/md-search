@@ -2,18 +2,16 @@ import { Params } from '../../types'
 import { SearchRunnerMatch } from '../../../model/SearchRunnerTypes'
 
 export class TextSearchService {
-  private abortController: AbortController | null = null
 
-  setAbortController(controller: AbortController): void {
-    this.abortController = controller
-  }
 
   async searchInFile(
     file: string,
     content: string,
     params: Params,
+    abortSignal?: AbortSignal, // Add abortSignal parameter
     _logMessage?: (msg: string) => void
   ): Promise<SearchRunnerMatch[]> {
+
     const { matchCase, wholeWord, searchMode } = params
     let find = params.find
     const matches: SearchRunnerMatch[] = []
@@ -60,6 +58,7 @@ export class TextSearchService {
       file,
       regex,
       matches,
+      abortSignal, // Pass signal
       captureGroupIndex
     )
 
@@ -76,12 +75,13 @@ export class TextSearchService {
     file: string,
     regex: RegExp,
     matches: SearchRunnerMatch[],
+    abortSignal?: AbortSignal, // Accept signal
     captureGroupIndex = 0
   ): Promise<void> {
     const CHUNK_SIZE = 512 * 1024 // 512 KB
     const overlap = 1024 // 1 KB
 
-    if (this.abortController?.signal.aborted) return
+    if (abortSignal?.aborted) return
 
     const lineStartPositions = new Map<
       number,
@@ -94,7 +94,7 @@ export class TextSearchService {
       startPos < source.length;
       startPos += CHUNK_SIZE - overlap
     ) {
-      if (this.abortController?.signal.aborted) return
+      if (abortSignal?.aborted) return
 
       const endPos = Math.min(startPos + CHUNK_SIZE, source.length)
       const chunk = source.substring(startPos, endPos)
@@ -107,7 +107,7 @@ export class TextSearchService {
       let matchesInCurrentChunk = 0
 
       while ((matchResult = regex.exec(chunk)) !== null) {
-        if (this.abortController?.signal.aborted) return
+        if (abortSignal?.aborted) return
 
         if (++matchesInCurrentChunk % 100 === 0) {
           await new Promise((resolve) => setTimeout(resolve, 0))
@@ -132,6 +132,8 @@ export class TextSearchService {
         const matchEndOffset =
           matchStartOffset + matchResult[captureGroupIndex].length
         const matchText = matchResult[captureGroupIndex]
+
+
 
         // Avoid duplicates from overlap
         const isDuplicate = matches.some(

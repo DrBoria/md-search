@@ -85,7 +85,12 @@ export class MdSearchExtension implements IMdSearchExtension {
     Container.register(SERVICE_KEYS.SearchWorkflow, workflow)
 
     // Create Orchestrator
-    this.runner = new SearchOrchestrator(this, workflow, cacheService)
+    this.runner = new SearchOrchestrator(
+      this,
+      workflow,
+      cacheService,
+      textSearchService
+    )
     Container.register(SERVICE_KEYS.SearchOrchestrator, this.runner)
 
     this.transformResultProvider = new TransformResultProvider(this)
@@ -377,8 +382,8 @@ export class MdSearchExtension implements IMdSearchExtension {
     this.externalFsWatcher =
       vscode.workspace.createFileSystemWatcher(externalWatchPattern)
     this.externalFsWatcher.onDidChange(this.handleFsChange)
-    this.externalFsWatcher.onDidCreate(this.handleFsChange)
-    this.externalFsWatcher.onDidDelete(this.handleFsChange)
+    this.externalFsWatcher.onDidCreate(this.handleFsCreate)
+    this.externalFsWatcher.onDidDelete(this.handleFsDelete)
     this.channel.appendLine(
       `watching ${formatWatchPattern(externalWatchPattern)}`
     )
@@ -549,6 +554,7 @@ export class MdSearchExtension implements IMdSearchExtension {
     }
   }
 
+  // Handler for file modification - should INVALIDATE cache (re-scan but keep in scope)
   handleFsChange = (uri: vscode.Uri): void => {
     const { transformFile } = this.getParams()
 
@@ -567,15 +573,28 @@ export class MdSearchExtension implements IMdSearchExtension {
       return
     }
 
-    // Clear cache for changed file
-    this.runner.clearCacheForFile(uri)
+    // Invalidate cache for changed file (force re-scan)
+    this.runner.invalidateFileInCache(uri)
     this.channel.appendLine(
-      `[Cache] Cache cleared for modified file: ${uri.fsPath}`
+      `[Cache] Cache invalidated (preserved in scope) for modified file: ${uri.fsPath}`
     )
 
-    // Normal processing, regardless of search view visibility
-    // This ensures data stays current even if UI is closed
-    // Since handleChange was removed in SearchRunner, just run runSoon
+    this.runner.runSoon()
+  }
+
+  // Handler for file creation - should INVALIDATE cache (so it gets picked up if it matches glob)
+  handleFsCreate = (uri: vscode.Uri): void => {
+    this.channel.appendLine(`[Cache] File created: ${uri.fsPath}`)
+    // Invalidate ensures it's clean for scanning. 
+    // Actually for new file, it wasn't there. But invalidate is safe.
+    this.runner.invalidateFileInCache(uri)
+    this.runner.runSoon()
+  }
+
+  // Handler for file deletion - should REMOVE from cache completely
+  handleFsDelete = (uri: vscode.Uri): void => {
+    this.channel.appendLine(`[Cache] File deleted: ${uri.fsPath}`)
+    this.runner.removeFileFromCache(uri)
     this.runner.runSoon()
   }
 

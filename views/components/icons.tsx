@@ -17,29 +17,16 @@ export const FileIcon = memo(({ filePath }: { filePath: string }) => {
         iconName = iconName.replace('generated/', '');
     }
 
-    // Manual mappings for known mismatches
-    const mappings: Record<string, string> = {
-        'reactts.svg': 'react_ts.svg',
-        'reactjs.svg': 'react.svg',
-        'ts.svg': 'typescript.svg',
-        'js.svg': 'javascript.svg',
-        'json.svg_light': 'json.svg',
-        'json.svg_dark': 'json.svg',
-    };
-
-    if (mappings[iconName]) {
-        iconName = mappings[iconName];
-    }
-
     // Use the path injected by the backend
     let basePath = window.materialIconsPath || '';
 
     // Safety check: remove trailing slashes
     if (basePath.endsWith('/')) basePath = basePath.slice(0, -1);
 
-    // ALL icons are in the 'generated' subdirectory, but basePath points to 'out/icons'
-    // So we MUST ensure 'generated/' is part of the path.
-    const src = `${basePath}/generated/${iconName}`;
+    // If iconName already includes 'generated/', ensuring we don't duplicate if basePath also ends in it?
+    // But basePath points to folder. iconName is "file.svg".
+
+    const src = `${basePath}/${iconName}`;
 
     return (
         <img

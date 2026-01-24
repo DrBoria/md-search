@@ -161,6 +161,7 @@ export const MessageToWebviewSchema = z.discriminatedUnion('type', [
     type: z.literal('addBatchResults'),
     data: z.array(SerializedTransformResultEventSchema),
     isSearchRunning: z.boolean(),
+    nonce: z.string().optional(),
   }),
   z.object({ type: z.literal('replaceDone') }),
   z.object({ type: z.literal('stop') }),

@@ -40,8 +40,17 @@ export class SearchWorkflow extends EventEmitter {
     this.skippedLargeFiles.clear()
     this.currentParams = params
 
-    this.abortController = new AbortController()
-    this.textSearchService.setAbortController(this.abortController)
+    // Generate ID for logging
+    const runId = Math.floor(Math.random() * 100000)
+    console.log(`[SearchWorkflow] STARTING run ID ${runId}. Query: "${params.find}". Nonce: ${params.searchNonce}`)
+
+    // Create a new controller for THIS run
+    const controller = new AbortController()
+    // (controller as any)._id = runId // Store ID on controller for stop logging? No, hard to access in stop() without casting.
+
+    this.abortController = controller
+    // this.textSearchService.setAbortController(this.abortController) // Removed
+
 
     this.emit('start')
 
@@ -79,17 +88,20 @@ export class SearchWorkflow extends EventEmitter {
         .processConcurrent(
           CONCURRENCY,
           async (fileUri) => {
-            if (this.abortController?.signal.aborted) return
+            if (controller.signal.aborted) return
 
             try {
               const content = await this.fileService.readFile(fileUri)
               // If empty, it might be skipped due to size limit
               if (!content) return
 
+              if (controller.signal.aborted) return // Double check before heavy search
+
               const matches = await this.textSearchService.searchInFile(
                 fileUri,
                 content,
-                params
+                params,
+                controller.signal // Pass signal
               )
 
               if (matches.length > 0) {
@@ -102,6 +114,19 @@ export class SearchWorkflow extends EventEmitter {
                 }
 
                 this.emit('result', result)
+                this.cacheService.addResult(result)
+              } else {
+                // Even if no matches, we might need to clear previous matches for this file
+                // IF the file was previously in the results (e.g. nested search).
+                // However, we only have 'result' if we create it.
+                // Let's create an empty result logic.
+                const result: TransformResultEvent = {
+                  file: vscode.Uri.parse(fileUri),
+                  matches: [],
+                  source: content
+                }
+                // We don't necessarily emit 'result' for empty files (to reduce noise),
+                // BUT we MUST update the cache.
                 this.cacheService.addResult(result)
               }
             } catch (err) {
@@ -119,7 +144,7 @@ export class SearchWorkflow extends EventEmitter {
             }
           },
           {
-            signal: this.abortController.signal,
+            signal: controller.signal,
             checkPause: async () => {
               // Check if we hit a limit
               if (
@@ -149,12 +174,12 @@ export class SearchWorkflow extends EventEmitter {
           }
         )
 
-      if (!this.abortController.signal.aborted) {
+      if (!controller.signal.aborted) {
         this.cacheService.markCurrentAsComplete()
         this.finish()
       }
     } catch (error) {
-      if (this.abortController?.signal.aborted) {
+      if (controller.signal.aborted) {
         // Normal abort, don't emit error
       } else {
         this.emit('error', error)
@@ -176,11 +201,10 @@ export class SearchWorkflow extends EventEmitter {
     if (!this.currentParams || this.skippedLargeFiles.size === 0) return
 
     this.isRunning = true
-    this.abortController = new AbortController() // New controller or reuse?
-    // If we reuse, ensure it's not aborted.
-    if (!this.abortController || this.abortController.signal.aborted) {
-      this.abortController = new AbortController()
-    }
+    // Create a new controller for THIS run
+    const controller = new AbortController()
+    this.abortController = controller
+
 
     const files = Array.from(this.skippedLargeFiles)
     let completedCount = 0
@@ -189,7 +213,7 @@ export class SearchWorkflow extends EventEmitter {
     await Pipeline.from(files).processConcurrent(
       4, // Keep low concurrency
       async (fileUri) => {
-        if (this.abortController?.signal.aborted) return
+        if (controller.signal.aborted) return
         try {
           // Ignore size limit here
           const content = await this.fileService.readFile(fileUri, {
@@ -200,7 +224,8 @@ export class SearchWorkflow extends EventEmitter {
           const matches = await this.textSearchService.searchInFile(
             fileUri,
             content,
-            this.currentParams!
+            this.currentParams!,
+            controller.signal // Pass signal
           )
 
           if (matches.length > 0) {
@@ -220,7 +245,7 @@ export class SearchWorkflow extends EventEmitter {
           // Emit progress?
         }
       },
-      { signal: this.abortController.signal }
+      { signal: controller.signal }
     )
 
     // Clear them after search
@@ -242,44 +267,43 @@ export class SearchWorkflow extends EventEmitter {
     )
 
     if (searchInResults && searchInResults > 0) {
-      const targetDepth = searchInResults - 1
+      // Use the current node as the scope for the nested search
       const currentNode = this.cacheService.getCurrentNode()
+
       console.log(
-        `[SearchWorkflow] Nested Search. targetDepth: ${targetDepth}, currentNode depth: ${currentNode?.depth}`
+        `[SearchWorkflow] Nested Search. Using currentNode (Depth ${currentNode?.depth}) as scope.`
       )
 
-      const cachedResults = this.cacheService.getResultsFromDepth(
-        targetDepth,
-        currentNode
-      )
-      targetParentNode = this.cacheService.getAncestorAtDepth(
-        targetDepth,
-        currentNode
-      )
-
-      if (cachedResults) {
-        filesToScan = Array.from(cachedResults.keys())
-        console.log(
-          `[SearchWorkflow] Found cached results at depth ${targetDepth}. Scanning ${filesToScan.length} files.`
-        )
-      } else {
-        const current = this.cacheService.getCurrentResults()
-        if (current) {
-          filesToScan = Array.from(current.keys())
+      if (currentNode) {
+        // Use results from the current node as the file list
+        // This effectively locks the scope to what the user was just seeing
+        const currentResults = currentNode.results
+        if (currentResults && currentResults.size > 0) {
+          filesToScan = Array.from(currentResults.keys())
+          targetParentNode = currentNode
           console.log(
-            `[SearchWorkflow] Fallback to current results. Scanning ${filesToScan.length} files.`
+            `[SearchWorkflow] Found ${filesToScan.length} files in current scope.`
           )
         } else {
-          // Verify if we actually wanted a nested search but failed
-          console.log(
-            `[SearchWorkflow] Cache miss for nested search! Falling back to full scan.`
-          )
-          const uris = await this.fileService.findFiles(
-            include || '**/*',
-            exclude || ''
-          )
-          filesToScan = uris.map((u) => u.toString())
+          // Fallback or empty?
+          // If current node has no results, nested search usually returns nothing
+          // But if it's the root and empty, maybe we shouldn't have active searchInResults?
+          // We'll respect the empty scope.
+          filesToScan = []
+          targetParentNode = currentNode
+          console.log(`[SearchWorkflow] Current scope is empty.`)
         }
+      } else {
+        // No current node, fallback to global? Or empty?
+        // If searchInResults is checked but no search run yet, it behaves like global
+        // But parameters suggest we want nested.
+        // Let's fallback to global scan if no cache exists.
+        const uris = await this.fileService.findFiles(
+          include || '**/*',
+          exclude || ''
+        )
+        filesToScan = uris.map((u) => u.toString())
+        console.log(`[SearchWorkflow] No active cache for nested search. Falling back to global scan.`)
       }
     } else {
       const uris = await this.fileService.findFiles(
@@ -363,7 +387,10 @@ export class SearchWorkflow extends EventEmitter {
 
   stop() {
     if (this.abortController) {
+      console.log(`[SearchWorkflow] STOPPING. Aborting active controller.`)
       this.abortController.abort()
+    } else {
+      console.log(`[SearchWorkflow] STOPPING. No active controller to abort.`)
     }
     this.isRunning = false
     this.emit('stop')
