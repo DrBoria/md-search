@@ -299,7 +299,10 @@ export const TreeViewRow = memo(({
                             <button
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    getAllFilePathsInFolder(node as FolderNode).forEach(p => handleExcludeFile(p));
+                                    // Fix: Exclude the folder path itself, not every individual file inside it.
+                                    // This prevents flooding the exclude list with hundreds of file paths.
+                                    const path = (node as FolderNode).absolutePath || (node as FolderNode).relativePath;
+                                    handleExcludeFile(path);
                                 }}
                                 title="Exclude folder"
                                 className="bg-transparent border-none px-0.5 cursor-pointer flex items-center justify-center text-[#bcbbbc] hover:bg-gray-500/20 hover:text-[var(--vscode-errorForeground)]"
