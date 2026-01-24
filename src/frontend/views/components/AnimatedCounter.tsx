@@ -42,13 +42,15 @@ function Digit({ char, direction }: { char: string, direction: number }) {
             const currentDigit = prevPos % 10;
             let diff = targetDigit - currentDigit;
 
-            // Adjust diff to match desired direction
+            // Adjust diff to match desired direction based on User Feedback:
+            // "if added (dir > 0) -> top to bottom (strip moves down, pos decreases)"
+            // "if subtracted (dir < 0) -> bottom to top (strip moves up, pos increases)"
             if (direction > 0) {
-                // Moving UP (increasing value) = Index increases (strip moves up)
-                while (diff <= 0) diff += 10;
-            } else if (direction < 0) {
-                // Moving DOWN (decreasing value) = Index decreases (strip moves down)
+                // Moving DOWN (increasing value) = Index decreases (strip moves down)
                 while (diff >= 0) diff -= 10;
+            } else if (direction < 0) {
+                // Moving UP (decreasing value) = Index increases (strip moves up)
+                while (diff <= 0) diff += 10;
             }
 
             const nextPos = prevPos + diff;
@@ -73,17 +75,17 @@ function Digit({ char, direction }: { char: string, direction: number }) {
     }
 
     return (
-        <span className="inline-flex relative h-[1.3em] w-[0.8ch] overflow-hidden items-center justify-center -mb-[0.1em]">
+        <span className="inline-flex relative h-[1.3em] w-[0.9ch] overflow-hidden items-center justify-center">
             <span
                 className={cn(
                     "absolute left-0 w-full flex flex-col will-change-transform",
                     isAnimating ? "transition-transform duration-500 ease-in-out" : "transition-none"
                 )}
-                style={{ transform: `translateY(-${(position / 30) * 100}%)`, top: 0 }}
+                style={{ transform: `translateY(calc(-${position} * 1.3em))`, top: 0 }}
                 onTransitionEnd={handleTransitionEnd}
             >
                 {STRIP.map((n, i) => (
-                    <span key={i} className="h-[1.3em] flex items-center justify-center leading-none">
+                    <span key={i} className="h-[1.3em] leading-[1.3em] text-center block">
                         {n}
                     </span>
                 ))}
