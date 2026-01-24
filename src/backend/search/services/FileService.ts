@@ -57,8 +57,30 @@ export class FileService {
       // Basic VS Code findFiles
       // Enforce exclusion of common heavy directories for multiple languages
       // Remove outer braces from default string to simplify merging
-      const defaultExcludesContent =
-        '**/node_modules/**,**/.git/**,**/dist/**,**/out/**,**/build/**,**/__pycache__/**,**/.venv/**,**/venv/**,**/target/**,**/vendor/**,**/.gradle/**,**/.idea/**,**/.vscode/**'
+      // Default Excludes: .git and .vscode (always), plus User Settings (files.exclude, search.exclude)
+      const config = vscode.workspace.getConfiguration();
+      const filesExclude = config.get<{ [key: string]: boolean }>('files.exclude') || {};
+      const searchExclude = config.get<{ [key: string]: boolean }>('search.exclude') || {};
+
+      const settingsExcludes = Object.keys({ ...filesExclude, ...searchExclude })
+        .filter(key => {
+          const inFiles = filesExclude[key];
+          const inSearch = searchExclude[key];
+          // Exclude if true in either, unless explicitly false? 
+          // Usually overrides apply, but simple merge of true values is safe for "default exclusions"
+          return inFiles === true || inSearch === true;
+        });
+
+      // Always include .git and .vscode as per requirements, plus settings
+      const defaultExcludesList = [
+        '**/.git/**',
+        '**/.vscode/**',
+        ...settingsExcludes
+      ];
+
+      // Deduplicate
+      const uniqueExcludes = Array.from(new Set(defaultExcludesList));
+      const defaultExcludesContent = uniqueExcludes.join(',');
 
       // Process user exclude: *.py -> **/*.py to match VS Code behavior (recursive by default)
       const processedExclude = exclude
