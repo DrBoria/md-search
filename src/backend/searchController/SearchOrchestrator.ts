@@ -2,7 +2,10 @@ import { TypedEmitter } from 'tiny-typed-emitter'
 import * as vscode from 'vscode'
 import { debounce } from 'lodash'
 import { Params, IMdSearchExtension } from '../types'
-import { SearchRunnerEvents, TransformResultEvent } from '../../model/SearchRunnerTypes'
+import {
+  SearchRunnerEvents,
+  TransformResultEvent,
+} from '../../model/SearchRunnerTypes'
 import { SearchWorkflow } from '../search/workflow/SearchWorkflow'
 import { TextSearchService } from '../search/services/TextSearchService'
 import { SearchCache } from '../search/services/CacheService'
@@ -181,12 +184,12 @@ export class SearchOrchestrator extends TypedEmitter<SearchRunnerEvents> {
 
       this.emit('result', result)
 
-      // Update cache only if there are matches (or should we cache empty results? 
-      // CacheService usually caches positive results. If we don't cache empty, next search might re-scan. 
+      // Update cache only if there are matches (or should we cache empty results?
+      // CacheService usually caches positive results. If we don't cache empty, next search might re-scan.
       // But clearing cache above ensures correctness.)
       this.cacheService.addResult(result)
     } catch (e) {
-      console.error(`Error scanning file ${document.uri.fsPath}:`, e)
+      // console.error(`Error scanning file ${document.uri.fsPath}:`, e)
     }
   }
 }

@@ -128,7 +128,7 @@ export class MdSearchExtension implements IMdSearchExtension {
     return { ...this.params }
   }
 
-  setParams(params: Params, triggerRestart: boolean = true): void {
+  setParams(params: Params, triggerRestart = true): void {
     if (!isEqual(this.params, params)) {
       if (params.transformFile !== this.params.transformFile) {
         if (params.transformFile) {
@@ -158,7 +158,6 @@ export class MdSearchExtension implements IMdSearchExtension {
       // Since setParams is synchronous signature, we can't await easily without changing signature.
       // But we can reset it in a finally block if we make this async, or just setTimeout.
       // Let's try iterating and updating.
-
       ;(async () => {
         try {
           for (const key of paramsInConfig) {
@@ -193,7 +192,7 @@ export class MdSearchExtension implements IMdSearchExtension {
 
       // No deed to set params if replacement is in progress
       if (!params.isReplacement) {
-        this.runner.setParams({ ...this.params }, triggerRestart)
+        ;(this.runner as any).setParams({ ...this.params }, triggerRestart)
       }
     }
   }
@@ -335,7 +334,6 @@ export class MdSearchExtension implements IMdSearchExtension {
     // Global cut/copy/paste
     context.subscriptions.push(
       vscode.commands.registerCommand('mdSearch.copyMatches', async () => {
-        console.log('[Command] mdSearch.copyMatches triggered')
         this.channel.appendLine('[Command] mdSearch.copyMatches triggered')
         this.searchReplaceViewProvider.triggerAction('copy')
         // Notification logic moved to completion handler from frontend request
@@ -344,7 +342,6 @@ export class MdSearchExtension implements IMdSearchExtension {
 
     context.subscriptions.push(
       vscode.commands.registerCommand('mdSearch.cutMatches', async () => {
-        console.log('[Command] mdSearch.cutMatches triggered')
         this.channel.appendLine('[Command] mdSearch.cutMatches triggered')
         this.searchReplaceViewProvider.triggerAction('cut')
       })
@@ -352,13 +349,11 @@ export class MdSearchExtension implements IMdSearchExtension {
 
     context.subscriptions.push(
       vscode.commands.registerCommand('mdSearch.pasteToMatches', async () => {
-        console.log('[Command] mdSearch.pasteToMatches triggered')
         this.channel.appendLine('[Command] mdSearch.pasteToMatches triggered')
         this.searchReplaceViewProvider.triggerAction('paste')
       }),
 
       vscode.commands.registerCommand('mdSearch.copyFileNames', async () => {
-        console.log('[Command] mdSearch.copyFileNames triggered')
         const count = await this.copyFileNames()
         this.searchReplaceViewProvider.notifyCopyFileNamesComplete(count)
       }),
@@ -366,7 +361,6 @@ export class MdSearchExtension implements IMdSearchExtension {
       vscode.commands.registerCommand(
         'mdSearch.undoLastOperation',
         async () => {
-          console.log('[Command] mdSearch.undoLastOperation triggered')
           const restored = await this.undoLastOperation()
           this.searchReplaceViewProvider.notifyUndoComplete(restored)
         }
@@ -865,10 +859,6 @@ export class MdSearchExtension implements IMdSearchExtension {
 
   // Method for cutting all found matches to buffer
   async cutMatches(fileOrder?: string[]): Promise<number> {
-    console.log(
-      `[Extension] Cutting all matches to buffer... Using UI order: ${!!fileOrder}`
-    )
-
     // Save file contents before cut operation for undo
     await this.saveFileContentsForUndo()
 
@@ -896,15 +886,6 @@ export class MdSearchExtension implements IMdSearchExtension {
         ([_, result]) => result.matches && result.matches.length > 0
       )
     }
-
-    console.log(
-      `[Extension] cutMatches: Processing ${filesWithMatches.length} files...`
-    )
-    filesWithMatches.forEach(([path, result], index) => {
-      console.log(
-        `[Extension] Cut Order #${index + 1}: File [${path}] (Matches: ${result?.matches?.length || 0})`
-      )
-    })
 
     // First copy all matches to buffer and save their positions
     for (const [uriString, result] of filesWithMatches) {
@@ -1051,12 +1032,6 @@ export class MdSearchExtension implements IMdSearchExtension {
         clipboardParts.length === filesWithMatches.length
 
       this.channel.appendLine(
-        `Clipboard parts: ${clipboardParts.length}, Files with matches: ${
-          filesWithMatches.length
-        }, Distribute: ${shouldDistributeParts}, Using UI order: ${!!fileOrder}`
-      )
-
-      this.channel.appendLine(
         `[DEBUG] Paste Logic: Clipboard parts=${clipboardParts.length}, Targets=${filesWithMatches.length}, Distribute=${shouldDistributeParts}`
       )
       if (shouldDistributeParts) {
@@ -1186,12 +1161,6 @@ export class MdSearchExtension implements IMdSearchExtension {
     // Determine if we should distribute parts or use full text
     const shouldDistributeParts =
       clipboardParts.length === filesWithCutPositions.length
-
-    this.channel.appendLine(
-      `Clipboard parts: ${clipboardParts.length}, Files with cut positions: ${
-        filesWithCutPositions.length
-      }, Distribute: ${shouldDistributeParts}, Using UI order: ${!!fileOrder}`
-    )
 
     let totalReplacements = 0
     let totalFilesChanged = 0

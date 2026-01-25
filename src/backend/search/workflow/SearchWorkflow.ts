@@ -2,7 +2,7 @@ import { EventEmitter } from 'events'
 import * as vscode from 'vscode'
 import { TransformResultEvent } from '../../../model/SearchRunnerTypes'
 import { Params } from '../../types'
-import { SearchCache } from '../services/CacheService'
+import { SearchCache, SearchCacheNode } from '../services/CacheService'
 import { FileService } from '../services/FileService'
 import { TextSearchService } from '../services/TextSearchService'
 import { Pipeline } from '../utilities/Pipeline'
@@ -52,8 +52,10 @@ export class SearchWorkflow extends EventEmitter {
       const { find, searchInResults, include, exclude } = params
 
       // 1. Determine Source Files & Parent Node
-      const { filesToScan, targetParentNode } =
-        await this.getFilesToScan(params, dirtyFiles)
+      const { filesToScan, targetParentNode } = await this.getFilesToScan(
+        params,
+        dirtyFiles
+      )
 
       // 2. Setup Cache Node
       const cacheNode = this.setupCacheNode(params, targetParentNode)
@@ -115,7 +117,7 @@ export class SearchWorkflow extends EventEmitter {
                 const result: TransformResultEvent = {
                   file: vscode.Uri.parse(fileUri),
                   matches: [],
-                  source: content
+                  source: content,
                 }
                 this.cacheService.addResult(result)
               }
@@ -140,7 +142,7 @@ export class SearchWorkflow extends EventEmitter {
               if (
                 this.currentLimitIndex < this.MATCH_LIMITS.length &&
                 this.totalMatchesInRun >=
-                this.MATCH_LIMITS[this.currentLimitIndex]
+                  this.MATCH_LIMITS[this.currentLimitIndex]
               ) {
                 this.isPaused = true
                 const limit = this.MATCH_LIMITS[this.currentLimitIndex]
@@ -194,7 +196,6 @@ export class SearchWorkflow extends EventEmitter {
     // Create a new controller for THIS run
     const controller = new AbortController()
     this.abortController = controller
-
 
     const files = Array.from(this.skippedLargeFiles)
     let completedCount = 0
@@ -250,15 +251,11 @@ export class SearchWorkflow extends EventEmitter {
     dirtyFiles?: Set<string>
   ): Promise<{
     filesToScan: string[]
-    targetParentNode: any
+    targetParentNode: SearchCacheNode | null
   }> {
     const { searchInResults, include, exclude } = params
     let filesToScan: string[] = []
-    let targetParentNode: any = null
-
-    console.log(
-      `[SearchWorkflow] getFilesToScan called. params.searchInResults: ${searchInResults}`
-    )
+    let targetParentNode: SearchCacheNode | null = null
 
     if (searchInResults && searchInResults > 0) {
       // Nested Search: Identify Stable Global Scope
@@ -277,7 +274,6 @@ export class SearchWorkflow extends EventEmitter {
             // Note: scopeFiles are just paths (strings)
             const union = new Set([...scopeFiles, ...dirtyArray])
             filesToScan = Array.from(union)
-            console.log(`[SearchWorkflow] Merged dirty files. Scope size: ${scopeFiles.length} + Dirty: ${dirtyArray.length} -> Total: ${filesToScan.length}`)
           } else {
             filesToScan = scopeFiles
           }
@@ -292,14 +288,16 @@ export class SearchWorkflow extends EventEmitter {
           } else {
             filesToScan = []
             targetParentNode = scopeNode
-            console.log(`[SearchWorkflow] Scope empty and no dirty files.`)
           }
         }
       } else {
         // No scope node found (cache issue?), fallback to global scan
-        console.log(`[SearchWorkflow] No global scope node found. Fallback to full scan.`)
-        const uris = await this.fileService.findFiles(include || '**/*', exclude || '')
-        filesToScan = uris.map(u => u.toString())
+
+        const uris = await this.fileService.findFiles(
+          include || '**/*',
+          exclude || ''
+        )
+        filesToScan = uris.map((u) => u.toString())
       }
     } else {
       // Global Search
@@ -313,7 +311,10 @@ export class SearchWorkflow extends EventEmitter {
     return { filesToScan, targetParentNode }
   }
 
-  private setupCacheNode(params: Params, targetParentNode: any): any {
+  private setupCacheNode(
+    params: Params,
+    targetParentNode: SearchCacheNode | null
+  ): SearchCacheNode {
     const {
       find,
       searchInResults,
@@ -323,7 +324,7 @@ export class SearchWorkflow extends EventEmitter {
       exclude,
       searchMode,
     } = params
-    let cacheNode: any = null
+    let cacheNode: SearchCacheNode | null = null
 
     if (targetParentNode) {
       // Use createCacheNode with explicit parent
@@ -371,10 +372,14 @@ export class SearchWorkflow extends EventEmitter {
         )
       }
     }
-    return cacheNode
+    // This method is guaranteed to return a CacheNode, so we can assert it.
+    return cacheNode!
   }
 
-  private emitCachedResults(cacheNode: any, processedFiles: Set<string>) {
+  private emitCachedResults(
+    cacheNode: SearchCacheNode,
+    processedFiles: Set<string>
+  ) {
     for (const [uri, result] of cacheNode.results.entries()) {
       if (processedFiles.has(uri)) {
         this.emit('result', result)
@@ -384,10 +389,7 @@ export class SearchWorkflow extends EventEmitter {
 
   stop() {
     if (this.abortController) {
-      console.log(`[SearchWorkflow] STOPPING. Aborting active controller.`)
       this.abortController.abort()
-    } else {
-      console.log(`[SearchWorkflow] STOPPING. No active controller to abort.`)
     }
     this.isRunning = false
     this.emit('stop')

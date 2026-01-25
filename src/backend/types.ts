@@ -43,7 +43,7 @@ export interface IMdSearchExtension {
   transformResultProvider: any
   searchReplaceViewProvider: any
   getParams(): Params
-  setParams(params: Params): void
+  setParams(params: Params, triggerRestart?: boolean): void
   logError(error: Error): void
   resolveFsPath(fsPath: string): vscode.Uri
   replace(): Promise<void>

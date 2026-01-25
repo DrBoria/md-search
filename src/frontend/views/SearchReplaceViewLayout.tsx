@@ -9,9 +9,8 @@ import { FindInFoundButton } from './components/FindInFoundButton';
 import { SearchGlobalProvider, useSearchGlobal } from './context/SearchGlobalContext';
 import { SearchItemProvider, useSearchItemController } from './context/SearchItemContext';
 import { MessageFromWebview, MessageToWebview, SerializedTransformResultEvent, SearchLevel } from '../../model/SearchReplaceViewTypes';
-import { URI } from 'vscode-uri';
 import * as path from 'path-browserify';
-import { FileTreeNode, FileNode, FolderNode } from './TreeView';
+import { FileTreeNode, FileNode, FolderNode } from './TreeView/index';
 import { VirtualTreeView } from './TreeView/VirtualTreeView';
 import { excludePathFromResults, uriToPath } from '../utils/exclusionHelper';
 
@@ -58,7 +57,7 @@ function buildFileTree(
             ? `${parent.absolutePath}/${segment}`
             : `${parent.absolutePath}${segment}`;
 
-        const newFolder: FolderNode = {
+        const newFolder: any = {
             name: segment,
             relativePath: currentRelativePath,
             type: 'folder',
@@ -94,7 +93,7 @@ function buildFileTree(
         segments.forEach((segment, index) => {
             currentRelativePath = currentRelativePath ? path.posix.join(currentRelativePath, segment) : segment;
             if (index === segments.length - 1) {
-                const fileNode: FileNode = {
+                const fileNode: any = {
                     name: path.basename(absoluteFilePath),
                     relativePath: posixDisplayPath,
                     absolutePath: absoluteFilePathOrUri,
@@ -114,7 +113,7 @@ function buildFileTree(
 
     if (customOrder) {
         const sortNodeChildren = (node: FolderNode) => {
-            node.children.sort((a, b) => {
+            node.children.sort((a: any, b: any) => {
                 const aPath = (a as any).absolutePath || a.relativePath;
                 const bPath = (b as any).absolutePath || b.relativePath;
                 const aOrder = customOrder[aPath] ?? 999999;
@@ -128,7 +127,7 @@ function buildFileTree(
                 }
                 return a.name.localeCompare(b.name);
             });
-            node.children.forEach(child => {
+            node.children.forEach((child: any) => {
                 if (child.type === 'folder') {
                     sortNodeChildren(child);
                 }
@@ -137,13 +136,13 @@ function buildFileTree(
         sortNodeChildren(root);
     } else {
         const sortNodeChildren = (node: FolderNode) => {
-            node.children.sort((a, b) => {
+            node.children.sort((a: any, b: any) => {
                 if (a.type !== b.type) {
                     return a.type === 'folder' ? -1 : 1;
                 }
                 return a.name.localeCompare(b.name);
             });
-            node.children.forEach(child => {
+            node.children.forEach((child: any) => {
                 if (child.type === 'folder') {
                     sortNodeChildren(child);
                 }
@@ -154,49 +153,6 @@ function buildFileTree(
 
     return root;
 }
-
-function filterTreeForMatches(node: FileTreeNode): FileTreeNode | null {
-    if (node.type === 'file') {
-        const hasMatches = node.results.some(r => r.matches && r.matches.length > 0);
-        return hasMatches ? node : null;
-    } else {
-        const filteredChildren = node.children
-            .map(filterTreeForMatches)
-            .filter(Boolean) as FileTreeNode[];
-
-        if (filteredChildren.length > 0) {
-            const stats = {
-                numMatches: 0,
-                numFilesWithMatches: 0
-            };
-            filteredChildren.forEach(child => {
-                if (child.type === 'folder' && child.stats) {
-                    stats.numMatches += child.stats.numMatches;
-                    stats.numFilesWithMatches += child.stats.numFilesWithMatches;
-                } else if (child.type === 'file') {
-                    const fileMatches = child.results && child.results.length > 0
-                        ? child.results.reduce((sum, r) => sum + (r.matches?.length || 0), 0)
-                        : 0;
-                    stats.numMatches += fileMatches;
-                    if (fileMatches > 0) {
-                        stats.numFilesWithMatches += 1;
-                    }
-                }
-            });
-            filteredChildren.sort((a, b) => {
-                if (a.type !== b.type) {
-                    return a.type === 'folder' ? -1 : 1;
-                }
-                return a.name.localeCompare(b.name);
-            });
-            return { ...node, children: filteredChildren, stats };
-        } else {
-            return null;
-        }
-    }
-}
-
-// --- Tree View Component ---
 
 
 
@@ -218,8 +174,6 @@ const RootSearchSection = () => {
         valuesRef,
         setValues,
         customFileOrder, // Added
-        setCustomFileOrder, // Added
-        setResultsByFile // Need setter to remove items on Cut
     } = useSearchGlobal();
 
     // -- Clipboard Overlay State --
@@ -1045,7 +999,12 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
                                     description: path.dirname(cleanDisplayPath) !== '.' ? path.dirname(cleanDisplayPath) : undefined,
                                     relativePath: cleanDisplayPath,
                                     absolutePath: filePath,
-                                    results: effectiveResultsByFile[filePath] || []
+                                    file: filePath,
+                                    results: effectiveResultsByFile[filePath] || [],
+                                    stats: {
+                                        numMatches: (effectiveResultsByFile[filePath] || []).reduce((sum, r) => sum + (r.matches?.length || 0), 0),
+                                        numFilesWithMatches: 1
+                                    }
                                 };
                                 return node;
                             })

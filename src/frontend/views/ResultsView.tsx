@@ -6,6 +6,7 @@ import { SerializedTransformResultEvent, SearchLevel } from '../../model/SearchR
 import { excludePathFromResults, uriToPath } from '../utils/exclusionHelper';
 import { cn } from "../utils";
 import { VirtualTreeView } from './TreeView/VirtualTreeView';
+import { FileTreeNode, FileNode, FolderNode } from './TreeView/index';
 
 interface ResultsViewProps {
     levelIndex: number;
@@ -13,43 +14,10 @@ interface ResultsViewProps {
 }
 
 // Helper Interfaces
-interface FileTreeNodeBase {
-    name: string;
-    relativePath: string;
-}
 
-interface FolderNode extends FileTreeNodeBase {
-    type: 'folder';
-    absolutePath: string; // Added absolutePath
-    children: FileTreeNode[];
-    stats?: {
-        numMatches: number;
-        numFilesWithMatches: number;
-    };
-}
-
-interface FileNode extends FileTreeNodeBase {
-    type: 'file';
-    absolutePath: string;
-    description?: string;
-    results: SerializedTransformResultEvent[];
-}
-
-type FileTreeNode = FolderNode | FileNode;
 
 // Helper Functions
-function uriToPath(uriString: string | undefined): string {
-    if (!uriString) return '';
-    try {
-        const uri = URI.parse(uriString);
-        if (uri.scheme === 'file') {
-            return uri.fsPath;
-        }
-        return uriString;
-    } catch (e) {
-        return uriString;
-    }
-}
+
 
 function buildFileTree(
     resultsByFile: Record<string, SerializedTransformResultEvent[]>,
@@ -63,6 +31,7 @@ function buildFileTree(
         absolutePath: uriToPath(workspacePathUri),
         type: 'folder',
         children: [],
+        results: [],
         stats: { numMatches: 0, numFilesWithMatches: 0 }
     };
     const workspacePath = uriToPath(workspacePathUri);
@@ -90,6 +59,7 @@ function buildFileTree(
             absolutePath: safeAbsolutePath, // Store absolute path
             type: 'folder',
             children: [],
+            results: [],
             stats: { numMatches: 0, numFilesWithMatches: 0 }
         };
         parent.children.push(newFolder);
@@ -120,7 +90,7 @@ function buildFileTree(
         segments.forEach((segment, index) => {
             currentRelativePath = currentRelativePath ? path.posix.join(currentRelativePath, segment) : segment;
             if (index === segments.length - 1) {
-                const fileNode: FileNode = {
+                const fileNode: any = {
                     name: path.basename(absoluteFilePath),
                     relativePath: posixDisplayPath,
                     absolutePath: absoluteFilePathOrUri,
@@ -451,7 +421,12 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex, animationS
                     description: path.dirname(cleanDisplayPath) !== '.' ? path.dirname(cleanDisplayPath) : undefined,
                     relativePath: cleanDisplayPath,
                     absolutePath: filePath,
-                    results: effectiveResultsByFile[filePath] || []
+                    file: filePath,
+                    results: effectiveResultsByFile[filePath] || [],
+                    stats: {
+                        numMatches: (effectiveResultsByFile[filePath] || []).reduce((sum: number, r: any) => sum + (r.matches?.length || 0), 0),
+                        numFilesWithMatches: 1
+                    }
                 };
                 return node;
             });

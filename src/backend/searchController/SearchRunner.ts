@@ -56,14 +56,13 @@ export class SearchRunner extends TypedEmitter<SearchRunnerEvents> {
   /**
    * Updates search parameters and triggers a restart.
    */
-  setParams(params: Params, triggerRestart: boolean = true): void {
+  setParams(params: Params, triggerRestart = true): void {
     const prevFn = JSON.stringify(this.params)
     const newFn = JSON.stringify(params)
 
     this.params = params
 
     if (triggerRestart && prevFn !== newFn) {
-      // console.log('[SearchRunner] Parameters changed, triggering restartSoon')
       this.debouncedRestart()
     }
   }
@@ -181,7 +180,7 @@ export class SearchRunner extends TypedEmitter<SearchRunnerEvents> {
       // But clearing cache above ensures correctness.)
       this.cacheService.addResult(result)
     } catch (e) {
-      console.error(`Error scanning file ${document.uri.fsPath}:`, e)
+      // console.error(`Error scanning file ${document.uri.fsPath}:`, e)
     }
   }
 }

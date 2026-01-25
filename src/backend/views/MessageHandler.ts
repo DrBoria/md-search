@@ -47,9 +47,7 @@ export class MessageHandler {
     if (
       ['copyMatches', 'cutMatches', 'pasteToMatches'].includes(message.type)
     ) {
-      this.extension.channel.appendLine(
-        `[MessageHandler] Received message: ${message.type}`
-      )
+      this.extension.channel.appendLine('')
     }
 
     try {
@@ -76,7 +74,6 @@ export class MessageHandler {
           await this.handleCopyMatches(message.fileOrder)
           break
         case 'cutMatches':
-          console.log('cutMatches', message.fileOrder)
           await this.handleCutMatches(message.fileOrder)
           break
         case 'pasteToMatches':
@@ -210,17 +207,11 @@ export class MessageHandler {
   }
 
   private async handleCopyMatches(fileOrder?: string[]): Promise<void> {
-    console.log(
-      `[MessageHandler] handleCopyMatches called. Order provided: ${!!fileOrder}`
-    )
     const count = await this.extension.copyMatches(fileOrder)
     this.viewProvider.notifyCopyMatchesComplete(count)
   }
 
   private async handleCutMatches(fileOrder?: string[]): Promise<void> {
-    console.log(
-      `[MessageHandler] handleCutMatches called. Order provided: ${!!fileOrder}`
-    )
     const count = await this.extension.cutMatches(fileOrder)
     this.viewProvider.notifyCutMatchesComplete(count)
   }
@@ -240,8 +231,6 @@ export class MessageHandler {
 
   private handleExcludeFile(filePath: string): void {
     const fileUri = vscode.Uri.parse(filePath)
-    console.log(`[MessageHandler] handleExcludeFile called for: ${filePath}`)
-    console.log(`[MessageHandler] Parsed URI fsPath: ${fileUri.fsPath}`)
 
     // 1. Exclude from cache (immediate effect on backend state)
     this.extension.runner.excludeFileFromCache(fileUri)
