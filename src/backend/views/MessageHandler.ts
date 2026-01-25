@@ -25,7 +25,7 @@ export class MessageHandler {
       getStatus: () => SearchReplaceViewStatus
       onWebviewMounted: () => void
     }
-  ) { }
+  ) {}
 
   public async handle(rawMessage: unknown): Promise<void> {
     const validation = MessageFromWebviewSchema.safeParse(rawMessage)
@@ -44,8 +44,12 @@ export class MessageHandler {
     const message = validation.data
 
     // Debug log for relevant messages
-    if (['copyMatches', 'cutMatches', 'pasteToMatches'].includes(message.type)) {
-      this.extension.channel.appendLine(`[MessageHandler] Received message: ${message.type}`)
+    if (
+      ['copyMatches', 'cutMatches', 'pasteToMatches'].includes(message.type)
+    ) {
+      this.extension.channel.appendLine(
+        `[MessageHandler] Received message: ${message.type}`
+      )
     }
 
     try {
@@ -121,6 +125,12 @@ export class MessageHandler {
       workspaceFolders.length > 0 ? workspaceFolders[0].uri.toString() : ''
 
     const currentParams = this.extension.getParams()
+
+    // The instruction implies a call to setParams here, likely to update initial state without triggering a search.
+    // The provided snippet is a bit malformed, but the intent seems to be to set parameters
+    // without restarting the search immediately.
+    // Assuming the intent is to set the initial parameters without triggering a search on mount.
+    this.extension.setParams(currentParams, false) // Do not restart search immediately, let frontend handle optimistic update
 
     const values: any = {
       ...currentParams,
@@ -200,19 +210,25 @@ export class MessageHandler {
   }
 
   private async handleCopyMatches(fileOrder?: string[]): Promise<void> {
-    console.log(`[MessageHandler] handleCopyMatches called. Order provided: ${!!fileOrder}`)
+    console.log(
+      `[MessageHandler] handleCopyMatches called. Order provided: ${!!fileOrder}`
+    )
     const count = await this.extension.copyMatches(fileOrder)
     this.viewProvider.notifyCopyMatchesComplete(count)
   }
 
   private async handleCutMatches(fileOrder?: string[]): Promise<void> {
-    console.log(`[MessageHandler] handleCutMatches called. Order provided: ${!!fileOrder}`)
+    console.log(
+      `[MessageHandler] handleCutMatches called. Order provided: ${!!fileOrder}`
+    )
     const count = await this.extension.cutMatches(fileOrder)
     this.viewProvider.notifyCutMatchesComplete(count)
   }
 
   private async handlePasteToMatches(fileOrder?: string[]): Promise<void> {
-    this.extension.channel.appendLine(`[MessageHandler] handlePasteToMatches called. Order provided: ${!!fileOrder}`)
+    this.extension.channel.appendLine(
+      `[MessageHandler] handlePasteToMatches called. Order provided: ${!!fileOrder}`
+    )
     const count = await this.extension.pasteToMatches(fileOrder)
     this.viewProvider.notifyPasteToMatchesComplete(count)
   }
@@ -224,6 +240,10 @@ export class MessageHandler {
 
   private handleExcludeFile(filePath: string): void {
     const fileUri = vscode.Uri.parse(filePath)
+    console.log(`[MessageHandler] handleExcludeFile called for: ${filePath}`)
+    console.log(`[MessageHandler] Parsed URI fsPath: ${fileUri.fsPath}`)
+
+    // 1. Exclude from cache (immediate effect on backend state)
     this.extension.runner.excludeFileFromCache(fileUri)
     this.extension.transformResultProvider.results.delete(filePath)
 

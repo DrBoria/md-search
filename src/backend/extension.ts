@@ -49,10 +49,10 @@ export class MdSearchExtension implements IMdSearchExtension {
     savedResults: Map<string, any>
     canUndo: boolean
   } = {
-      savedFileContents: new Map(),
-      savedResults: new Map(),
-      canUndo: false,
-    }
+    savedFileContents: new Map(),
+    savedResults: new Map(),
+    canUndo: false,
+  }
 
   constructor(public context: vscode.ExtensionContext) {
     // const config = vscode.workspace.getConfiguration('astx')
@@ -121,11 +121,14 @@ export class MdSearchExtension implements IMdSearchExtension {
     return vscode.Uri.parse(fsPath)
   }
 
+  // Flag to prevent config listener loops
+  private isUpdatingConfig = false
+
   getParams(): Params {
     return { ...this.params }
   }
 
-  setParams(params: Params): void {
+  setParams(params: Params, triggerRestart: boolean = true): void {
     if (!isEqual(this.params, params)) {
       if (params.transformFile !== this.params.transformFile) {
         if (params.transformFile) {
@@ -145,11 +148,35 @@ export class MdSearchExtension implements IMdSearchExtension {
         }
       }
       const config = vscode.workspace.getConfiguration('mdSearch')
-      for (const key of paramsInConfig) {
-        if (params[key] !== this.params[key]) {
-          config.update(key, params[key], vscode.ConfigurationTarget.Workspace)
+
+      // Set flag to ignore the configuration change event we are about to trigger
+      this.isUpdatingConfig = true
+
+      // Use Promise.all to await all updates or just fire-and-forget but keep flag on long enough?
+      // Configuration updates are async. We should reset the flag after a short delay or ensure we await.
+      // However, config.update returns a Thenable. Ideally we should await it.
+      // Since setParams is synchronous signature, we can't await easily without changing signature.
+      // But we can reset it in a finally block if we make this async, or just setTimeout.
+      // Let's try iterating and updating.
+
+      ;(async () => {
+        try {
+          for (const key of paramsInConfig) {
+            if (params[key] !== this.params[key]) {
+              await config.update(
+                key,
+                params[key],
+                vscode.ConfigurationTarget.Workspace
+              )
+            }
+          }
+        } finally {
+          // Short timeout to ensure the event has fired and been handled/ignored
+          setTimeout(() => {
+            this.isUpdatingConfig = false
+          }, 100)
         }
-      }
+      })()
 
       // Clear search cache when search parameters change (matchCase, wholeWord),
       // UNLESS we are refining a search (searchInResults > 0), in which case we need the cache history.
@@ -166,7 +193,7 @@ export class MdSearchExtension implements IMdSearchExtension {
 
       // No deed to set params if replacement is in progress
       if (!params.isReplacement) {
-        this.runner.setParams({ ...this.params })
+        this.runner.setParams({ ...this.params }, triggerRestart)
       }
     }
   }
@@ -237,6 +264,7 @@ export class MdSearchExtension implements IMdSearchExtension {
     context.subscriptions.push(
       vscode.workspace.onDidChangeConfiguration(
         (e: vscode.ConfigurationChangeEvent) => {
+          if (this.isUpdatingConfig) return
           if (!e.affectsConfiguration('MD Search')) return
           const config = vscode.workspace.getConfiguration('mdSearch')
           if (paramsInConfig.some((p) => this.params[p] !== config[p])) {
@@ -256,31 +284,31 @@ export class MdSearchExtension implements IMdSearchExtension {
 
     const setIncludePaths =
       ({ useTransformFile }: { useTransformFile: boolean }) =>
-        (dir: vscode.Uri, arg2: vscode.Uri[]) => {
-          const dirs =
-            Array.isArray(arg2) &&
-              arg2.every((item) => item instanceof vscode.Uri)
-              ? arg2
-              : [dir || vscode.window.activeTextEditor?.document.uri].filter(
+      (dir: vscode.Uri, arg2: vscode.Uri[]) => {
+        const dirs =
+          Array.isArray(arg2) &&
+          arg2.every((item) => item instanceof vscode.Uri)
+            ? arg2
+            : [dir || vscode.window.activeTextEditor?.document.uri].filter(
                 (x): x is vscode.Uri => x instanceof vscode.Uri
               )
-          if (!dirs.length) return
-          const newParams: Params = {
-            ...this.getParams(),
-            useTransformFile,
-            include: dirs.map(normalizeFsPath).join(', '),
-          }
-
-          // Сначала устанавливаем параметры
-          this.setParams(newParams)
-
-          // Затем уже показываем представление с фокусом
-          this.searchReplaceViewProvider.showWithSearchFocus()
-          this.searchReplaceViewProvider.postMessage({
-            type: 'values',
-            values: newParams,
-          })
+        if (!dirs.length) return
+        const newParams: Params = {
+          ...this.getParams(),
+          useTransformFile,
+          include: dirs.map(normalizeFsPath).join(', '),
         }
+
+        // Сначала устанавливаем параметры
+        this.setParams(newParams)
+
+        // Затем уже показываем представление с фокусом
+        this.searchReplaceViewProvider.showWithSearchFocus()
+        this.searchReplaceViewProvider.postMessage({
+          type: 'values',
+          values: newParams,
+        })
+      }
     const findInPath = setIncludePaths({ useTransformFile: false })
 
     context.subscriptions.push(
@@ -290,8 +318,6 @@ export class MdSearchExtension implements IMdSearchExtension {
     context.subscriptions.push(
       vscode.commands.registerCommand('mdSearch.findInFolder', findInPath)
     )
-
-
 
     // После регистрации WebView провайдера, добавляем логику инициализации фоновых задач
     // для ускорения первого поиска
@@ -447,7 +473,7 @@ export class MdSearchExtension implements IMdSearchExtension {
         if (!result.matches || result.matches.length === 0) continue
 
         const uri = vscode.Uri.parse(uriString)
-        // If document is open, use its text model? WorkspaceEdit handles this mostly, 
+        // If document is open, use its text model? WorkspaceEdit handles this mostly,
         // but we need to calculate ranges based on the *current* content if we want to be safe.
         // However, our search results (matches) have start/end indices based on the content *at the time of search*.
         // If the file changed, these might be invalid.
@@ -460,7 +486,9 @@ export class MdSearchExtension implements IMdSearchExtension {
         try {
           document = await vscode.workspace.openTextDocument(uri)
         } catch (e) {
-          this.channel.appendLine(`Could not open document ${uriString}, skipping.`)
+          this.channel.appendLine(
+            `Could not open document ${uriString}, skipping.`
+          )
           continue
         }
 
@@ -470,7 +498,8 @@ export class MdSearchExtension implements IMdSearchExtension {
         // Actually for WorkspaceEdit, order doesn't matter as long as ranges don't overlap.
 
         for (const match of result.matches) {
-          if (typeof match.start !== 'number' || typeof match.end !== 'number') continue
+          if (typeof match.start !== 'number' || typeof match.end !== 'number')
+            continue
 
           const startPos = document.positionAt(match.start)
           const endPos = document.positionAt(match.end)
@@ -523,7 +552,9 @@ export class MdSearchExtension implements IMdSearchExtension {
           // Better: Open and save.
           for (const [uriString] of filesToProcess) {
             try {
-              const doc = await vscode.workspace.openTextDocument(vscode.Uri.parse(uriString))
+              const doc = await vscode.workspace.openTextDocument(
+                vscode.Uri.parse(uriString)
+              )
               if (doc.isDirty) {
                 await doc.save()
               }
@@ -588,7 +619,7 @@ export class MdSearchExtension implements IMdSearchExtension {
   // Handler for file creation - should INVALIDATE cache (so it gets picked up if it matches glob)
   handleFsCreate = (uri: vscode.Uri): void => {
     this.channel.appendLine(`[Cache] File created: ${uri.fsPath}`)
-    // Invalidate ensures it's clean for scanning. 
+    // Invalidate ensures it's clean for scanning.
     // Actually for new file, it wasn't there. But invalidate is safe.
     this.runner.invalidateFileInCache(uri)
     this.runner.runSoon()
@@ -660,7 +691,9 @@ export class MdSearchExtension implements IMdSearchExtension {
       ] of this.undoState.savedFileContents.entries()) {
         try {
           const uri = vscode.Uri.parse(uriString)
-          this.channel.appendLine(`[Undo] Restoring ${uriString} (${originalContent.length} bytes)`)
+          this.channel.appendLine(
+            `[Undo] Restoring ${uriString} (${originalContent.length} bytes)`
+          )
           const contentBytes = Buffer.from(originalContent, 'utf8')
           await vscode.workspace.fs.writeFile(uri, contentBytes as any)
           restoredCount++
@@ -702,7 +735,9 @@ export class MdSearchExtension implements IMdSearchExtension {
       `Copying all matches to buffer... Using UI order: ${!!fileOrder}`
     )
     if (fileOrder && fileOrder.length > 0) {
-      this.channel.appendLine(`[DEBUG] Copy Order (Full): ${JSON.stringify(fileOrder, null, 2)}`)
+      this.channel.appendLine(
+        `[DEBUG] Copy Order (Full): ${JSON.stringify(fileOrder, null, 2)}`
+      )
     }
 
     const resultsMap = this.transformResultProvider.results
@@ -732,10 +767,14 @@ export class MdSearchExtension implements IMdSearchExtension {
 
     // Log the actual iteration order and content
     filesWithMatches.forEach(([path, result], index) => {
-      const preview = result.matches.slice(0, 1).map((m: any) => result.source?.substring(m.start, m.end) || '').join('...');
-      this.channel.appendLine(`[DEBUG] Copy Order #${index + 1}: File [${path}], Matches Encoded: ${result.matches.length}, Preview: "${preview.substring(0, 50)}..."`);
-    });
-
+      const preview = result.matches
+        .slice(0, 1)
+        .map((m: any) => result.source?.substring(m.start, m.end) || '')
+        .join('...')
+      this.channel.appendLine(
+        `[DEBUG] Copy Order #${index + 1}: File [${path}], Matches Encoded: ${result.matches.length}, Preview: "${preview.substring(0, 50)}..."`
+      )
+    })
 
     for (const [, result] of filesWithMatches) {
       if (result.matches && result.matches.length > 0 && result.source) {
@@ -784,7 +823,9 @@ export class MdSearchExtension implements IMdSearchExtension {
     if (this.matchesBuffer.length > 0) {
       const clipboardText = this.matchesBuffer.join('\n\n\n\n')
       // Log what's going into buffer (abbreviated)
-      this.channel.appendLine(`[DEBUG] Final Buffer Start: "${clipboardText.substring(0, 100)}..."`)
+      this.channel.appendLine(
+        `[DEBUG] Final Buffer Start: "${clipboardText.substring(0, 100)}..."`
+      )
       await vscode.env.clipboard.writeText(clipboardText)
     }
 
@@ -792,7 +833,6 @@ export class MdSearchExtension implements IMdSearchExtension {
     return count
   }
   // ... (skip intermediate methods like copyFileNames)
-
 
   // Method for copying all found file names with # prefix
   async copyFileNames(): Promise<number> {
@@ -857,10 +897,14 @@ export class MdSearchExtension implements IMdSearchExtension {
       )
     }
 
-    console.log(`[Extension] cutMatches: Processing ${filesWithMatches.length} files...`)
+    console.log(
+      `[Extension] cutMatches: Processing ${filesWithMatches.length} files...`
+    )
     filesWithMatches.forEach(([path, result], index) => {
-      console.log(`[Extension] Cut Order #${index + 1}: File [${path}] (Matches: ${result?.matches?.length || 0})`);
-    });
+      console.log(
+        `[Extension] Cut Order #${index + 1}: File [${path}] (Matches: ${result?.matches?.length || 0})`
+      )
+    })
 
     // First copy all matches to buffer and save their positions
     for (const [uriString, result] of filesWithMatches) {
@@ -1007,7 +1051,8 @@ export class MdSearchExtension implements IMdSearchExtension {
         clipboardParts.length === filesWithMatches.length
 
       this.channel.appendLine(
-        `Clipboard parts: ${clipboardParts.length}, Files with matches: ${filesWithMatches.length
+        `Clipboard parts: ${clipboardParts.length}, Files with matches: ${
+          filesWithMatches.length
         }, Distribute: ${shouldDistributeParts}, Using UI order: ${!!fileOrder}`
       )
 
@@ -1016,8 +1061,10 @@ export class MdSearchExtension implements IMdSearchExtension {
       )
       if (shouldDistributeParts) {
         filesWithMatches.forEach((f, idx) => {
-          this.channel.appendLine(`[DEBUG] Mapping Part #${idx} to File: ${f[0]}`);
-        });
+          this.channel.appendLine(
+            `[DEBUG] Mapping Part #${idx} to File: ${f[0]}`
+          )
+        })
       }
 
       let totalReplacements = 0
@@ -1047,8 +1094,9 @@ export class MdSearchExtension implements IMdSearchExtension {
                 ? clipboardParts[fileIndex] || ''
                 : clipboardText
 
-              this.channel.appendLine(`[DEBUG] Pasting to ${uriString} (Index ${fileIndex}): Replacement Length=${replacementText.length}, Preview="${replacementText.substring(0, 20)}..."`);
-
+              this.channel.appendLine(
+                `[DEBUG] Pasting to ${uriString} (Index ${fileIndex}): Replacement Length=${replacementText.length}, Preview="${replacementText.substring(0, 20)}..."`
+              )
 
               // Process matches in reverse order to avoid shifting indices
               const sortedMatches = [...result.matches].sort(
@@ -1140,7 +1188,8 @@ export class MdSearchExtension implements IMdSearchExtension {
       clipboardParts.length === filesWithCutPositions.length
 
     this.channel.appendLine(
-      `Clipboard parts: ${clipboardParts.length}, Files with cut positions: ${filesWithCutPositions.length
+      `Clipboard parts: ${clipboardParts.length}, Files with cut positions: ${
+        filesWithCutPositions.length
       }, Distribute: ${shouldDistributeParts}, Using UI order: ${!!fileOrder}`
     )
 
@@ -1233,9 +1282,10 @@ export async function deactivate(): Promise<void> {
 function normalizeFsPath(uri: vscode.Uri): string {
   const folder = vscode.workspace.getWorkspaceFolder(uri)
   return folder
-    ? `${(vscode.workspace.workspaceFolders?.length ?? 0) > 1
-      ? path.basename(folder.uri.path) + '/'
-      : ''
-    }${path.relative(folder.uri.path, uri.path)}`
+    ? `${
+        (vscode.workspace.workspaceFolders?.length ?? 0) > 1
+          ? path.basename(folder.uri.path) + '/'
+          : ''
+      }${path.relative(folder.uri.path, uri.path)}`
     : uri.fsPath
 }

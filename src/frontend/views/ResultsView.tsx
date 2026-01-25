@@ -3,6 +3,7 @@ import { useSearchGlobal } from './context/SearchGlobalContext';
 import { URI } from 'vscode-uri';
 import * as path from 'path-browserify';
 import { SerializedTransformResultEvent, SearchLevel } from '../../model/SearchReplaceViewTypes';
+import { excludePathFromResults, uriToPath } from '../utils/exclusionHelper';
 import { cn } from "../utils";
 import { VirtualTreeView } from './TreeView/VirtualTreeView';
 
@@ -167,7 +168,6 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex, animationS
         vscode,
         searchLevels,
         setSearchLevels,
-        setResultsByFile,
         isInNestedSearch,
         values: globalValues,
         workspacePath,
@@ -229,24 +229,20 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex, animationS
         vscode.postMessage({ type: 'replace', filePaths });
     }, [level, globalValues, vscode]);
 
+
+
     const handleExcludeFile = useCallback((filePath: string) => {
+        console.log('[ResultsView] handleExcludeFile called with:', filePath);
         vscode.postMessage({ type: 'excludeFile', filePath });
         setSearchLevels(prev => {
             const newLevels = [...prev];
             const targetLevel = newLevels[levelIndex];
             if (!targetLevel) return prev;
 
-            const newResults = { ...targetLevel.resultsByFile };
-            let changed = false;
+            const { newResults, removedKeys } = excludePathFromResults(targetLevel.resultsByFile, filePath);
 
-            Object.keys(newResults).forEach(key => {
-                if (key === filePath || key.startsWith(filePath + (filePath.includes('/') ? '/' : '\\'))) {
-                    delete newResults[key];
-                    changed = true;
-                }
-            });
-
-            if (changed) {
+            if (removedKeys.length > 0) {
+                console.log('[ResultsView] Excluding match:', { filePath, removedKeys });
                 newLevels[levelIndex] = { ...targetLevel, resultsByFile: newResults };
                 return newLevels;
             }

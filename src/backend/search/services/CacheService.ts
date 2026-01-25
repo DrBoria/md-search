@@ -429,7 +429,7 @@ export class SearchCache {
     // Invalidate cache recursively for all nodes
     const invalidateRecursive = (node: SearchCacheNode) => {
       // DO NOT delete from results (preserve scope)
-      // node.results.delete(filePath) 
+      // node.results.delete(filePath)
 
       // Remove from processed/excluded so it gets picked up again
       node.processedFiles.delete(filePath)
@@ -619,6 +619,10 @@ export class SearchCache {
     }
 
     let filePath = fileUri.toString()
+    // Normalization check: console log what we start with
+    // console.log(`[CacheService] Excluding: ${filePath}`)
+
+    // Potentially flawed logic check
     if (filePath.startsWith('/file:///')) {
       filePath = filePath.replace('/file://', '')
     }
@@ -626,9 +630,33 @@ export class SearchCache {
     // Рекурсивно удаляем файл из всех узлов кэша
     const excludeRecursive = (node: SearchCacheNode) => {
       // Удаляем файл из результатов
-      node.results.delete(filePath)
+
+      // Optimization: Check for direct match first
+      if (node.results.has(filePath)) {
+        node.results.delete(filePath)
+      }
+
+      // Check for folder match (iterate keys)
+      // This is necessary because excluded path might be a folder (e.g. .venv)
+      // but results only contain files (e.g. .venv/lib/foo.py)
+      for (const key of node.results.keys()) {
+        if (key.startsWith(filePath + '/') || key.startsWith(filePath + '\\')) {
+          node.results.delete(key)
+        }
+      }
+
       node.processedFiles.delete(filePath)
-      node.excludedFiles.delete(filePath)
+      node.excludedFiles.delete(filePath) // Wait, if it's excluded, maybe we should ADD it?
+      // Current logic: remove it so it's not "remembered" as processed outcome?
+      // But we generally want to PREVENT it from being searched.
+      // SearchWorkflow: .filter((f) => !processedFiles.has(f) && !excludedFiles.has(f))
+      // If we delete from excludedFiles, it is NOT excluded?
+      // Wait. The method name is excludeFileFromCache.
+      // If we want it excluded, we should ADD it to excludedFiles!
+      // But if we want to remove 'memory' of it, we delete?
+
+      // FIX?: We should ADD it to excludedFiles so SearchWorkflow filters it out!
+      node.excludedFiles.add(filePath)
 
       // Удаляем из всех дочерних узлов
       for (const childNode of node.children.values()) {

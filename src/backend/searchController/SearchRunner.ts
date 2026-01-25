@@ -56,21 +56,13 @@ export class SearchRunner extends TypedEmitter<SearchRunnerEvents> {
   /**
    * Updates search parameters and triggers a restart.
    */
-  setParams(params: Params): void {
+  setParams(params: Params, triggerRestart: boolean = true): void {
     const prevFn = JSON.stringify(this.params)
     const newFn = JSON.stringify(params)
 
     this.params = params
-    this.params = params
-    // console.log(
-    //   '[SearchRunner] setParams called',
-    //   'params:',
-    //   JSON.stringify(params),
-    //   'changed:',
-    //   prevFn !== newFn
-    // )
 
-    if (prevFn !== newFn) {
+    if (triggerRestart && prevFn !== newFn) {
       // console.log('[SearchRunner] Parameters changed, triggering restartSoon')
       this.debouncedRestart()
     }
@@ -184,8 +176,8 @@ export class SearchRunner extends TypedEmitter<SearchRunnerEvents> {
 
       this.emit('result', result)
 
-      // Update cache only if there are matches (or should we cache empty results? 
-      // CacheService usually caches positive results. If we don't cache empty, next search might re-scan. 
+      // Update cache only if there are matches (or should we cache empty results?
+      // CacheService usually caches positive results. If we don't cache empty, next search might re-scan.
       // But clearing cache above ensures correctness.)
       this.cacheService.addResult(result)
     } catch (e) {

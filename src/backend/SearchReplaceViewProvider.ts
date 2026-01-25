@@ -27,18 +27,18 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     params: Params
     results: any[]
   } = {
-      status: {
-        running: false,
-        completed: 0,
-        total: 0,
-        numMatches: 0,
-        numFilesThatWillChange: 0,
-        numFilesWithMatches: 0,
-        numFilesWithErrors: 0,
-      },
-      params: {} as Params,
-      results: [],
-    }
+    status: {
+      running: false,
+      completed: 0,
+      total: 0,
+      numMatches: 0,
+      numFilesThatWillChange: 0,
+      numFilesWithMatches: 0,
+      numFilesWithErrors: 0,
+    },
+    params: {} as Params,
+    results: [],
+  }
   private _listenerRegistered = false
 
   // Buffer for accumulating results
@@ -144,13 +144,19 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     }
 
     // Live Update Listener
-    vscode.workspace.onDidChangeTextDocument(debounce((e) => {
-      if (e.document.uri.scheme === 'file' && this.visible && !this.isSearchRunning) {
-        // Only scan if search is not currently running to avoid conflicts
-        // And only if view is visible (optimization)
-        this.runner.scanFile(e.document);
-      }
-    }, 500))
+    vscode.workspace.onDidChangeTextDocument(
+      debounce((e) => {
+        if (
+          e.document.uri.scheme === 'file' &&
+          this.visible &&
+          !this.isSearchRunning
+        ) {
+          // Only scan if search is not currently running to avoid conflicts
+          // And only if view is visible (optimization)
+          this.runner.scanFile(e.document)
+        }
+      }, 500)
+    )
 
     for (const [event, listener] of Object.entries(globalListeners)) {
       this.runner.on(event as keyof SearchRunnerEvents, listener)
@@ -193,23 +199,37 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     const fileUri = e.file.toString()
 
     // Live update check: If file exists in results, we are updating it.
-    const existingIndex = this._state.results.findIndex(r => r.file === fileUri)
+    const existingIndex = this._state.results.findIndex(
+      (r) => r.file === fileUri
+    )
     if (existingIndex !== -1) {
       // Remove old result from stats before adding new one
       const oldResult = this._state.results[existingIndex]
       if (oldResult.matches) {
-        this._state.status.numMatches = Math.max(0, this._state.status.numMatches - oldResult.matches.length)
+        this._state.status.numMatches = Math.max(
+          0,
+          this._state.status.numMatches - oldResult.matches.length
+        )
       }
       if (oldResult.transformed && oldResult.transformed !== oldResult.source) {
-        this._state.status.numFilesThatWillChange = Math.max(0, this._state.status.numFilesThatWillChange - 1)
+        this._state.status.numFilesThatWillChange = Math.max(
+          0,
+          this._state.status.numFilesThatWillChange - 1
+        )
       }
       if (oldResult.error) {
-        this._state.status.numFilesWithErrors = Math.max(0, this._state.status.numFilesWithErrors - 1)
+        this._state.status.numFilesWithErrors = Math.max(
+          0,
+          this._state.status.numFilesWithErrors - 1
+        )
       }
-      // Note: numFilesWithMatches is decremented only if new result has 0 matches, 
+      // Note: numFilesWithMatches is decremented only if new result has 0 matches,
       // but simple way is to decrement here and increment in _updateStatus if applies?
       // Actually best to remove old contribution entirely.
-      this._state.status.numFilesWithMatches = Math.max(0, this._state.status.numFilesWithMatches - 1)
+      this._state.status.numFilesWithMatches = Math.max(
+        0,
+        this._state.status.numFilesWithMatches - 1
+      )
 
       // Remove from results array
       this._state.results.splice(existingIndex, 1)
@@ -235,10 +255,10 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
       reports: e.reports,
       error: e.error
         ? {
-          message: e.error.message,
-          name: e.error.name,
-          stack: e.error.stack,
-        }
+            message: e.error.message,
+            name: e.error.name,
+            stack: e.error.stack,
+          }
         : undefined,
     }
 
@@ -274,8 +294,10 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
 
     // Отправляем весь буфер результатов в webview
     // Каждый файл в буфере уже проверен на дублирование в _addResult
-    const nonce = this.extension.getParams().searchNonce;
-    console.log(`[SearchReplaceViewProvider] Sending batch results. Count: ${this._resultBuffer.length}. Nonce: ${nonce}`)
+    const nonce = this.extension.getParams().searchNonce
+    console.log(
+      `[SearchReplaceViewProvider] Sending batch results. Count: ${this._resultBuffer.length}. Nonce: ${nonce}`
+    )
 
     this._notifyWebviewIfActive('addBatchResults', {
       data: this._resultBuffer,
@@ -294,6 +316,10 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
   }
 
   public resolveWebviewView(webviewView: vscode.WebviewView): void {
+    this.extension.channel.appendLine(
+      `[SearchReplaceViewProvider] resolveWebviewView called. Existing view: ${!!this._view}`
+    )
+
     this._view = webviewView
 
     webviewView.webview.options = {
@@ -310,7 +336,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     // Включаем devTools для отладки в режиме разработки
     if (!this.extension.isProduction) {
       // Добавляем свойство devToolsEnabled напрямую, так как оно может быть недоступно в типах WebviewOptions
-      ; (webviewView.webview.options as any).devToolsEnabled = true
+      ;(webviewView.webview.options as any).devToolsEnabled = true
     }
 
     webviewView.webview.html = HtmlTemplate.getWebviewHtml(
@@ -321,12 +347,19 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     // Create message handler
     const messageHandler = new MessageHandler(this.extension, this)
 
+    this.extension.channel.appendLine(
+      `[SearchReplaceViewProvider] Attaching onDidReceiveMessage listener`
+    )
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     webviewView.webview.onDidReceiveMessage((message) => {
+      // this.extension.channel.appendLine(`[SearchReplaceViewProvider] Received message: ${message.type}`)
       messageHandler.handle(message)
     })
 
     webviewView.onDidDispose(() => {
+      this.extension.channel.appendLine(
+        `[SearchReplaceViewProvider] Webview disposed`
+      )
       this._view = undefined
       this._isWebviewMounted = false
       this._pendingMessages = []
@@ -464,10 +497,12 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
 
   // Method to trigger an action in the webview (for command redirection)
   triggerAction(action: 'copy' | 'cut' | 'paste'): void {
-    this.extension.channel.appendLine(`[Provider] triggerAction calling webview with action: ${action}`)
+    this.extension.channel.appendLine(
+      `[Provider] triggerAction calling webview with action: ${action}`
+    )
     this.postMessage({
       type: 'triggerAction',
-      action
+      action,
     })
   }
 

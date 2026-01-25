@@ -13,6 +13,7 @@ import { URI } from 'vscode-uri';
 import * as path from 'path-browserify';
 import { FileTreeNode, FileNode, FolderNode } from './TreeView';
 import { VirtualTreeView } from './TreeView/VirtualTreeView';
+import { excludePathFromResults, uriToPath } from '../utils/exclusionHelper';
 
 import { AnimatedCounter } from './components/AnimatedCounter';
 import { NotificationBanner } from './components/NotificationBanner';
@@ -31,18 +32,7 @@ interface SearchReplaceViewProps {
 
 // --- Helper Functions ---
 
-function uriToPath(uriString: string | undefined): string {
-    if (!uriString) return '';
-    try {
-        const uri = URI.parse(uriString);
-        if (uri.scheme === 'file') {
-            return uri.fsPath;
-        }
-        return uriString;
-    } catch (e) {
-        return uriString;
-    }
-}
+
 
 function buildFileTree(
     resultsByFile: Record<string, SerializedTransformResultEvent[]>,
@@ -779,6 +769,7 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
     }, [values.find, values.replace, vscode]);
 
     const handleExcludeFile = useCallback((filePath: string) => {
+        console.log('[SearchReplaceViewLayout] handleExcludeFile called with:', filePath);
         vscode.postMessage({ type: 'excludeFile', filePath });
 
         let removedMatchesCount = 0;
@@ -789,40 +780,54 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
                 const newLevels = [...prev];
                 const currentLevel = newLevels[values.searchInResults];
                 if (currentLevel) {
-                    const newResults = { ...currentLevel.resultsByFile };
-                    Object.keys(newResults).forEach(key => {
-                        // Check if key equals filePath (file) or starts with filePath/ (folder)
-                        // keys are absolute paths
-                        if (key === filePath || key.startsWith(filePath + path.sep)) {
-                            const fileEvents = newResults[key];
-                            const matches = fileEvents?.reduce((sum: number, e: any) => sum + (e.matches?.length || 0), 0) || 0;
-                            removedMatchesCount += matches;
-                            removedFileCount += 1;
-                            delete newResults[key];
-                        }
-                    });
-                    newLevels[values.searchInResults] = { ...currentLevel, resultsByFile: newResults };
+                    const { newResults, removedMatchesCount: matches, removedFileCount: files } = excludePathFromResults(currentLevel.resultsByFile, filePath);
+
+                    if (files > 0) {
+                        removedMatchesCount += matches;
+                        removedFileCount += files;
+                        newLevels[values.searchInResults] = { ...currentLevel, resultsByFile: newResults };
+                    }
                 }
                 return newLevels;
             });
         } else {
-            setResultsByFile(prev => {
-                const newResults = { ...prev };
-                Object.keys(newResults).forEach(key => {
-                    // Check if key equals filePath (file) or starts with filePath/ (folder)
-                    if (key === filePath || key.startsWith(filePath + path.sep)) {
-                        const fileEvents = newResults[key];
-                        const matches = fileEvents?.reduce((sum, e) => sum + (e.matches?.length || 0), 0) || 0;
-                        removedMatchesCount += matches;
-                        removedFileCount += 1;
-                        delete newResults[key];
+            // Root View Logic
+            const { newResults, removedKeys, removedMatchesCount: matches, removedFileCount: files } = excludePathFromResults(resultsByFile, filePath);
+
+            if (files > 0) {
+                setResultsByFile(newResults);
+
+                // Also clean up expanded state for removed paths in Level 0 (Root)
+                setSearchLevels(prev => {
+                    const newLevels = [...prev];
+                    // Even if we are not in nested search, level 0 might exist or be used for expansion state
+                    if (newLevels[0]) {
+                        const folderSet = new Set(newLevels[0].expandedFolders);
+                        const fileSet = new Set(newLevels[0].expandedFiles);
+                        removedKeys.forEach(k => {
+                            const folderPath = uriToPath(k);
+                            if (folderSet.has(folderPath)) folderSet.delete(folderPath);
+                            const filePathAbs = uriToPath(k);
+                            if (fileSet.has(filePathAbs)) fileSet.delete(filePathAbs);
+                        });
+                        newLevels[0] = {
+                            ...newLevels[0],
+                            resultsByFile: newResults, // <--- CRITICAL FIX: Sync Level 0 results too
+                            expandedFolders: folderSet,
+                            expandedFiles: fileSet
+                        };
                     }
+                    return newLevels;
                 });
-                return newResults;
-            });
+
+                // Update counters
+                removedFileCount = files;
+                removedMatchesCount = matches;
+            }
         }
 
         // Update global status for immediate UI feedback (Animation)
+        console.log(`[SearchReplaceViewLayout] Exclusion Complete. Removed Files: ${removedFileCount}, Removed Matches: ${removedMatchesCount}`);
         if (removedMatchesCount > 0 || removedFileCount > 0) {
             setStatus(prev => ({
                 ...prev,
@@ -831,7 +836,7 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
             }));
         }
 
-    }, [vscode, isInNestedSearch, values.searchInResults, setSearchLevels, setResultsByFile, setStatus]);
+    }, [vscode, isInNestedSearch, values.searchInResults, setSearchLevels, setResultsByFile, setStatus, resultsByFile]);
 
     const toggleFileExpansion = useCallback((relativePath: string) => {
         setSearchLevels(prev => {
