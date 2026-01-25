@@ -314,7 +314,12 @@ function NestedSearchInputContent({ levelIndex }: { levelIndex: number }) {
 }
 
 
-export default function SearchNestedView() {
+
+interface SearchNestedViewProps {
+    animationState?: { type: 'copy' | 'cut' | 'paste' | null, timestamp: number };
+}
+
+export default function SearchNestedView({ animationState }: SearchNestedViewProps) {
     const {
         values,
         setValues,
@@ -516,7 +521,7 @@ export default function SearchNestedView() {
             {/* Results Section - Animated */}
             <div className="flex-grow overflow-hidden relative flex flex-col">
                 <SlideTransition itemKey={effectiveLevelIndex} direction={direction}>
-                    <ResultsView levelIndex={effectiveLevelIndex} />
+                    <ResultsView levelIndex={effectiveLevelIndex} animationState={animationState} />
                 </SlideTransition>
             </div>
         </div>

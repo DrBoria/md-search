@@ -1100,7 +1100,7 @@ function SearchReplaceViewInner({ vscode }: SearchReplaceViewProps) {
             <div className="flex-grow overflow-hidden relative">
                 <ViewSlideTransition showNested={isInNestedSearch}>
                     {renderRootView()}
-                    <SearchNestedView />
+                    <SearchNestedView animationState={animationState} />
                 </ViewSlideTransition>
             </div>
         </div>

@@ -8,6 +8,7 @@ import { VirtualTreeView } from './TreeView/VirtualTreeView';
 
 interface ResultsViewProps {
     levelIndex: number;
+    animationState?: { type: 'copy' | 'cut' | 'paste' | null, timestamp: number };
 }
 
 // Helper Interfaces
@@ -160,7 +161,7 @@ function buildFileTree(
     return root;
 }
 
-export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
+export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex, animationState }) => {
     const {
         status: currentStatus,
         vscode,
@@ -498,6 +499,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
                 onDragStart={handleDragStart}
                 onDragOver={handleDragOver}
                 onDrop={handleDrop}
+                animationState={animationState}
             />
         </div>
     );
