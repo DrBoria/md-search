@@ -56,28 +56,6 @@ export default function SearchReplaceViewController({ vscode }: Props): React.Re
               searchInput.dispatchEvent(new Event('input', { bubbles: true }))
             }
             searchInput.select()
-
-            if (msgData.triggerSearch && msgData.selectedText) {
-              const selectedTextToSearch = msgData.selectedText
-              setTimeout(() => {
-                vscode.postMessage({
-                  type: 'search',
-                  find: selectedTextToSearch,
-                  replace: '',
-                  paused: false,
-                  include: '',
-                  exclude: '',
-                  parser: 'babel',
-                  prettier: true,
-                  babelGeneratorHack: false,
-                  preferSimpleReplacement: false,
-                  searchMode: 'text',
-                  matchCase: false,
-                  wholeWord: false,
-                  searchInResults: 0,
-                })
-              }, 100)
-            }
           }
         } catch (e) {
           vscode.postMessage({ type: 'log', level: 'error', message: `Error focusing search input: ${e}` })

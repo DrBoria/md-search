@@ -2,8 +2,6 @@ import { Params } from '../../types'
 import { SearchRunnerMatch } from '../../../model/SearchRunnerTypes'
 
 export class TextSearchService {
-
-
   async searchInFile(
     file: string,
     content: string,
@@ -11,7 +9,6 @@ export class TextSearchService {
     abortSignal?: AbortSignal, // Add abortSignal parameter
     _logMessage?: (msg: string) => void
   ): Promise<SearchRunnerMatch[]> {
-
     const { matchCase, wholeWord, searchMode } = params
     let find = params.find
     const matches: SearchRunnerMatch[] = []
@@ -132,8 +129,6 @@ export class TextSearchService {
         const matchEndOffset =
           matchStartOffset + matchResult[captureGroupIndex].length
         const matchText = matchResult[captureGroupIndex]
-
-
 
         // Avoid duplicates from overlap
         const isDuplicate = matches.some(

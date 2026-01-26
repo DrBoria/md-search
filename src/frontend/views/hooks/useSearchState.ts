@@ -41,6 +41,9 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
   // Ref that is SYNCHRONOUSLY updated whenever values change
   // This allows callbacks to always read the latest values without waiting for React re-render
   const valuesRef = useRef(values)
+  useEffect(() => {
+    valuesRef.current = values
+  }, [values])
 
   const [status, setStatus] = useState<SearchReplaceViewStatus>({
     running: false,
@@ -109,7 +112,7 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
 
   // Determine if we are actively viewing a nested search level (not Root)
   // We check index > 0. If index is 0, we are at Root, even if history exists.
-  const isInNestedSearch = values.searchInResults > 0;
+  const isInNestedSearch = values.searchInResults > 0
   const searchLevelsRef = useRef(searchLevels)
   useEffect(() => {
     searchLevelsRef.current = searchLevels
@@ -427,7 +430,242 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
     values,
   ])
 
-  // --- Message Handler ---
+  // Clear stale results when switching levels to prevent ghosting
+  useEffect(() => {
+    setStaleResultsByFile({})
+    setStaleLevel(null)
+  }, [values.searchInResults])
+
+  // Sync resultsByFile with the current level's results from searchLevels
+  // This ensures that when navigating back/forward, `resultsByFile` (active) matches the level storage.
+  useEffect(() => {
+    const currentLevelResults =
+      searchLevels[values.searchInResults]?.resultsByFile || {}
+    setResultsByFile(currentLevelResults)
+  }, [values.searchInResults, searchLevels])
+
+  // Sync current values to the corresponding searchLevels entry
+  // This ensures breadcrumb labels reflect what the user has typed
+  useEffect(() => {
+    setSearchLevels((prev) => {
+      const index = values.searchInResults
+      if (index < 0 || index >= prev.length) {
+        return prev
+      }
+      const currentLevel = prev[index]
+      if (!currentLevel) {
+        return prev
+      }
+
+      // Only update if values have actually changed (avoid infinite loops)
+      if (
+        currentLevel.values?.find === values.find &&
+        currentLevel.values?.matchCase === values.matchCase &&
+        currentLevel.values?.wholeWord === values.wholeWord &&
+        currentLevel.values?.searchMode === values.searchMode
+      ) {
+        return prev
+      }
+
+      const newLevels = [...prev]
+      newLevels[index] = {
+        ...currentLevel,
+        values: {
+          ...currentLevel.values,
+          find: values.find,
+          matchCase: values.matchCase,
+          wholeWord: values.wholeWord,
+          searchMode: values.searchMode,
+          searchNonce: values.searchNonce,
+        },
+        label: values.find ? values.find : currentLevel.label,
+      }
+
+      return newLevels
+    })
+  }, [
+    values.find,
+    values.matchCase,
+    values.wholeWord,
+    values.searchMode,
+    values.searchInResults,
+    values.searchNonce,
+  ])
+
+  // --- Debounced Message Sender ---
+  const debouncedPostMessage = useMemo(
+    () =>
+      debounce((msg: MessageFromWebview) => {
+        console.log('DEBUG: debouncedPostMessage EXECUTING', msg.type)
+        vscode.postMessage(msg)
+      }, 50),
+    [vscode]
+  )
+
+  // Separate debouncer to avoid clobbering 'values' messages with 'search' messages
+  const debouncedTriggerSearch = useMemo(
+    () =>
+      debounce((msg: MessageFromWebview) => {
+        console.log(
+          'DEBUG: debouncedTriggerSearch EXECUTING',
+          msg.type,
+          'nonce:',
+          (msg as any).searchNonce,
+          'FULL_MSG:',
+          JSON.stringify(msg)
+        )
+        vscode.postMessage(msg)
+      }, 300),
+    [vscode]
+  )
+
+  // Cleanup debounce on unmount
+  useEffect(() => {
+    return () => {
+      debouncedPostMessage.cancel()
+      debouncedTriggerSearch.cancel()
+    }
+  }, [debouncedPostMessage, debouncedTriggerSearch])
+
+  // Sync customFileOrder to backend
+  const prevCustomOrderRef = useRef<Record<string, number>>({})
+  useEffect(() => {
+    console.log(
+      '[useSearchState] Sync Effect Running. CustomFileOrder Len:',
+      customFileOrder.length
+    )
+    const customOrder: Record<string, number> = {}
+    customFileOrder.forEach((path, index) => {
+      customOrder[path] = index
+    })
+
+    const prevStr = JSON.stringify(prevCustomOrderRef.current)
+    const currStr = JSON.stringify(customOrder)
+
+    if (prevStr === currStr) {
+      // console.log('[useSearchState] Sync Effect: No change detected. Skipping.')
+      return
+    }
+
+    console.log(
+      `[useSearchState] Sync Effect: Change detected! Prev: ${prevStr.substring(0, 50)}... Curr: ${currStr.substring(0, 50)}...`
+    )
+
+    prevCustomOrderRef.current = customOrder
+
+    console.log('Sending updateFileOrder to backend:', customOrder)
+    debouncedPostMessage({
+      type: 'updateFileOrder',
+      customOrder,
+    })
+  }, [customFileOrder, debouncedPostMessage])
+
+  useEffect(() => {
+    console.log('[useSearchState] MOUNTED')
+    return () => console.log('[useSearchState] UNMOUNTED')
+  }, [])
+
+  const postValuesChange = useCallback(
+    (changed: Partial<SearchReplaceViewValues>) => {
+      console.log('=== postValuesChange called ===')
+      console.log('changed:', JSON.stringify(changed))
+
+      // Check if we should skip sending to backend (e.g., during navigation)
+      // skipSearchUntilRef stores a timestamp - if current time is before it, skip
+      const now = Date.now()
+      const shouldSkipSearch = now < skipSearchUntilRef.current
+      if (shouldSkipSearch) {
+        console.log(
+          'postValuesChange: within skip window, skipping backend message'
+        )
+      }
+
+      setValues((prev) => {
+        // Calculate new state
+        const nonce =
+          Date.now().toString() + Math.random().toString().slice(2, 5)
+        const next = { ...prev, ...changed, searchNonce: nonce }
+
+        // Update ref SYNCHRONOUSLY
+        valuesRef.current = next
+
+        console.log(
+          'postValuesChange setValues: next.find:',
+          next.find,
+          'next.searchInResults:',
+          next.searchInResults
+        )
+
+        // IMMEDIATE SYNC: Update searchLevels to ensure history captures the new Nonce
+        // This prevents race conditions where results arrive before useEffect fires.
+        setSearchLevels((prevLevels) => {
+          const idx = next.searchInResults
+          if (idx < 0 || idx >= prevLevels.length) return prevLevels
+
+          const currentLevel = prevLevels[idx]
+          // If skipping search (e.g. back nav), we might not want to overwrite history logic?
+          // Actually, syncing history is always good.
+          // BUT careful not to overwrite 'resultsByFile' or other state.
+
+          const newLevels = [...prevLevels]
+          newLevels[idx] = {
+            ...currentLevel,
+            values: {
+              ...currentLevel.values,
+              ...next, // Capture find, nonce, etc.
+            },
+            label: next.find || currentLevel.label, // Sync label
+          }
+          return newLevels
+        })
+
+        // Only send to backend if not skipping
+        if (!shouldSkipSearch) {
+          // CRITICAL OPTIMIZATION:
+          // If we are only navigating BACKWARDS (decreasing searchInResults), trust the cached state.
+          // Even if 'find' is in the changed object (restoring old value), we DO NOT want to trigger a new search.
+          const isBackNav =
+            changed.searchInResults !== undefined &&
+            changed.searchInResults < prev.searchInResults
+
+          if (!isBackNav) {
+            // Mark validation as requested so we know to clear current results when new ones arrive
+            setIsSearchRequested(true)
+            shouldClearResultsRef.current = true
+
+            console.log(
+              'DEBUG: Calling debouncedTriggerSearch',
+              next.searchNonce
+            )
+            console.log(
+              'DEBUG: Calling debouncedTriggerSearch',
+              next.searchNonce,
+              'NEXT_OBJ:',
+              JSON.stringify(next)
+            )
+            debouncedTriggerSearch({
+              type: 'search',
+              ...next,
+              searchInResults: next.searchInResults,
+            })
+          } else {
+            console.log(
+              'DEBUG: BackNav optimization. Skipping Search. Nonce:',
+              next.searchNonce
+            )
+            // Do NOT set isSearchRequested logic here, as we expect cache to be sufficient.
+          }
+        } else {
+          // If skipping, we also don't request search.
+        }
+
+        return next
+      })
+    },
+    [debouncedPostMessage]
+  )
+
+  // --- Message Handler (Moved to access postValuesChange) ---
   const handleMessage = useCallback(
     (rawMessage: unknown) => {
       const validation = MessageToWebviewSchema.safeParse(rawMessage)
@@ -442,7 +680,8 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
           setWorkspacePath(message.workspacePath)
           if (message.customFileOrder) {
             const keys = Object.keys(message.customFileOrder).sort(
-              (a, b) => message.customFileOrder![a] - message.customFileOrder![b]
+              (a, b) =>
+                message.customFileOrder![a] - message.customFileOrder![b]
             )
             setCustomFileOrder(keys)
           }
@@ -462,10 +701,12 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
           break
         case 'values':
           console.log('value handleMessages', message.values)
-          setValues((prev) => ({ ...prev, ...message.values }))
+          setValues((prev) => {
+            const next = { ...prev, ...message.values }
+            valuesRef.current = next
+            return next
+          })
           break
-
-        // ... (inside handleMessage)
 
         case 'clearResults':
           console.log('DEBUG: FE clearResults received')
@@ -544,19 +785,17 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
         case 'addBatchResults': {
           const messageNonce = message.nonce
           const currentNonce = valuesRef.current.searchNonce // Active level nonce
-          const batchSize = message.data.length
-          // console.log(`DEBUG: FE addBatchResults received. Size: ${batchSize}. Nonce: ${messageNonce}`)
-
-          if (!messageNonce) {
-            console.warn('Received batch results without nonce. Ignoring.')
-            break
-          }
+          // If no nonce is provided, we assume it belongs to the current active level (Root or Nested)
+          // This creates a fallback for legacy messages or when nonce is dropped.
+          const effectiveNonce = messageNonce || currentNonce
 
           const batchResults = message.data
 
           // NONCE-AWARE ROUTING: Find which level this nonce belongs to
           // We check searchLevelsRef to match the nonce.
-          const matchingLevelIndex = searchLevelsRef.current.findIndex(l => l.values?.searchNonce === messageNonce)
+          const matchingLevelIndex = searchLevelsRef.current.findIndex(
+            (l) => l.values?.searchNonce === messageNonce
+          )
           const isForActiveLevel = matchingLevelIndex === values.searchInResults
 
           // If we can't find a matching level, check if it matches the current active values nonce (in case levels aren't synced yet)
@@ -565,12 +804,17 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
           // EXCEPTION: If it matches `valuesRef.current.searchNonce` but not in searchLevels (rare race?), treat as active.
 
           if (matchingLevelIndex === -1 && messageNonce !== currentNonce) {
-            console.log(`WARNING: Stale results ignored! Nonce ${messageNonce} matches no level.`)
+            console.log(
+              `WARNING: Stale results ignored! Nonce ${messageNonce} matches no level.`
+            )
             break
           }
 
           // Effective Index: if found in levels, use that. If not but matches active, use active.
-          const targetLevelIndex = matchingLevelIndex !== -1 ? matchingLevelIndex : values.searchInResults
+          const targetLevelIndex =
+            matchingLevelIndex !== -1
+              ? matchingLevelIndex
+              : values.searchInResults
 
           // Clear results if this is the first batch of a new search
           if (shouldClearResultsRef.current && isForActiveLevel) {
@@ -638,31 +882,15 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
           })
 
           // Flush logic must be updated to target the SPECIFIC level, not just active.
-          // But `flushPendingResults` currently reads `values.searchInResults`.
-          // To support background updates, force flush to look at the target level?
-          // For now, let's just use flushPendingResults and rely on it picking up tokens... 
-          // WAIT. `flushPendingResults` uses `values.searchInResults` to decide where to write. 
-          // If we are writing to a background level, `flushPendingResults` will write to the WRONG level (the active one).
-          // WE MUST FIX `flushPendingResults` too.
-          // Or simpler: Only loop the batch processing in `addBatchResults` and inline the update logic?
-          // Refactoring `flushPendingResults` is risky.
-
-          // Temporary Fix: If the message is for a background level, we can't use `flushPendingResults` effectively
-          // because it aggregates pending results for ONE update cycle.
-          // However, we determined the issue is corruption of Level 0 by Level 1 results.
-          // With `matchingLevelIndex`, we know where it SHOULD go.
-          // If `targetLevelIndex !== values.searchInResults`, we should manually update the state for that level and SKIP pending/flush.
-          // Directly update `searchLevels`.
-
           if (targetLevelIndex !== values.searchInResults) {
             // Background Update
-            setSearchLevels(prev => {
+            setSearchLevels((prev) => {
               const newLevels = [...prev]
               const level = newLevels[targetLevelIndex]
               if (!level) return prev
 
               const updatedResultsByFile = { ...level.resultsByFile }
-              batchResults.forEach(res => {
+              batchResults.forEach((res) => {
                 if (!res.matches || res.matches.length === 0) return
                 // Simple replace/append? Backend sends full file results.
                 updatedResultsByFile[res.file] = [res] // Assuming full replacement per file
@@ -670,12 +898,12 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
 
               newLevels[targetLevelIndex] = {
                 ...level,
-                resultsByFile: updatedResultsByFile
+                resultsByFile: updatedResultsByFile,
               }
               return newLevels
             })
             // Stop here. Don't flush to active view.
-            break;
+            break
           }
 
           // If it IS for active level, proceed with standard flush
@@ -747,6 +975,26 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
           })
           break
         }
+
+        case 'focusSearchInput': {
+          if (message.triggerSearch && message.selectedText) {
+            console.log(
+              'DEBUG: Triggering search from focusSearchInput',
+              message.selectedText
+            )
+            postValuesChange({ find: message.selectedText })
+          }
+
+          setSearchLevels((prev) => {
+            const newLevels = [...prev]
+            // Ensure root level exists and set isReplaceVisible to true
+            if (newLevels.length > 0) {
+              newLevels[0] = { ...newLevels[0], isReplaceVisible: true }
+            }
+            return newLevels
+          })
+          break
+        }
       }
     },
     [
@@ -754,215 +1002,8 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
       isInNestedSearch,
       values.searchInResults,
       isSearchRequested,
+      postValuesChange,
     ]
-  )
-
-  // Clear stale results when switching levels to prevent ghosting
-  useEffect(() => {
-    setStaleResultsByFile({});
-    setStaleLevel(null);
-  }, [values.searchInResults]);
-
-  // Sync resultsByFile with the current level's results from searchLevels
-  // This ensures that when navigating back/forward, `resultsByFile` (active) matches the level storage.
-  useEffect(() => {
-    const currentLevelResults = searchLevels[values.searchInResults]?.resultsByFile || {};
-    setResultsByFile(currentLevelResults);
-  }, [values.searchInResults, searchLevels]);
-
-  // Sync current values to the corresponding searchLevels entry
-  // This ensures breadcrumb labels reflect what the user has typed
-  useEffect(() => {
-    setSearchLevels((prev) => {
-      const index = values.searchInResults
-      if (index < 0 || index >= prev.length) {
-        return prev
-      }
-      const currentLevel = prev[index]
-      if (!currentLevel) {
-        return prev
-      }
-
-      // Only update if values have actually changed (avoid infinite loops)
-      if (
-        currentLevel.values?.find === values.find &&
-        currentLevel.values?.matchCase === values.matchCase &&
-        currentLevel.values?.wholeWord === values.wholeWord &&
-        currentLevel.values?.searchMode === values.searchMode
-      ) {
-        return prev
-      }
-
-      const newLevels = [...prev]
-      newLevels[index] = {
-        ...currentLevel,
-        values: {
-          ...currentLevel.values,
-          find: values.find,
-          matchCase: values.matchCase,
-          wholeWord: values.wholeWord,
-          searchMode: values.searchMode,
-          searchNonce: values.searchNonce,
-        },
-        label: values.find ? values.find : currentLevel.label,
-      }
-
-      return newLevels
-    })
-  }, [
-    values.find,
-    values.matchCase,
-    values.wholeWord,
-    values.searchMode,
-    values.searchInResults,
-    values.searchNonce,
-  ])
-
-  // --- Debounced Message Sender ---
-  const debouncedPostMessage = useMemo(
-    () =>
-      debounce((msg: MessageFromWebview) => {
-        console.log('DEBUG: debouncedPostMessage EXECUTING', msg.type)
-        vscode.postMessage(msg)
-      }, 50),
-    [vscode]
-  )
-
-  // Separate debouncer to avoid clobbering 'values' messages with 'search' messages
-  const debouncedTriggerSearch = useMemo(
-    () =>
-      debounce((msg: MessageFromWebview) => {
-        console.log('DEBUG: debouncedTriggerSearch EXECUTING', msg.type, (msg as any).searchNonce)
-        vscode.postMessage(msg)
-      }, 300),
-    [vscode]
-  )
-
-  // Cleanup debounce on unmount
-  useEffect(() => {
-    return () => {
-      debouncedPostMessage.cancel()
-      debouncedTriggerSearch.cancel()
-    }
-  }, [debouncedPostMessage, debouncedTriggerSearch])
-
-  // Sync customFileOrder to backend
-  const prevCustomOrderRef = useRef<Record<string, number>>({})
-  useEffect(() => {
-    console.log('[useSearchState] Sync Effect Running. CustomFileOrder Len:', customFileOrder.length)
-    const customOrder: Record<string, number> = {}
-    customFileOrder.forEach((path, index) => {
-      customOrder[path] = index
-    })
-
-    const prevStr = JSON.stringify(prevCustomOrderRef.current)
-    const currStr = JSON.stringify(customOrder)
-
-    if (prevStr === currStr) {
-      // console.log('[useSearchState] Sync Effect: No change detected. Skipping.')
-      return
-    }
-
-    console.log(`[useSearchState] Sync Effect: Change detected! Prev: ${prevStr.substring(0, 50)}... Curr: ${currStr.substring(0, 50)}...`)
-
-    prevCustomOrderRef.current = customOrder
-
-    console.log('Sending updateFileOrder to backend:', customOrder)
-    debouncedPostMessage({
-      type: 'updateFileOrder',
-      customOrder,
-    })
-  }, [customFileOrder, debouncedPostMessage])
-
-  useEffect(() => {
-    console.log('[useSearchState] MOUNTED')
-    return () => console.log('[useSearchState] UNMOUNTED')
-  }, [])
-
-  const postValuesChange = useCallback(
-    (changed: Partial<SearchReplaceViewValues>) => {
-      console.log('=== postValuesChange called ===')
-      console.log('changed:', JSON.stringify(changed))
-
-      // Check if we should skip sending to backend (e.g., during navigation)
-      // skipSearchUntilRef stores a timestamp - if current time is before it, skip
-      const now = Date.now()
-      const shouldSkipSearch = now < skipSearchUntilRef.current
-      if (shouldSkipSearch) {
-        console.log(
-          'postValuesChange: within skip window, skipping backend message'
-        )
-      }
-
-      setValues((prev) => {
-        // Calculate new state
-        const nonce = Date.now().toString() + Math.random().toString().slice(2, 5)
-        const next = { ...prev, ...changed, searchNonce: nonce }
-
-        // Update ref SYNCHRONOUSLY
-        valuesRef.current = next
-
-        console.log(
-          'postValuesChange setValues: next.find:',
-          next.find,
-          'next.searchInResults:',
-          next.searchInResults
-        )
-
-        // IMMEDIATE SYNC: Update searchLevels to ensure history captures the new Nonce
-        // This prevents race conditions where results arrive before useEffect fires.
-        setSearchLevels(prevLevels => {
-          const idx = next.searchInResults;
-          if (idx < 0 || idx >= prevLevels.length) return prevLevels;
-
-          const currentLevel = prevLevels[idx];
-          // If skipping search (e.g. back nav), we might not want to overwrite history logic? 
-          // Actually, syncing history is always good. 
-          // BUT careful not to overwrite 'resultsByFile' or other state.
-
-          const newLevels = [...prevLevels];
-          newLevels[idx] = {
-            ...currentLevel,
-            values: {
-              ...currentLevel.values,
-              ...next, // Capture find, nonce, etc.
-            },
-            label: next.find || currentLevel.label // Sync label
-          };
-          return newLevels;
-        });
-
-        // Only send to backend if not skipping
-        if (!shouldSkipSearch) {
-          // CRITICAL OPTIMIZATION:
-          // If we are only navigating BACKWARDS (decreasing searchInResults), trust the cached state.
-          // Even if 'find' is in the changed object (restoring old value), we DO NOT want to trigger a new search.
-          const isBackNav = changed.searchInResults !== undefined &&
-            changed.searchInResults < prev.searchInResults;
-
-          if (!isBackNav) {
-            // Mark validation as requested so we know to clear current results when new ones arrive
-            setIsSearchRequested(true)
-            shouldClearResultsRef.current = true
-
-            console.log('DEBUG: Calling debouncedTriggerSearch', next.searchNonce)
-            debouncedTriggerSearch({
-              type: 'search',
-              ...next,
-              searchInResults: next.searchInResults,
-            })
-          } else {
-            console.log('DEBUG: BackNav optimization. Skipping Search. Nonce:', next.searchNonce)
-            // Do NOT set isSearchRequested logic here, as we expect cache to be sufficient.
-          }
-        } else {
-          // If skipping, we also don't request search.
-        }
-
-        return next
-      })
-    },
-    [debouncedPostMessage]
   )
 
   return {
