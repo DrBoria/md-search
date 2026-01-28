@@ -1,6 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import path from 'path-browserify'
-import * as MaterialIcons from 'vscode-icons-js'
+import { getIconUrlForFilePath } from 'vscode-material-icons'
+
+declare global {
+    interface Window {
+        materialIconsPath?: string;
+    }
+}
 
 export const FileIcon: React.FC<{ filePath: string }> = ({ filePath }) => {
     const [iconUrl, setIconUrl] = useState<string | null>(null);
@@ -8,25 +14,11 @@ export const FileIcon: React.FC<{ filePath: string }> = ({ filePath }) => {
     useEffect(() => {
         const basePath = window.materialIconsPath;
         if (basePath) {
-            let filename = MaterialIcons.getIconForFile(path.basename(filePath));
-            if (filename) {
-                // vscode-icons-js returns 'file_type_name.svg', but vscode-material-icons has 'name.svg'
-                // Mapping: file_type_light_name.svg -> name_light.svg, file_type_name.svg -> name.svg
-                if (filename.startsWith('file_type_')) {
-                    filename = filename.replace('file_type_', '');
-                }
-                if (filename.startsWith('light_')) {
-                    filename = filename.replace('light_', '') + '_light';
-                }
-
-                // Safety fix: helper might return path with generated/ already
-                if (filename.startsWith('generated/')) {
-                    filename = filename.replace('generated/', '');
-                }
-
-                const url = `${basePath}/generated/${filename}`;
-                setIconUrl(url);
-            }
+            // The icons are copied to 'out/icons/generated', but materialIconsPath points to 'out/icons'
+            // We need to append '/generated' for the library to find them.
+            const iconsBase = `${basePath}/generated`;
+            const url = getIconUrlForFilePath(filePath, iconsBase);
+            setIconUrl(url);
         }
     }, [filePath]);
 
