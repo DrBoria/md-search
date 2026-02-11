@@ -4,6 +4,7 @@ import { useSearchItem } from './context/SearchItemContext';
 import { SearchInput } from './components/SearchInput';
 import { ReplaceInput } from './components/ReplaceInput';
 import { SearchActions } from './components/SearchActions';
+import { IndeterminateProgressBar } from './components/IndeterminateProgressBar';
 
 interface SearchInputSectionProps {
     className?: string;
@@ -14,12 +15,13 @@ export const SearchInputSection: React.FC<SearchInputSectionProps> = ({ classNam
     const {
         isReplaceVisible, toggleReplaceVisible,
         include, setInclude,
-        exclude, setExclude
+        exclude, setExclude,
+        isSearching
     } = useSearchItem();
     const [isDetailsOpen, setIsDetailsOpen] = React.useState(false);
 
     return (
-        <div className={`flex flex-col gap-1 ${className}`}>
+        <div className={`flex flex-col gap-1 ${className} relative`}> {/* Added relative */}
 
             {/* Row 1: Find Input + Toggle + Actions (Collapsible) */}
             <div className="flex items-start gap-1 relative">
@@ -144,6 +146,17 @@ export const SearchInputSection: React.FC<SearchInputSectionProps> = ({ classNam
                     {summary}
                 </div>
             </div>
+
+            {/* Progress Bar - Absolute positioning to stick to bottom or just below Row 1/2? 
+                Actually, simpler to allow it to push content or overlay.
+                Overlay at bottom of section.
+            */}
+            {/* Progress Bar - Only valid if searching AND not paused (handled by isSearching) */}
+            {isSearching && (
+                <div className="absolute bottom-[-1px] left-0 right-0 z-20 h-[2px]">
+                    <IndeterminateProgressBar />
+                </div>
+            )}
         </div>
     );
 };
