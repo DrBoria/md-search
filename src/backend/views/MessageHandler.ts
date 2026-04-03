@@ -43,6 +43,13 @@ export class MessageHandler {
 
     const message = validation.data
 
+    // Debug log for relevant messages
+    if (
+      ['copyMatches', 'cutMatches', 'pasteToMatches'].includes(message.type)
+    ) {
+      this.extension.channel.appendLine('')
+    }
+
     try {
       switch (message.type) {
         case 'mount':
@@ -116,6 +123,12 @@ export class MessageHandler {
 
     const currentParams = this.extension.getParams()
 
+    // The instruction implies a call to setParams here, likely to update initial state without triggering a search.
+    // The provided snippet is a bit malformed, but the intent seems to be to set parameters
+    // without restarting the search immediately.
+    // Assuming the intent is to set the initial parameters without triggering a search on mount.
+    this.extension.setParams(currentParams, false) // Do not restart search immediately, let frontend handle optimistic update
+
     const values: any = {
       ...currentParams,
       parser: (currentParams as any).parser || 'babel',
@@ -132,11 +145,14 @@ export class MessageHandler {
 
     const status = this.viewProvider.getStatus()
 
+    const customFileOrder = this.extension.getCustomFileOrder()
+
     this.viewProvider.postMessage({
       type: 'initialData',
       workspacePath,
       values: values as SearchReplaceViewValues,
       status,
+      customFileOrder,
     })
   }
 
@@ -201,6 +217,9 @@ export class MessageHandler {
   }
 
   private async handlePasteToMatches(fileOrder?: string[]): Promise<void> {
+    this.extension.channel.appendLine(
+      `[MessageHandler] handlePasteToMatches called. Order provided: ${!!fileOrder}`
+    )
     const count = await this.extension.pasteToMatches(fileOrder)
     this.viewProvider.notifyPasteToMatchesComplete(count)
   }
@@ -212,6 +231,8 @@ export class MessageHandler {
 
   private handleExcludeFile(filePath: string): void {
     const fileUri = vscode.Uri.parse(filePath)
+
+    // 1. Exclude from cache (immediate effect on backend state)
     this.extension.runner.excludeFileFromCache(fileUri)
     this.extension.transformResultProvider.results.delete(filePath)
 
@@ -292,6 +313,9 @@ export class MessageHandler {
   }
 
   private handleUpdateFileOrder(customOrder: { [key: string]: number }): void {
+    this.extension.channel.appendLine(
+      `[MessageHandler] handleUpdateFileOrder received with ${Object.keys(customOrder).length} items`
+    )
     this.extension.setCustomFileOrder(customOrder)
   }
 

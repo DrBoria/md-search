@@ -48,6 +48,35 @@ For manual installation:
 6. Preview changes before applying
 7. Apply changes to selected files
 
+## Included and Excluded Files
+
+You can filter which files to search using "File to Include" and "Files to Exclude" fields.
+
+### Format
+
+- **Comma-separated values**: You can specify multiple patterns by separating them with commas.
+  - Example: `src, test` (will search in both `src` and `test` folders)
+- **Root-relative paths**: Paths are relative to your workspace root.
+  - To include a specific folder, write its path: `frontend/components`
+  - To match file types, use standard globs: `*.ts, *.tsx`
+
+### Examples
+
+1. **Search only in source and test folders:**
+   ```
+   files to include: src, test
+   ```
+2. **Exclude node_modules and build output:**
+   ```
+   files to exclude: node_modules, dist, out
+   ```
+3. **Search only TypeScript files in a feature folder:**
+   ```
+   files to include: src/features/search/*.ts
+   ```
+
+> **Note:** The exclusion patterns work on top of your `.gitignore` settings if you have Git integration enabled.
+
 ## Keyboard Shortcuts
 
 The extension includes several helpful keyboard shortcuts to enhance your workflow:
@@ -56,7 +85,7 @@ The extension includes several helpful keyboard shortcuts to enhance your workfl
 | ------------------------ | ---------------- | -------------------- | ------------------------------------------------------------ |
 | `Ctrl+Shift+F`           | `Cmd+Shift+F`    | Find                 | Opens the search panel and focuses the find input            |
 | `Ctrl+Shift+H`           | `Cmd+Shift+H`    | Replace              | Opens the search panel and focuses the replace input         |
-| `Ctrl+Shift+C`           | `Cmd+Shift+C`    | Copy All Matches     | Copies all found matches to clipboard, separated by newlines |
+| `Ctrl+Shift+C`           | `Cmd+Shift+O`    | Copy All Matches     | Copies all found matches to clipboard, separated by newlines |
 | `Ctrl+Shift+X`           | `Cmd+Shift+X`    | Cut All Matches      | Cuts all found matches and copies them to clipboard          |
 | `Ctrl+Shift+V`           | `Cmd+Shift+V`    | Paste to All Matches | Replaces all found matches with clipboard content            |
 | `Ctrl+Shift+Z`           | `Cmd+Shift+Z`    | Revert               | Returns to previous state, buffer size is 1 step             |

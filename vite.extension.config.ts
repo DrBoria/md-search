@@ -42,8 +42,8 @@ export default defineConfig({
     },
     outDir: 'out',
     emptyOutDir: false, // Don't clear out (frontend might be writing there too or we want to keep assets)
-    sourcemap: true,
-    minify: false, // Useful for debugging
+    sourcemap: 'inline', // Inline source maps for better debugging
+    minify: false, // Keep code readable for debugging
   },
   ssr: {
     noExternal: true, // Bundle all dependencies (except those in rollupOptions.external)

@@ -22,7 +22,12 @@ export const SearchInput = () => {
                 rows={1}
                 value={find}
                 onChange={(e) => setFind(e.target.value)}
-                className="border-none focus-visible:ring-0 pl-[6px] py-[4px] pr-[70px] bg-transparent min-h-[26px]"
+                className="border-none focus-visible:ring-0 pl-[6px] py-[4px] pr-[70px] bg-transparent min-h-[26px] overflow-x-hidden overflow-y-hidden resize-none whitespace-pre-wrap break-all"
+                onInput={(e) => {
+                    const target = e.target as HTMLTextAreaElement;
+                    target.style.height = 'auto'; // Reset height
+                    target.style.height = `${target.scrollHeight}px`; // Set to scrollHeight
+                }}
             />
             <div className="absolute right-[2px] top-[2px] flex items-center gap-[1px]">
                 <Button

@@ -41,6 +41,9 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
   // Ref that is SYNCHRONOUSLY updated whenever values change
   // This allows callbacks to always read the latest values without waiting for React re-render
   const valuesRef = useRef(values)
+  useEffect(() => {
+    valuesRef.current = values
+  }, [values])
 
   const [status, setStatus] = useState<SearchReplaceViewStatus>({
     running: false,
@@ -56,6 +59,17 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
   const [resultsByFile, setResultsByFile] = useState<
     Record<string, SerializedTransformResultEvent[]>
   >({})
+  // Stale Results State (for smooth transitions)
+  const [staleResultsByFile, setStaleResultsByFile] = useState<Record<
+    string,
+    SerializedTransformResultEvent[]
+  > | null>(null)
+
+  const [staleLevel, setStaleLevel] = useState<number | null>(null)
+
+  const [staleStatus, setStaleStatus] =
+    useState<SearchReplaceViewStatus | null>(null)
+
   const [workspacePath, setWorkspacePath] = useState<string>('')
 
   // State to track when a search is requested but results haven't arrived yet
@@ -73,7 +87,9 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
   })
 
   // --- UI State that is also part of SearchLevel ---
+  // --- UI State that is also part of SearchLevel ---
   const [viewMode, setViewMode] = useState<'list' | 'tree'>('tree')
+  const [customFileOrder, setCustomFileOrder] = useState<string[]>([])
 
   // --- Multi-level Nested Search (Find in Found) States ---
   const [searchLevels, setSearchLevels] = useState<SearchLevel[]>(() => {
@@ -94,7 +110,13 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
     ]
   })
 
-  const isInNestedSearch = searchLevels.length > 1
+  // Determine if we are actively viewing a nested search level (not Root)
+  // We check index > 0. If index is 0, we are at Root, even if history exists.
+  const isInNestedSearch = values.searchInResults > 0
+  const searchLevelsRef = useRef(searchLevels)
+  useEffect(() => {
+    searchLevelsRef.current = searchLevels
+  }, [searchLevels])
 
   // --- Throttling Logic ---
   const throttleTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -184,14 +206,11 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
 
           if (uniqueNewResults.length === 0) return
 
-          if (updatedResultsByFile[filePath]) {
-            updatedResultsByFile[filePath] = [
-              ...updatedResultsByFile[filePath],
-              ...uniqueNewResults,
-            ]
-          } else {
-            updatedResultsByFile[filePath] = [...uniqueNewResults]
-          }
+          if (uniqueNewResults.length === 0) return
+
+          // Replace existing results for this file (Live Update support)
+          // Since backend emits full file results, we overwrite instead of appending.
+          updatedResultsByFile[filePath] = [...uniqueNewResults]
 
           // Auto-expand logic remains the same (calculating TOTAL matches including new ones)
           const allMatches = updatedResultsByFile[filePath].reduce(
@@ -271,13 +290,11 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
 
           if (uniqueNewResults.length === 0) return
 
+          // Replace results (Live Update support)
           if (newResults[filePath]) {
-            newResults[filePath] = [
-              ...newResults[filePath],
-              ...uniqueNewResults,
-            ]
+            newResults[filePath] = uniqueNewResults
           } else {
-            newResults[filePath] = [...uniqueNewResults]
+            newResults[filePath] = uniqueNewResults
           }
         })
         return newResults
@@ -341,14 +358,8 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
           if (uniqueNewResults.length === 0) return
 
           resultsChanged = true
-          if (updatedResultsByFile[filePath]) {
-            updatedResultsByFile[filePath] = [
-              ...updatedResultsByFile[filePath],
-              ...uniqueNewResults,
-            ]
-          } else {
-            updatedResultsByFile[filePath] = [...uniqueNewResults]
-          }
+          // Replace results (Live Update)
+          updatedResultsByFile[filePath] = uniqueNewResults
 
           // Expansion Logic
           const totalMatches = updatedResultsByFile[filePath].reduce(
@@ -419,7 +430,242 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
     values,
   ])
 
-  // --- Message Handler ---
+  // Clear stale results when switching levels to prevent ghosting
+  useEffect(() => {
+    setStaleResultsByFile({})
+    setStaleLevel(null)
+  }, [values.searchInResults])
+
+  // Sync resultsByFile with the current level's results from searchLevels
+  // This ensures that when navigating back/forward, `resultsByFile` (active) matches the level storage.
+  useEffect(() => {
+    const currentLevelResults =
+      searchLevels[values.searchInResults]?.resultsByFile || {}
+    setResultsByFile(currentLevelResults)
+  }, [values.searchInResults, searchLevels])
+
+  // Sync current values to the corresponding searchLevels entry
+  // This ensures breadcrumb labels reflect what the user has typed
+  useEffect(() => {
+    setSearchLevels((prev) => {
+      const index = values.searchInResults
+      if (index < 0 || index >= prev.length) {
+        return prev
+      }
+      const currentLevel = prev[index]
+      if (!currentLevel) {
+        return prev
+      }
+
+      // Only update if values have actually changed (avoid infinite loops)
+      if (
+        currentLevel.values?.find === values.find &&
+        currentLevel.values?.matchCase === values.matchCase &&
+        currentLevel.values?.wholeWord === values.wholeWord &&
+        currentLevel.values?.searchMode === values.searchMode
+      ) {
+        return prev
+      }
+
+      const newLevels = [...prev]
+      newLevels[index] = {
+        ...currentLevel,
+        values: {
+          ...currentLevel.values,
+          find: values.find,
+          matchCase: values.matchCase,
+          wholeWord: values.wholeWord,
+          searchMode: values.searchMode,
+          searchNonce: values.searchNonce,
+        },
+        label: values.find ? values.find : currentLevel.label,
+      }
+
+      return newLevels
+    })
+  }, [
+    values.find,
+    values.matchCase,
+    values.wholeWord,
+    values.searchMode,
+    values.searchInResults,
+    values.searchNonce,
+  ])
+
+  // --- Debounced Message Sender ---
+  const debouncedPostMessage = useMemo(
+    () =>
+      debounce((msg: MessageFromWebview) => {
+        console.log('DEBUG: debouncedPostMessage EXECUTING', msg.type)
+        vscode.postMessage(msg)
+      }, 50),
+    [vscode]
+  )
+
+  // Separate debouncer to avoid clobbering 'values' messages with 'search' messages
+  const debouncedTriggerSearch = useMemo(
+    () =>
+      debounce((msg: MessageFromWebview) => {
+        console.log(
+          'DEBUG: debouncedTriggerSearch EXECUTING',
+          msg.type,
+          'nonce:',
+          (msg as any).searchNonce,
+          'FULL_MSG:',
+          JSON.stringify(msg)
+        )
+        vscode.postMessage(msg)
+      }, 300),
+    [vscode]
+  )
+
+  // Cleanup debounce on unmount
+  useEffect(() => {
+    return () => {
+      debouncedPostMessage.cancel()
+      debouncedTriggerSearch.cancel()
+    }
+  }, [debouncedPostMessage, debouncedTriggerSearch])
+
+  // Sync customFileOrder to backend
+  const prevCustomOrderRef = useRef<Record<string, number>>({})
+  useEffect(() => {
+    console.log(
+      '[useSearchState] Sync Effect Running. CustomFileOrder Len:',
+      customFileOrder.length
+    )
+    const customOrder: Record<string, number> = {}
+    customFileOrder.forEach((path, index) => {
+      customOrder[path] = index
+    })
+
+    const prevStr = JSON.stringify(prevCustomOrderRef.current)
+    const currStr = JSON.stringify(customOrder)
+
+    if (prevStr === currStr) {
+      // console.log('[useSearchState] Sync Effect: No change detected. Skipping.')
+      return
+    }
+
+    console.log(
+      `[useSearchState] Sync Effect: Change detected! Prev: ${prevStr.substring(0, 50)}... Curr: ${currStr.substring(0, 50)}...`
+    )
+
+    prevCustomOrderRef.current = customOrder
+
+    console.log('Sending updateFileOrder to backend:', customOrder)
+    debouncedPostMessage({
+      type: 'updateFileOrder',
+      customOrder,
+    })
+  }, [customFileOrder, debouncedPostMessage])
+
+  useEffect(() => {
+    console.log('[useSearchState] MOUNTED')
+    return () => console.log('[useSearchState] UNMOUNTED')
+  }, [])
+
+  const postValuesChange = useCallback(
+    (changed: Partial<SearchReplaceViewValues>) => {
+      console.log('=== postValuesChange called ===')
+      console.log('changed:', JSON.stringify(changed))
+
+      // Check if we should skip sending to backend (e.g., during navigation)
+      // skipSearchUntilRef stores a timestamp - if current time is before it, skip
+      const now = Date.now()
+      const shouldSkipSearch = now < skipSearchUntilRef.current
+      if (shouldSkipSearch) {
+        console.log(
+          'postValuesChange: within skip window, skipping backend message'
+        )
+      }
+
+      setValues((prev) => {
+        // Calculate new state
+        const nonce =
+          Date.now().toString() + Math.random().toString().slice(2, 5)
+        const next = { ...prev, ...changed, searchNonce: nonce }
+
+        // Update ref SYNCHRONOUSLY
+        valuesRef.current = next
+
+        console.log(
+          'postValuesChange setValues: next.find:',
+          next.find,
+          'next.searchInResults:',
+          next.searchInResults
+        )
+
+        // IMMEDIATE SYNC: Update searchLevels to ensure history captures the new Nonce
+        // This prevents race conditions where results arrive before useEffect fires.
+        setSearchLevels((prevLevels) => {
+          const idx = next.searchInResults
+          if (idx < 0 || idx >= prevLevels.length) return prevLevels
+
+          const currentLevel = prevLevels[idx]
+          // If skipping search (e.g. back nav), we might not want to overwrite history logic?
+          // Actually, syncing history is always good.
+          // BUT careful not to overwrite 'resultsByFile' or other state.
+
+          const newLevels = [...prevLevels]
+          newLevels[idx] = {
+            ...currentLevel,
+            values: {
+              ...currentLevel.values,
+              ...next, // Capture find, nonce, etc.
+            },
+            label: next.find || currentLevel.label, // Sync label
+          }
+          return newLevels
+        })
+
+        // Only send to backend if not skipping
+        if (!shouldSkipSearch) {
+          // CRITICAL OPTIMIZATION:
+          // If we are only navigating BACKWARDS (decreasing searchInResults), trust the cached state.
+          // Even if 'find' is in the changed object (restoring old value), we DO NOT want to trigger a new search.
+          const isBackNav =
+            changed.searchInResults !== undefined &&
+            changed.searchInResults < prev.searchInResults
+
+          if (!isBackNav) {
+            // Mark validation as requested so we know to clear current results when new ones arrive
+            setIsSearchRequested(true)
+            shouldClearResultsRef.current = true
+
+            console.log(
+              'DEBUG: Calling debouncedTriggerSearch',
+              next.searchNonce
+            )
+            console.log(
+              'DEBUG: Calling debouncedTriggerSearch',
+              next.searchNonce,
+              'NEXT_OBJ:',
+              JSON.stringify(next)
+            )
+            debouncedTriggerSearch({
+              type: 'search',
+              ...next,
+              searchInResults: next.searchInResults,
+            })
+          } else {
+            console.log(
+              'DEBUG: BackNav optimization. Skipping Search. Nonce:',
+              next.searchNonce
+            )
+            // Do NOT set isSearchRequested logic here, as we expect cache to be sufficient.
+          }
+        } else {
+          // If skipping, we also don't request search.
+        }
+
+        return next
+      })
+    },
+    [debouncedPostMessage]
+  )
+
+  // --- Message Handler (Moved to access postValuesChange) ---
   const handleMessage = useCallback(
     (rawMessage: unknown) => {
       const validation = MessageToWebviewSchema.safeParse(rawMessage)
@@ -432,15 +678,49 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
       switch (message.type) {
         case 'initialData':
           setWorkspacePath(message.workspacePath)
+          if (message.customFileOrder) {
+            const keys = Object.keys(message.customFileOrder).sort(
+              (a, b) =>
+                message.customFileOrder![a] - message.customFileOrder![b]
+            )
+            setCustomFileOrder(keys)
+          }
           break
         case 'status':
           setStatus((prev) => ({ ...prev, ...message.status }))
+          // If search is completed, clear stale results
+          if (
+            message.status.total !== undefined &&
+            message.status.total > 0 &&
+            message.status.completed === message.status.total
+          ) {
+            setStaleResultsByFile(null)
+            setStaleStatus(null)
+            setStaleLevel(null)
+          }
           break
         case 'values':
           console.log('value handleMessages', message.values)
-          setValues((prev) => ({ ...prev, ...message.values }))
+          setValues((prev) => {
+            const next = { ...prev, ...message.values }
+            valuesRef.current = next
+            return next
+          })
           break
+
         case 'clearResults':
+          console.log('DEBUG: FE clearResults received')
+          // Save current results as stale before clearing
+          if (Object.keys(resultsByFile).length > 0) {
+            setStaleResultsByFile(resultsByFile)
+            setStaleLevel(0)
+          }
+
+          setStaleStatus((prev) => {
+            if (status.numMatches > 0) return status
+            return prev
+          })
+
           setStatus((prev) => ({
             ...prev,
             numMatches: 0,
@@ -450,6 +730,20 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
             completed: 0,
             total: 0,
           }))
+
+          if (isInNestedSearch) {
+            // Save stale results for nested search before clearing
+            const currentLevelIndex = values.searchInResults
+            const currentLevelResults =
+              searchLevelsRef.current[currentLevelIndex]?.resultsByFile
+            if (
+              currentLevelResults &&
+              Object.keys(currentLevelResults).length > 0
+            ) {
+              setStaleResultsByFile(currentLevelResults)
+              setStaleLevel(currentLevelIndex)
+            }
+          }
 
           setReplacementResult({
             totalReplacements: 0,
@@ -475,7 +769,9 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
               return newLevels
             })
           } else {
+            console.log('DEBUG: FE clearResults - Clearing resultsByFile')
             setResultsByFile({})
+            // Sync searchLevels[0]
             setSearchLevels((prev) => {
               const newLevels = [...prev]
               if (newLevels.length > 0) {
@@ -485,58 +781,136 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
             })
           }
           break
+
         case 'addBatchResults': {
-          console.log('DEBUG: addBatchResults', JSON.stringify(message))
-          if (message.data && message.data.length > 0) {
-            console.log(
-              'DEBUG: First item matches:',
-              JSON.stringify(message.data[0].matches)
-            )
-          }
+          const messageNonce = message.nonce
+          const currentNonce = valuesRef.current.searchNonce // Active level nonce
+          // If no nonce is provided, we assume it belongs to the current active level (Root or Nested)
+          // This creates a fallback for legacy messages or when nonce is dropped.
+          const effectiveNonce = messageNonce || currentNonce
 
           const batchResults = message.data
 
+          // NONCE-AWARE ROUTING: Find which level this nonce belongs to
+          // We check searchLevelsRef to match the nonce.
+          const matchingLevelIndex = searchLevelsRef.current.findIndex(
+            (l) => l.values?.searchNonce === messageNonce
+          )
+          const isForActiveLevel = matchingLevelIndex === values.searchInResults
+
+          // If we can't find a matching level, check if it matches the current active values nonce (in case levels aren't synced yet)
+          // But searchLevels should be synced by the time we search.
+          // If it matches NOTHING, we assume it's stale and ignore it.
+          // EXCEPTION: If it matches `valuesRef.current.searchNonce` but not in searchLevels (rare race?), treat as active.
+
+          if (matchingLevelIndex === -1 && messageNonce !== currentNonce) {
+            console.log(
+              `WARNING: Stale results ignored! Nonce ${messageNonce} matches no level.`
+            )
+            break
+          }
+
+          // Effective Index: if found in levels, use that. If not but matches active, use active.
+          const targetLevelIndex =
+            matchingLevelIndex !== -1
+              ? matchingLevelIndex
+              : values.searchInResults
+
           // Clear results if this is the first batch of a new search
-          if (shouldClearResultsRef.current) {
+          if (shouldClearResultsRef.current && isForActiveLevel) {
             console.log('DEBUG: Clearing results (Ref Trigger)')
             shouldClearResultsRef.current = false
             setIsSearchRequested(false)
 
-            // Clear Pending
+            // ... (clear logic same as before, but only for active level) ...
+            if (isInNestedSearch) {
+              const currentLevelIndex = values.searchInResults
+              const currentLevelResults =
+                searchLevelsRef.current[currentLevelIndex]?.resultsByFile
+
+              if (
+                currentLevelResults &&
+                Object.keys(currentLevelResults).length > 0
+              ) {
+                setStaleResultsByFile(currentLevelResults)
+                setStaleLevel(currentLevelIndex)
+              }
+            } else {
+              if (Object.keys(resultsByFile).length > 0) {
+                setStaleResultsByFile(resultsByFile)
+                setStaleLevel(0)
+              }
+            }
+            setStaleStatus((prev) => {
+              if (status.numMatches > 0) return status
+              return prev
+            })
             pendingResultsRef.current = {}
 
-            if (isInNestedSearch) {
-              setSearchLevels((prev) => {
-                const currentLevel = prev[values.searchInResults]
-                if (!currentLevel) return prev
-                const newLevels = [...prev]
-                newLevels[values.searchInResults] = {
-                  ...currentLevel,
-                  resultsByFile: {},
-                  expandedFiles: new Set(),
-                  expandedFolders: new Set(),
-                }
-                return newLevels
-              })
-            } else {
-              setResultsByFile({})
-            }
+            // Clear the TARGET level results
+            setSearchLevels((prev) => {
+              if (!prev[targetLevelIndex]) return prev
+              const newLevels = [...prev]
+              newLevels[targetLevelIndex] = {
+                ...newLevels[targetLevelIndex],
+                resultsByFile: {},
+                expandedFiles: new Set(),
+                expandedFolders: new Set(),
+              }
+              return newLevels
+            })
+
+            if (isForActiveLevel) setResultsByFile({})
           }
 
-          // Append to pending (removed the old inside-clearing logic)
+          // If we have new results for ACTIVE level, clear the stale results
+          if (isForActiveLevel && batchResults.length > 0) {
+            setStaleResultsByFile(null)
+            setStaleStatus(null)
+            setStaleLevel(null)
+          }
+
+          // Append to pending
           batchResults.forEach((newResult: SerializedTransformResultEvent) => {
+            // ... existing pending push ...
             const hasMatches = newResult.matches && newResult.matches.length > 0
             if (!hasMatches && !newResult.error) return
-
             if (!pendingResultsRef.current[newResult.file]) {
               pendingResultsRef.current[newResult.file] = []
             }
             pendingResultsRef.current[newResult.file].push(newResult)
           })
 
+          // Flush logic must be updated to target the SPECIFIC level, not just active.
+          if (targetLevelIndex !== values.searchInResults) {
+            // Background Update
+            setSearchLevels((prev) => {
+              const newLevels = [...prev]
+              const level = newLevels[targetLevelIndex]
+              if (!level) return prev
+
+              const updatedResultsByFile = { ...level.resultsByFile }
+              batchResults.forEach((res) => {
+                if (!res.matches || res.matches.length === 0) return
+                // Simple replace/append? Backend sends full file results.
+                updatedResultsByFile[res.file] = [res] // Assuming full replacement per file
+              })
+
+              newLevels[targetLevelIndex] = {
+                ...level,
+                resultsByFile: updatedResultsByFile,
+              }
+              return newLevels
+            })
+            // Stop here. Don't flush to active view.
+            break
+          }
+
+          // If it IS for active level, proceed with standard flush
           flushPendingResults()
           break
         }
+
         case 'fileUpdated': {
           const { filePath, newSource } = message
           setResultsByFile((prev) => {
@@ -590,6 +964,37 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
           })
           break
         }
+        case 'focusReplaceInput': {
+          setSearchLevels((prev) => {
+            const newLevels = [...prev]
+            // Ensure root level exists and set isReplaceVisible to true
+            if (newLevels.length > 0) {
+              newLevels[0] = { ...newLevels[0], isReplaceVisible: true }
+            }
+            return newLevels
+          })
+          break
+        }
+
+        case 'focusSearchInput': {
+          if (message.triggerSearch && message.selectedText) {
+            console.log(
+              'DEBUG: Triggering search from focusSearchInput',
+              message.selectedText
+            )
+            postValuesChange({ find: message.selectedText })
+          }
+
+          setSearchLevels((prev) => {
+            const newLevels = [...prev]
+            // Ensure root level exists and set isReplaceVisible to true
+            if (newLevels.length > 0) {
+              newLevels[0] = { ...newLevels[0], isReplaceVisible: true }
+            }
+            return newLevels
+          })
+          break
+        }
       }
     },
     [
@@ -597,217 +1002,37 @@ export const useSearchState = ({ vscode }: UseSearchStateProps) => {
       isInNestedSearch,
       values.searchInResults,
       isSearchRequested,
+      postValuesChange,
     ]
-  )
-
-  // Sync current values to the corresponding searchLevels entry
-  // This ensures breadcrumb labels reflect what the user has typed
-  useEffect(() => {
-    console.log('=== useEffect SYNC triggered ===')
-    console.log(
-      'values.find:',
-      values.find,
-      'values.searchInResults:',
-      values.searchInResults
-    )
-
-    setSearchLevels((prev) => {
-      const index = values.searchInResults
-      if (index < 0 || index >= prev.length) {
-        console.log('useEffect SYNC: index out of bounds, skipping')
-        return prev
-      }
-      const currentLevel = prev[index]
-      if (!currentLevel) {
-        console.log('useEffect SYNC: currentLevel is null, skipping')
-        return prev
-      }
-
-      // Only update if values have actually changed (avoid infinite loops)
-      if (
-        currentLevel.values?.find === values.find &&
-        currentLevel.values?.matchCase === values.matchCase &&
-        currentLevel.values?.wholeWord === values.wholeWord &&
-        currentLevel.values?.searchMode === values.searchMode
-      ) {
-        console.log('useEffect SYNC: values unchanged, skipping')
-        return prev
-      }
-
-      console.log('useEffect SYNC: Updating level', index)
-      console.log(
-        '  Old find:',
-        currentLevel.values?.find,
-        'Old label:',
-        currentLevel.label
-      )
-      console.log('  New find:', values.find)
-
-      const newLevels = [...prev]
-      newLevels[index] = {
-        ...currentLevel,
-        values: {
-          ...currentLevel.values,
-          find: values.find,
-          matchCase: values.matchCase,
-          wholeWord: values.wholeWord,
-          searchMode: values.searchMode,
-        },
-        label: values.find ? values.find : currentLevel.label,
-      }
-
-      console.log('  Result label:', newLevels[index].label)
-      console.log(
-        '  All levels after sync:',
-        JSON.stringify(
-          newLevels.map((l) => ({ find: l.values?.find, label: l.label }))
-        )
-      )
-
-      return newLevels
-    })
-  }, [
-    values.find,
-    values.matchCase,
-    values.wholeWord,
-    values.searchMode,
-    values.searchInResults,
-  ])
-
-  // --- Debounced Message Sender ---
-  const debouncedPostMessage = useMemo(
-    () =>
-      debounce((msg: MessageFromWebview) => {
-        vscode.postMessage(msg)
-      }, 50), // Reduced to 50ms
-    [vscode]
-  )
-
-  // Cleanup debounce on unmount
-  useEffect(() => {
-    return () => {
-      debouncedPostMessage.cancel()
-    }
-  }, [debouncedPostMessage])
-
-  const postValuesChange = useCallback(
-    (changed: Partial<SearchReplaceViewValues>) => {
-      console.log('=== postValuesChange called ===')
-      console.log('changed:', JSON.stringify(changed))
-
-      // Check if we should skip sending to backend (e.g., during navigation)
-      // skipSearchUntilRef stores a timestamp - if current time is before it, skip
-      const now = Date.now()
-      const shouldSkipSearch = now < skipSearchUntilRef.current
-      if (shouldSkipSearch) {
-        console.log(
-          'postValuesChange: within skip window, skipping backend message'
-        )
-      } else {
-        // Mark validation as requested so we know to clear current results when new ones arrive
-        setIsSearchRequested(true)
-        shouldClearResultsRef.current = true
-      }
-
-      setValues((prev) => {
-        const nonce =
-          Date.now().toString() + Math.random().toString().slice(2, 5)
-        const next = { ...prev, ...changed, searchNonce: nonce }
-
-        // Update ref SYNCHRONOUSLY so callbacks always have latest values
-        valuesRef.current = next
-
-        console.log(
-          'postValuesChange setValues: next.find:',
-          next.find,
-          'next.searchInResults:',
-          next.searchInResults
-        )
-
-        // Only send to backend if not skipping
-        if (!shouldSkipSearch) {
-          debouncedPostMessage({ type: 'values', values: next })
-        }
-
-        // Sync find value to searchLevels for breadcrumb labels
-        if ('find' in changed) {
-          console.log(
-            'postValuesChange: find is in changed, triggering setSearchLevels sync'
-          )
-          setSearchLevels((levels) => {
-            const index = next.searchInResults
-            console.log(
-              'postValuesChange setSearchLevels: index:',
-              index,
-              'levels.length:',
-              levels.length
-            )
-
-            if (index < 0 || index >= levels.length) {
-              console.log(
-                'postValuesChange setSearchLevels: index out of bounds, skipping'
-              )
-              return levels
-            }
-
-            console.log(
-              'postValuesChange setSearchLevels: Updating level',
-              index
-            )
-            console.log(
-              '  Old find:',
-              levels[index].values?.find,
-              'Old label:',
-              levels[index].label
-            )
-            console.log('  New find:', next.find)
-
-            const newLevels = [...levels]
-            newLevels[index] = {
-              ...newLevels[index],
-              values: { ...newLevels[index].values, find: next.find },
-              label: next.find ? next.find : newLevels[index].label,
-            }
-
-            console.log('  Result label:', newLevels[index].label)
-            console.log(
-              '  All levels after postValuesChange sync:',
-              JSON.stringify(
-                newLevels.map((l) => ({ find: l.values?.find, label: l.label }))
-              )
-            )
-
-            return newLevels
-          })
-        }
-
-        return next
-      })
-    },
-    [debouncedPostMessage, setSearchLevels]
   )
 
   return {
     values,
     setValues,
+    postValuesChange,
     status,
     setStatus,
-    resultsByFile,
-    setResultsByFile,
     workspacePath,
     setWorkspacePath,
-    isSearchRequested,
-    setIsSearchRequested,
-    replacementResult,
-    setReplacementResult,
     searchLevels,
     setSearchLevels,
-    handleMessage,
-    postValuesChange,
     isInNestedSearch,
+    valuesRef,
     viewMode,
     setViewMode,
-    valuesRef,
+    resultsByFile,
+    setResultsByFile,
+    staleResultsByFile,
+    staleStatus,
+    staleLevel,
+    customFileOrder,
+    setCustomFileOrder,
+    vscode,
+    replacementResult,
+    setReplacementResult,
+    isSearchRequested,
+    setIsSearchRequested,
+    handleMessage,
     skipSearchUntilRef,
   }
 }

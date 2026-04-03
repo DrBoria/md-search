@@ -2,7 +2,7 @@ import { EventEmitter } from 'events'
 import * as vscode from 'vscode'
 import { TransformResultEvent } from '../../../model/SearchRunnerTypes'
 import { Params } from '../../types'
-import { SearchCache } from '../services/CacheService'
+import { SearchCache, SearchCacheNode } from '../services/CacheService'
 import { FileService } from '../services/FileService'
 import { TextSearchService } from '../services/TextSearchService'
 import { Pipeline } from '../utilities/Pipeline'
@@ -28,20 +28,23 @@ export class SearchWorkflow extends EventEmitter {
   private skippedLargeFiles = new Set<string>()
   private currentParams: Params | null = null
 
-  async run(params: Params): Promise<void> {
+  async run(params: Params, dirtyFiles?: Set<string>): Promise<void> {
     if (this.isRunning) {
-      this.stop()
+      if (this.abortController) {
+        this.emit('stop')
+        this.abortController.abort()
+      }
     }
+
     this.isRunning = true
     this.isPaused = false
     this.totalMatchesInRun = 0
     this.currentLimitIndex = 0
-    this.pauseResolver = null
     this.skippedLargeFiles.clear()
     this.currentParams = params
 
-    this.abortController = new AbortController()
-    this.textSearchService.setAbortController(this.abortController)
+    const controller = new AbortController()
+    this.abortController = controller
 
     this.emit('start')
 
@@ -49,8 +52,10 @@ export class SearchWorkflow extends EventEmitter {
       const { find, searchInResults, include, exclude } = params
 
       // 1. Determine Source Files & Parent Node
-      const { filesToScan, targetParentNode } =
-        await this.getFilesToScan(params)
+      const { filesToScan, targetParentNode } = await this.getFilesToScan(
+        params,
+        dirtyFiles
+      )
 
       // 2. Setup Cache Node
       const cacheNode = this.setupCacheNode(params, targetParentNode)
@@ -79,17 +84,20 @@ export class SearchWorkflow extends EventEmitter {
         .processConcurrent(
           CONCURRENCY,
           async (fileUri) => {
-            if (this.abortController?.signal.aborted) return
+            if (controller.signal.aborted) return
 
             try {
               const content = await this.fileService.readFile(fileUri)
               // If empty, it might be skipped due to size limit
               if (!content) return
 
+              if (controller.signal.aborted) return // Double check before heavy search
+
               const matches = await this.textSearchService.searchInFile(
                 fileUri,
                 content,
-                params
+                params,
+                controller.signal // Pass signal
               )
 
               if (matches.length > 0) {
@@ -102,6 +110,15 @@ export class SearchWorkflow extends EventEmitter {
                 }
 
                 this.emit('result', result)
+                this.cacheService.addResult(result)
+              } else {
+                // Even if no matches, we might need to clear previous matches for this file
+                // IF the file was previously in the results (e.g. nested search).
+                const result: TransformResultEvent = {
+                  file: vscode.Uri.parse(fileUri),
+                  matches: [],
+                  source: content,
+                }
                 this.cacheService.addResult(result)
               }
             } catch (err) {
@@ -119,7 +136,7 @@ export class SearchWorkflow extends EventEmitter {
             }
           },
           {
-            signal: this.abortController.signal,
+            signal: controller.signal,
             checkPause: async () => {
               // Check if we hit a limit
               if (
@@ -149,12 +166,12 @@ export class SearchWorkflow extends EventEmitter {
           }
         )
 
-      if (!this.abortController.signal.aborted) {
+      if (!controller.signal.aborted) {
         this.cacheService.markCurrentAsComplete()
         this.finish()
       }
     } catch (error) {
-      if (this.abortController?.signal.aborted) {
+      if (controller.signal.aborted) {
         // Normal abort, don't emit error
       } else {
         this.emit('error', error)
@@ -176,11 +193,9 @@ export class SearchWorkflow extends EventEmitter {
     if (!this.currentParams || this.skippedLargeFiles.size === 0) return
 
     this.isRunning = true
-    this.abortController = new AbortController() // New controller or reuse?
-    // If we reuse, ensure it's not aborted.
-    if (!this.abortController || this.abortController.signal.aborted) {
-      this.abortController = new AbortController()
-    }
+    // Create a new controller for THIS run
+    const controller = new AbortController()
+    this.abortController = controller
 
     const files = Array.from(this.skippedLargeFiles)
     let completedCount = 0
@@ -189,7 +204,7 @@ export class SearchWorkflow extends EventEmitter {
     await Pipeline.from(files).processConcurrent(
       4, // Keep low concurrency
       async (fileUri) => {
-        if (this.abortController?.signal.aborted) return
+        if (controller.signal.aborted) return
         try {
           // Ignore size limit here
           const content = await this.fileService.readFile(fileUri, {
@@ -200,7 +215,8 @@ export class SearchWorkflow extends EventEmitter {
           const matches = await this.textSearchService.searchInFile(
             fileUri,
             content,
-            this.currentParams!
+            this.currentParams!,
+            controller.signal // Pass signal
           )
 
           if (matches.length > 0) {
@@ -220,7 +236,7 @@ export class SearchWorkflow extends EventEmitter {
           // Emit progress?
         }
       },
-      { signal: this.abortController.signal }
+      { signal: controller.signal }
     )
 
     // Clear them after search
@@ -231,49 +247,74 @@ export class SearchWorkflow extends EventEmitter {
   }
 
   private async getFilesToScan(
-    params: Params
-  ): Promise<{ filesToScan: string[]; targetParentNode: any }> {
+    params: Params,
+    dirtyFiles?: Set<string>
+  ): Promise<{
+    filesToScan: string[]
+    targetParentNode: SearchCacheNode | null
+  }> {
     const { searchInResults, include, exclude } = params
     let filesToScan: string[] = []
-    let targetParentNode: any = null
+    let targetParentNode: SearchCacheNode | null = null
 
     if (searchInResults && searchInResults > 0) {
-      const targetDepth = searchInResults - 1
-      const currentNode = this.cacheService.getCurrentNode()
-      const cachedResults = this.cacheService.getResultsFromDepth(
-        targetDepth,
-        currentNode
-      )
-      targetParentNode = this.cacheService.getAncestorAtDepth(
-        targetDepth,
-        currentNode
-      )
+      // Nested Search: Identify Stable Global Scope
+      const scopeNode = this.cacheService.getNearestGlobalNode()
 
-      if (cachedResults) {
-        filesToScan = Array.from(cachedResults.keys())
-      } else {
-        const current = this.cacheService.getCurrentResults()
-        if (current) {
-          filesToScan = Array.from(current.keys())
+      if (scopeNode) {
+        const currentResults = scopeNode.results
+        // If we have scope results, use them
+        if (currentResults && currentResults.size > 0) {
+          const scopeFiles = Array.from(currentResults.keys())
+
+          // MERGE Dirty Files into scope
+          if (dirtyFiles && dirtyFiles.size > 0) {
+            const dirtyArray = Array.from(dirtyFiles)
+            // We want union, excluding duplicates
+            // Note: scopeFiles are just paths (strings)
+            const union = new Set([...scopeFiles, ...dirtyArray])
+            filesToScan = Array.from(union)
+          } else {
+            filesToScan = scopeFiles
+          }
+
+          targetParentNode = scopeNode
         } else {
-          const uris = await this.fileService.findFiles(
-            include || '**/*',
-            exclude || ''
-          )
-          filesToScan = uris.map((u) => u.toString())
+          // Scope node exists but empty results?
+          // If dirty files exist, they might be new matches!
+          if (dirtyFiles && dirtyFiles.size > 0) {
+            filesToScan = Array.from(dirtyFiles)
+            targetParentNode = scopeNode
+          } else {
+            filesToScan = []
+            targetParentNode = scopeNode
+          }
         }
+      } else {
+        // No scope node found (cache issue?), fallback to global scan
+
+        const uris = await this.fileService.findFiles(
+          include || '**/*',
+          exclude || ''
+        )
+        filesToScan = uris.map((u) => u.toString())
       }
     } else {
+      // Global Search
       const uris = await this.fileService.findFiles(
         include || '**/*',
         exclude || ''
       )
       filesToScan = uris.map((u) => u.toString())
     }
+
     return { filesToScan, targetParentNode }
   }
 
-  private setupCacheNode(params: Params, targetParentNode: any): any {
+  private setupCacheNode(
+    params: Params,
+    targetParentNode: SearchCacheNode | null
+  ): SearchCacheNode {
     const {
       find,
       searchInResults,
@@ -283,7 +324,7 @@ export class SearchWorkflow extends EventEmitter {
       exclude,
       searchMode,
     } = params
-    let cacheNode: any = null
+    let cacheNode: SearchCacheNode | null = null
 
     if (targetParentNode) {
       // Use createCacheNode with explicit parent
@@ -331,10 +372,14 @@ export class SearchWorkflow extends EventEmitter {
         )
       }
     }
-    return cacheNode
+    // This method is guaranteed to return a CacheNode, so we can assert it.
+    return cacheNode!
   }
 
-  private emitCachedResults(cacheNode: any, processedFiles: Set<string>) {
+  private emitCachedResults(
+    cacheNode: SearchCacheNode,
+    processedFiles: Set<string>
+  ) {
     for (const [uri, result] of cacheNode.results.entries()) {
       if (processedFiles.has(uri)) {
         this.emit('result', result)

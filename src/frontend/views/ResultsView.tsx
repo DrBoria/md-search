@@ -2,61 +2,38 @@ import React, { useCallback, useMemo, useState, useEffect } from 'react';
 import { useSearchGlobal } from './context/SearchGlobalContext';
 import { URI } from 'vscode-uri';
 import * as path from 'path-browserify';
-import { Button } from '../components/ui/button';
-import { TreeViewNode } from './TreeView';
-import { FileIcon } from '../components/icons';
-import { getLineFromSource } from './utils';
-import { getHighlightedMatchContext } from './TreeView/highligtedContext';
-import { getHighlightedMatchContextWithReplacement } from './TreeView/highlightedContextWithReplacement';
 import { SerializedTransformResultEvent, SearchLevel } from '../../model/SearchReplaceViewTypes';
+import { excludePathFromResults, uriToPath } from '../utils/exclusionHelper';
+import { cn } from "../utils";
+import { VirtualTreeView } from './TreeView/VirtualTreeView';
+import { FileTreeNode, FileNode, FolderNode } from './TreeView/index';
 
 interface ResultsViewProps {
     levelIndex: number;
+    animationState?: { type: 'copy' | 'cut' | 'paste' | null, timestamp: number };
 }
 
 // Helper Interfaces
-interface FileTreeNodeBase {
-    name: string;
-    relativePath: string;
-}
 
-interface FolderNode extends FileTreeNodeBase {
-    type: 'folder';
-    children: FileTreeNode[];
-    stats?: {
-        numMatches: number;
-        numFilesWithMatches: number;
-    };
-}
-
-interface FileNode extends FileTreeNodeBase {
-    type: 'file';
-    absolutePath: string;
-    results: SerializedTransformResultEvent[];
-}
-
-type FileTreeNode = FolderNode | FileNode;
 
 // Helper Functions
-function uriToPath(uriString: string | undefined): string {
-    if (!uriString) return '';
-    try {
-        const uri = URI.parse(uriString);
-        if (uri.scheme === 'file') {
-            return uri.fsPath;
-        }
-        return uriString;
-    } catch (e) {
-        return uriString;
-    }
-}
+
 
 function buildFileTree(
     resultsByFile: Record<string, SerializedTransformResultEvent[]>,
     workspacePathUri: string,
     customOrder?: { [key: string]: number },
 ): FolderNode {
-    const root: FolderNode = { name: '', relativePath: '', type: 'folder', children: [], stats: { numMatches: 0, numFilesWithMatches: 0 } };
+    // Root's absolute path is the workspace path
+    const root: FolderNode = {
+        name: '',
+        relativePath: '',
+        absolutePath: uriToPath(workspacePathUri),
+        type: 'folder',
+        children: [],
+        results: [],
+        stats: { numMatches: 0, numFilesWithMatches: 0 }
+    };
     const workspacePath = uriToPath(workspacePathUri);
 
     const findOrCreateFolder = (
@@ -70,11 +47,19 @@ function buildFileTree(
         if (existing) {
             return existing;
         }
+
+        // Construct absolute path for the folder
+        const folderAbsolutePath = path.join(parent.absolutePath, segment); // Assuming simple join works for our internal structure, or we calculate from workspace
+        // Actually, safer to join relative path to workspace path
+        const safeAbsolutePath = workspacePath ? path.join(workspacePath, currentRelativePath) : currentRelativePath;
+
         const newFolder: FolderNode = {
             name: segment,
             relativePath: currentRelativePath,
+            absolutePath: safeAbsolutePath, // Store absolute path
             type: 'folder',
             children: [],
+            results: [],
             stats: { numMatches: 0, numFilesWithMatches: 0 }
         };
         parent.children.push(newFolder);
@@ -105,7 +90,7 @@ function buildFileTree(
         segments.forEach((segment, index) => {
             currentRelativePath = currentRelativePath ? path.posix.join(currentRelativePath, segment) : segment;
             if (index === segments.length - 1) {
-                const fileNode: FileNode = {
+                const fileNode: any = {
                     name: path.basename(absoluteFilePath),
                     relativePath: posixDisplayPath,
                     absolutePath: absoluteFilePathOrUri,
@@ -126,12 +111,16 @@ function buildFileTree(
     // Sorting logic
     const sortNodeChildren = (node: FolderNode) => {
         node.children.sort((a, b) => {
+            // ALWAYS sort folders before files
+            if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
+
             if (customOrder) {
-                const aOrder = customOrder[a.relativePath] ?? 999999;
-                const bOrder = customOrder[b.relativePath] ?? 999999;
+                // Try both absolute path and relative path for lookup
+                const aOrder = customOrder[a.absolutePath] ?? customOrder[a.relativePath] ?? 999999;
+                const bOrder = customOrder[b.absolutePath] ?? customOrder[b.relativePath] ?? 999999;
+
                 if (aOrder !== bOrder) return aOrder - bOrder;
             }
-            if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
             return a.name.localeCompare(b.name);
         });
         node.children.forEach(child => {
@@ -143,48 +132,58 @@ function buildFileTree(
     return root;
 }
 
-export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
+export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex, animationState }) => {
     const {
-        status,
+        status: currentStatus,
         vscode,
         searchLevels,
         setSearchLevels,
-        setResultsByFile, // needed for root exclude? 
-        isInNestedSearch, // actually we know if we are nested by levelIndex > 0 usually, but let's check context
-        values: globalValues, // root values, but for styling highlighted context we need LEVEL values
+        isInNestedSearch,
+        values: globalValues,
         workspacePath,
-        viewMode: globalViewMode, // Global viewMode as fallback
+        viewMode: globalViewMode,
+        staleResultsByFile,
+        staleStatus,
+        staleLevel,
+        customFileOrder, // Added
+        setCustomFileOrder // Added
     } = useSearchGlobal();
 
-    // Get Level Data
+    // Derived Logic for Results
     const level = searchLevels[levelIndex];
-    // Helper to get safe values
-    const resultsByFile = level?.resultsByFile || {};
-    // Use level-specific values if available (for nested search context), otherwise global
-    const values = level?.values || globalValues;
-    // Use level-specific viewMode if available, otherwise fallback to global
-    const viewMode = level?.viewMode || globalViewMode || 'tree';
 
-    // Local State for Pagination
-    const [visibleResultsLimit, setVisibleResultsLimit] = useState(50);
-    const [isLoadingMore, setIsLoadingMore] = useState(false);
+    const effectiveResultsByFile = useMemo(() => {
+        const currentResults = level?.resultsByFile || {};
+        if (Object.keys(currentResults).length > 0) return currentResults;
 
-    // Derived State for Pagination
-    const paginatedFilePaths = useMemo(() => {
-        return Object.keys(resultsByFile).slice(0, visibleResultsLimit);
-    }, [resultsByFile, visibleResultsLimit]);
+        // Check for stale results if current are empty
+        if (levelIndex === 0) {
+            // Root level fallback
+            if (staleResultsByFile && Object.keys(staleResultsByFile).length > 0 && (staleLevel === 0 || staleLevel === null || staleLevel === undefined)) {
+                return staleResultsByFile;
+            }
+        } else {
+            // Nested level fallback
+            if (staleResultsByFile && Object.keys(staleResultsByFile).length > 0 && staleLevel === levelIndex) {
+                return staleResultsByFile;
+            }
+        }
+        return {};
+    }, [level, levelIndex, staleResultsByFile, staleLevel]);
 
+    const isStale = useMemo(() => {
+        const currentResults = level?.resultsByFile || {};
+        const hasCurrent = Object.keys(currentResults).length > 0;
+        if (hasCurrent) return false;
+
+        if (levelIndex === 0) {
+            return !!staleResultsByFile && (staleLevel === 0 || staleLevel === null || staleLevel === undefined);
+        } else {
+            return !!staleResultsByFile && staleLevel === levelIndex;
+        }
+    }, [level, levelIndex, staleResultsByFile, staleLevel]);
 
     // Handlers
-    const loadMoreResults = useCallback(() => {
-        if (isLoadingMore) return;
-        setIsLoadingMore(true);
-        setTimeout(() => {
-            setVisibleResultsLimit(prev => prev + 50);
-            setIsLoadingMore(false);
-        }, 50);
-    }, [isLoadingMore]);
-
     const handleFileClick = useCallback((absolutePathOrUri: string) => {
         vscode.postMessage({ type: 'openFile', filePath: absolutePathOrUri });
     }, [vscode]);
@@ -194,26 +193,32 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
     }, [vscode]);
 
     const handleReplaceSelectedFiles = useCallback((filePaths: string[]) => {
-        if (!values?.find || !values.replace || filePaths.length === 0) return;
-
-        // If nested, we need to handle replace differently? 
-        // Logic in `useSearchItemController` handled this via IPC message 'replace' with filePaths.
+        const find = level?.values?.find || globalValues.find;
+        const replace = level?.values?.replace !== undefined ? level.values.replace : globalValues.replace;
+        if (!find || replace === undefined || filePaths.length === 0) return;
         vscode.postMessage({ type: 'replace', filePaths });
-    }, [values.find, values.replace, vscode]);
+    }, [level, globalValues, vscode]);
+
+
 
     const handleExcludeFile = useCallback((filePath: string) => {
+        console.log('[ResultsView] handleExcludeFile called with:', filePath);
         vscode.postMessage({ type: 'excludeFile', filePath });
-        // Update local state to remove file immediately
         setSearchLevels(prev => {
             const newLevels = [...prev];
-            const currentLevel = newLevels[levelIndex];
-            if (currentLevel && currentLevel.resultsByFile[filePath]) {
-                const updatedResultsByFile = { ...currentLevel.resultsByFile };
-                delete updatedResultsByFile[filePath];
-                newLevels[levelIndex] = { ...currentLevel, resultsByFile: updatedResultsByFile };
+            const targetLevel = newLevels[levelIndex];
+            if (!targetLevel) return prev;
+
+            const { newResults, removedKeys } = excludePathFromResults(targetLevel.resultsByFile, filePath);
+
+            if (removedKeys.length > 0) {
+                console.log('[ResultsView] Excluding match:', { filePath, removedKeys });
+                newLevels[levelIndex] = { ...targetLevel, resultsByFile: newResults };
+                return newLevels;
             }
-            return newLevels;
+            return prev;
         });
+
     }, [vscode, levelIndex, setSearchLevels]);
 
     const toggleFileExpansion = useCallback((relativePath: string) => {
@@ -242,27 +247,136 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
         });
     }, [levelIndex, setSearchLevels]);
 
-    // Drag handlers (simplified)
+    // View Mode: prefer level-specific mode (for nested), fallback to global (for root)
+    const viewMode = level?.viewMode || globalViewMode || 'tree';
+
+    // Values for highlighting
+    const values = level?.values || globalValues;
+
+    // Drag handlers
     const handleDragStart = useCallback((e: React.DragEvent, node: FileTreeNode) => {
-        e.dataTransfer.setData('text/plain', JSON.stringify({ relativePath: node.relativePath, type: node.type }));
+        // Allow dragging both files and folders
+        e.dataTransfer.setData('text/plain', node.absolutePath || node.relativePath);
         e.dataTransfer.effectAllowed = 'move';
+        console.log('[ResultsView] Drag Start:', {
+            path: node.absolutePath || node.relativePath,
+            type: node.type,
+            node
+        });
     }, []);
-    const handleDragOver = useCallback((e: React.DragEvent, targetNode: FileTreeNode) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }, []);
-    const handleDrop = useCallback((e: React.DragEvent, targetNode: FileTreeNode) => { e.preventDefault(); }, []);
 
+    const handleDragOver = useCallback((e: React.DragEvent, targetNode: FileTreeNode) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        // reducing log spam, but uncomment if needed
+        // console.log('[ResultsView] Drag Over:', targetNode.relativePath);
+    }, []);
 
-    // Derivations
-    const paginatedResults = useMemo(() => {
-        if (!resultsByFile || !paginatedFilePaths || paginatedFilePaths.length === 0) {
-            return {};
-        }
-        return paginatedFilePaths.reduce((acc, path) => {
-            if (resultsByFile[path]) {
-                acc[path] = resultsByFile[path];
+    const handleDrop = useCallback((e: React.DragEvent, targetNode: FileTreeNode) => {
+        console.error('[ResultsView] handleDrop ENTERED');
+        try {
+            e.preventDefault();
+            const sourcePath = e.dataTransfer.getData('text/plain');
+
+            // Target path should be the node's absolute path (which now exists for folders too)
+            // or relative path as fallback. Preferably absolute.
+            const targetPath = (targetNode as any).absolutePath || targetNode.relativePath;
+
+            console.error('[ResultsView] Handle Drop Data:', {
+                sourcePath,
+                targetPath,
+                targetNodeType: targetNode.type,
+                targetNodePath: targetNode.relativePath
+            });
+
+            if (!sourcePath || !targetPath || sourcePath === targetPath) {
+                console.error('[ResultsView] Drop ignored: validation failed or same source/target');
+                return;
             }
-            return acc;
-        }, {} as Record<string, SerializedTransformResultEvent[]>);
-    }, [paginatedFilePaths, resultsByFile]);
+
+            const currentFilePaths = Object.keys(effectiveResultsByFile);
+
+            let newOrder: string[] = [];
+            if (customFileOrder && customFileOrder.length > 0) {
+                newOrder = [...customFileOrder];
+                // Append missing visible files
+                currentFilePaths.forEach(p => {
+                    if (!newOrder.includes(p)) {
+                        newOrder.push(p);
+                    }
+                });
+            } else {
+                newOrder = [...currentFilePaths];
+            }
+
+            // Ensure source and target are in the order list
+            if (!newOrder.includes(sourcePath)) {
+                console.error('[ResultsView] Adding missing sourcePath to order:', sourcePath);
+                newOrder.push(sourcePath);
+            }
+            if (!newOrder.includes(targetPath)) {
+                console.error('[ResultsView] Adding missing targetPath to order:', targetPath);
+                newOrder.push(targetPath);
+            }
+
+            const sourceIndex = newOrder.indexOf(sourcePath);
+            const targetIndex = newOrder.indexOf(targetPath);
+
+            console.error('[ResultsView] Indices:', { sourceIndex, targetIndex });
+
+            if (sourceIndex === -1 || targetIndex === -1) {
+                console.error('[ResultsView] Source or Target index not found after insertion check');
+                return;
+            }
+
+            // Reorder
+            newOrder.splice(sourceIndex, 1);
+            let adjustedTargetIndex = newOrder.indexOf(targetPath);
+
+            // Adjust insertion point based on direction
+            if (sourceIndex < targetIndex) {
+                // Dragging Down: Insert AFTER target
+                adjustedTargetIndex += 1;
+            }
+            newOrder.splice(adjustedTargetIndex, 0, sourcePath);
+
+            console.error('[ResultsView] NEW ORDER Generated (first 5):', newOrder.slice(0, 5));
+            setCustomFileOrder(newOrder);
+        } catch (err) {
+            console.error('[ResultsView] DATA DROP ERROR:', err);
+        }
+    }, [effectiveResultsByFile, customFileOrder, setCustomFileOrder]);
+
+
+    // Derived State for Pagination
+    const sortedFilePaths = useMemo(() => {
+        const keys = Object.keys(effectiveResultsByFile);
+        if (!customFileOrder || customFileOrder.length === 0) return keys;
+
+        // Sort keys based on customFileOrder
+        // Create map for O(1) lookup
+        const orderMap = new Map(customFileOrder.map((path, index) => [path, index]));
+
+        return keys.sort((a, b) => {
+            const indexA = orderMap.has(a) ? orderMap.get(a)! : 999999;
+            const indexB = orderMap.has(b) ? orderMap.get(b)! : 999999;
+            return indexA - indexB;
+        });
+    }, [effectiveResultsByFile, customFileOrder]);
+
+
+
+    // Use Absolute Paths for the map since we now track them in FolderNode
+    const customOrderMap = useMemo(() => {
+        if (!customFileOrder || customFileOrder.length === 0) return {};
+        const map: { [key: string]: number } = {};
+
+        customFileOrder.forEach((path, index) => {
+            map[path] = index;
+            map[uriToPath(path)] = index;
+        });
+        return map;
+    }, [customFileOrder]);
 
     const currentExpandedFiles = useMemo((): Set<string> => {
         const files = level?.expandedFiles;
@@ -274,154 +388,90 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ levelIndex }) => {
         return folders instanceof Set ? folders : new Set<string>(folders || []);
     }, [level]);
 
+    // Memoize the File Tree for TREE MODE
+    const fileTree = useMemo(() => {
+        if (!effectiveResultsByFile || Object.keys(effectiveResultsByFile).length === 0) {
+            return null;
+        }
+        return buildFileTree(effectiveResultsByFile, workspacePath, customOrderMap);
+    }, [effectiveResultsByFile, workspacePath, customOrderMap]);
 
-    // Render Functions
-    const renderListViewResults = () => {
-        const resultEntries = Object.entries(paginatedResults);
 
-        if (resultEntries.length === 0) {
-            // Check if searching
-            if (status.running) {
-                return (
-                    <div className="p-[10px] text-[var(--vscode-descriptionForeground)] text-center flex justify-center items-center gap-2">
-                        <span className="codicon codicon-loading codicon-modifier-spin"></span><span>Searching...</span>
-                    </div>
-                );
-            }
+    // Prepare data logic
+    const status = currentStatus; // Alias for compatibility
+
+    // Determine nodes to show based on view mode
+    const nodesToShow = useMemo(() => {
+        if (viewMode === 'list') {
+            // For List Mode, we create a flat list of FileNodes
+            // Using sortedFilePaths (reusing logic)
+            return sortedFilePaths.map(filePath => {
+                const displayPath = workspacePath
+                    ? path.relative(uriToPath(workspacePath), uriToPath(filePath))
+                    : uriToPath(filePath);
+
+                let cleanDisplayPath = displayPath;
+                if (cleanDisplayPath.startsWith('/') || cleanDisplayPath.startsWith('\\')) {
+                    cleanDisplayPath = cleanDisplayPath.substring(1);
+                }
+
+                const node: FileNode = {
+                    type: 'file',
+                    name: path.basename(filePath),
+                    description: path.dirname(cleanDisplayPath) !== '.' ? path.dirname(cleanDisplayPath) : undefined,
+                    relativePath: cleanDisplayPath,
+                    absolutePath: filePath,
+                    file: filePath,
+                    results: effectiveResultsByFile[filePath] || [],
+                    stats: {
+                        numMatches: (effectiveResultsByFile[filePath] || []).reduce((sum: number, r: any) => sum + (r.matches?.length || 0), 0),
+                        numFilesWithMatches: 1
+                    }
+                };
+                return node;
+            });
+        }
+        // Tree Mode
+        return fileTree ? fileTree.children : [];
+    }, [viewMode, sortedFilePaths, effectiveResultsByFile, workspacePath, fileTree]);
+
+
+    const hasResults = nodesToShow.length > 0;
+
+    if (!hasResults) {
+        if (status.running) {
             return (
-                <div className="p-[10px] text-[var(--vscode-descriptionForeground)] text-center">No matches found.</div>
+                <div className="p-[10px] text-[var(--vscode-descriptionForeground)] text-center flex justify-center items-center gap-2">
+                    <span className="codicon codicon-loading codicon-modifier-spin"></span><span>Searching...</span>
+                </div>
             );
         }
-
         return (
-            <>
-                {resultEntries.map(([filePath, results]) => {
-                    const displayPath = workspacePath
-                        ? path.relative(uriToPath(workspacePath), uriToPath(filePath))
-                        : uriToPath(filePath);
-
-                    const totalMatches = results.reduce((sum, r) => sum + (r.matches?.length || 0), 0);
-                    if (totalMatches === 0) return null;
-
-                    const filePathKey = filePath;
-                    const isExpanded = currentExpandedFiles.has(filePath);
-
-                    return (
-                        <div key={filePathKey} className="mb-2 rounded-[3px] overflow-hidden">
-                            <div
-                                className="flex items-center p-[2px] gap-2 cursor-pointer hover:bg-[var(--vscode-list-hoverBackground)]"
-                                onClick={() => toggleFileExpansion(filePath)}
-                            >
-                                <span className={`codicon codicon-chevron-${isExpanded ? 'down' : 'right'}`} />
-                                <FileIcon filePath={filePath} />
-                                <span
-                                    className="font-bold cursor-pointer"
-                                    onClick={(e) => { e.stopPropagation(); handleFileClick(filePath); }}
-                                    title={`Click to open ${displayPath}`}
-                                >
-                                    {displayPath}
-                                </span>
-                                <span className="ml-auto mr-2 text-[var(--vscode-descriptionForeground)]">
-                                    {totalMatches} matches
-                                </span>
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); handleExcludeFile(filePath); }}
-                                    title={`Exclude ${displayPath} from search`}
-                                    className="bg-transparent border-none p-[2px] cursor-pointer flex items-center text-[#bcbbbc] rounded-[3px] hover:bg-[rgba(128,128,128,0.2)] hover:text-[var(--vscode-errorForeground)]"
-                                >
-                                    <span className="codicon codicon-close" />
-                                </button>
-                            </div>
-
-                            {isExpanded && (
-                                <div className="py-1 bg-[var(--vscode-editor-background)]">
-                                    {results.map((result, resultIdx) =>
-                                        result.matches?.map((match, matchIdx) => (
-                                            <div
-                                                key={`${resultIdx}-${matchIdx}`}
-                                                className="px-6 py-[2px] cursor-pointer relative hover:bg-[var(--vscode-list-hoverBackground)] group"
-                                                onClick={() => handleResultItemClick(filePath, match)}
-                                                title={getLineFromSource(result.source, match.start, match.end)}
-                                            >
-                                                {values.replace && values.replace.length > 0
-                                                    ? getHighlightedMatchContextWithReplacement(result.source, match, values.find, values.replace, values.searchMode, values.matchCase, values.wholeWord, undefined, values.searchMode === 'regex')
-                                                    : getHighlightedMatchContext(result.source, match, undefined, values.searchMode === 'regex')}
-
-                                                {values.replace && (
-                                                    <div className="absolute right-[5px] top-1/2 -translate-y-1/2 opacity-0 transition-opacity duration-200 group-hover:opacity-100"
-                                                        onClick={(e) => { e.stopPropagation(); handleReplaceSelectedFiles([filePath]); }}>
-                                                        <button className="bg-[var(--vscode-button-background)] text-[var(--vscode-button-foreground)] border-none rounded-[2px] cursor-pointer px-[6px] py-[2px] text-xs hover:bg-[var(--vscode-button-hoverBackground)]" title="Replace this match">
-                                                            <span className="codicon codicon-replace-all" />
-                                                        </button>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        ))
-                                    )}
-                                </div>
-                            )}
-                        </div>
-                    );
-                })}
-                {Object.keys(resultsByFile).length > visibleResultsLimit && (
-                    <div className="p-[10px] text-center">
-                        <button className="bg-[var(--vscode-button-background)] text-[var(--vscode-button-foreground)] border-none px-3 py-[6px] rounded-[2px] cursor-pointer hover:bg-[var(--vscode-button-hoverBackground)]" onClick={loadMoreResults} disabled={isLoadingMore}>
-                            {isLoadingMore ? 'Loading...' : `Load more results (${Object.keys(resultsByFile).length - visibleResultsLimit} remaining)`}
-                        </button>
-                    </div>
-                )}
-            </>
+            <div className="p-[10px] text-[var(--vscode-descriptionForeground)] text-center">No matches found.</div>
         );
-    };
-
-    const renderTreeViewResults = () => {
-        if (!paginatedResults || Object.keys(paginatedResults).length === 0) {
-            return status.running ? (
-                <div className="p-[10px] text-center flex gap-2 justify-center"><span className="codicon codicon-loading codicon-modifier-spin" /><span>Searching...</span></div>
-            ) : (
-                <div className="p-[10px] text-center text-[var(--vscode-descriptionForeground)]">No matches found.</div>
-            );
-        }
-
-        const paginatedFileTree = buildFileTree(paginatedResults, workspacePath, {}); // Custom order not supported yet
-
-        return (
-            <>
-                {paginatedFileTree.children.length > 0 ? (
-                    paginatedFileTree.children.map(node => (
-                        <TreeViewNode
-                            key={node.relativePath}
-                            node={node}
-                            level={0}
-                            expandedFolders={currentExpandedFolders}
-                            toggleFolderExpansion={toggleFolderExpansion}
-                            expandedFiles={currentExpandedFiles}
-                            toggleFileExpansion={toggleFileExpansion}
-                            handleFileClick={handleFileClick}
-                            handleResultItemClick={handleResultItemClick}
-                            handleReplace={handleReplaceSelectedFiles}
-                            currentSearchValues={values}
-                            handleExcludeFile={handleExcludeFile}
-                            onDragStart={handleDragStart}
-                            onDragOver={handleDragOver}
-                            onDrop={handleDrop}
-                        />
-                    ))
-                ) : null}
-                {Object.keys(resultsByFile).length > visibleResultsLimit && (
-                    <div className="p-[10px] text-center">
-                        <button className="bg-[var(--input-background)] border border-[var(--panel-view-border)] text-[var(--panel-tab-active-border)] px-3 py-[6px] rounded-[2px] cursor-pointer hover:border-[var(--panel-tab-active-border)]" onClick={loadMoreResults} disabled={isLoadingMore}>
-                            {isLoadingMore ? 'Loading...' : `Load more results`}
-                        </button>
-                    </div>
-                )}
-            </>
-        );
-    };
+    }
 
     return (
-        <div className="flex-grow overflow-auto mt-2">
-            {viewMode === 'list' ? renderListViewResults() : renderTreeViewResults()}
+        <div className={cn(
+            "flex-grow overflow-hidden mt-2 transition-opacity duration-200 h-full", // Use overflow-hidden to let AutoSizer handle scroll
+            isStale ? "opacity-50" : ""
+        )}>
+            <VirtualTreeView
+                fileTree={nodesToShow}
+                expandedFolders={currentExpandedFolders}
+                toggleFolderExpansion={toggleFolderExpansion}
+                expandedFiles={currentExpandedFiles}
+                toggleFileExpansion={toggleFileExpansion}
+                handleFileClick={handleFileClick}
+                handleResultItemClick={handleResultItemClick}
+                handleReplace={handleReplaceSelectedFiles}
+                currentSearchValues={values}
+                handleExcludeFile={handleExcludeFile}
+                onDragStart={handleDragStart}
+                onDragOver={handleDragOver}
+                onDrop={handleDrop}
+                animationState={animationState}
+            />
         </div>
     );
 };

@@ -117,6 +117,7 @@ export const InitialDataFromExtensionSchema = z.object({
   status: SearchReplaceViewStatusSchema,
   workspacePath: z.string(),
   searchLevels: z.array(SearchLevelSchema).optional(),
+  customFileOrder: z.record(z.string(), z.number()).optional(),
 })
 export type InitialDataFromExtension = z.infer<
   typeof InitialDataFromExtensionSchema
@@ -160,6 +161,7 @@ export const MessageToWebviewSchema = z.discriminatedUnion('type', [
     type: z.literal('addBatchResults'),
     data: z.array(SerializedTransformResultEventSchema),
     isSearchRunning: z.boolean(),
+    nonce: z.string().optional(),
   }),
   z.object({ type: z.literal('replaceDone') }),
   z.object({ type: z.literal('stop') }),
@@ -199,6 +201,10 @@ export const MessageToWebviewSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('restoreViewState'),
     viewState: ViewUndoStateSchema,
+  }),
+  z.object({
+    type: z.literal('triggerAction'),
+    action: z.enum(['copy', 'cut', 'paste']),
   }),
 ])
 export type MessageToWebview = z.infer<typeof MessageToWebviewSchema>

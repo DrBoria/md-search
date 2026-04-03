@@ -3,6 +3,7 @@ import {
   SearchRunner,
   TransformResultEvent,
 } from './searchController/SearchRunner'
+import { debounce } from 'lodash'
 import type { IMdSearchExtension, ProgressEvent } from './types'
 import { Params } from './types'
 import {
@@ -88,6 +89,9 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
         // Clear processed files Set on new search
         this._processedFiles.clear()
         this.isSearchRunning = true
+
+        // Ensure webview clears previous results
+        this._notifyWebviewIfActive('clearResults', {})
       },
       stop: () => {
         // Send remaining buffered results before clearing
@@ -139,6 +143,21 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
       },
     }
 
+    // Live Update Listener
+    vscode.workspace.onDidChangeTextDocument(
+      debounce((e) => {
+        if (
+          e.document.uri.scheme === 'file' &&
+          this.visible &&
+          !this.isSearchRunning
+        ) {
+          // Only scan if search is not currently running to avoid conflicts
+          // And only if view is visible (optimization)
+          this.runner.scanFile(e.document)
+        }
+      }, 500)
+    )
+
     for (const [event, listener] of Object.entries(globalListeners)) {
       this.runner.on(event as keyof SearchRunnerEvents, listener)
     }
@@ -153,10 +172,10 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
 
     const fileUri = e.file.toString()
 
-    // Обновляем статус только для новых файлов, чтобы избежать дублирования счетчиков
-    if (this._processedFiles.has(fileUri)) {
-      return
-    }
+    // We allow status updates even if file processed, because _addResult will subtract old stats.
+    // if (this._processedFiles.has(fileUri)) {
+    //   return
+    // }
 
     const status = this._state.status
 
@@ -179,7 +198,47 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
 
     const fileUri = e.file.toString()
 
-    // Проверяем, не обрабатывался ли уже этот файл
+    // Live update check: If file exists in results, we are updating it.
+    const existingIndex = this._state.results.findIndex(
+      (r) => r.file === fileUri
+    )
+    if (existingIndex !== -1) {
+      // Remove old result from stats before adding new one
+      const oldResult = this._state.results[existingIndex]
+      if (oldResult.matches) {
+        this._state.status.numMatches = Math.max(
+          0,
+          this._state.status.numMatches - oldResult.matches.length
+        )
+      }
+      if (oldResult.transformed && oldResult.transformed !== oldResult.source) {
+        this._state.status.numFilesThatWillChange = Math.max(
+          0,
+          this._state.status.numFilesThatWillChange - 1
+        )
+      }
+      if (oldResult.error) {
+        this._state.status.numFilesWithErrors = Math.max(
+          0,
+          this._state.status.numFilesWithErrors - 1
+        )
+      }
+      // Note: numFilesWithMatches is decremented only if new result has 0 matches,
+      // but simple way is to decrement here and increment in _updateStatus if applies?
+      // Actually best to remove old contribution entirely.
+      this._state.status.numFilesWithMatches = Math.max(
+        0,
+        this._state.status.numFilesWithMatches - 1
+      )
+
+      // Remove from results array
+      this._state.results.splice(existingIndex, 1)
+
+      // Remove from _processedFiles to allow re-adding stats in _updateStatus
+      this._processedFiles.delete(fileUri)
+    }
+
+    // Проверяем, не обрабатывался ли уже этот файл (после удаления выше, если это обновление - его там нет)
     if (this._processedFiles.has(fileUri)) {
       return
     }
@@ -235,9 +294,12 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
 
     // Отправляем весь буфер результатов в webview
     // Каждый файл в буфере уже проверен на дублирование в _addResult
+    const nonce = this.extension.getParams().searchNonce
+
     this._notifyWebviewIfActive('addBatchResults', {
       data: this._resultBuffer,
       isSearchRunning: this.isSearchRunning,
+      nonce,
     })
     this.isSearchRunning = false
     // Очищаем буфер после отправки
@@ -251,6 +313,10 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
   }
 
   public resolveWebviewView(webviewView: vscode.WebviewView): void {
+    this.extension.channel.appendLine(
+      `[SearchReplaceViewProvider] resolveWebviewView called. Existing view: ${!!this._view}`
+    )
+
     this._view = webviewView
 
     webviewView.webview.options = {
@@ -260,6 +326,7 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
         this._extensionUri,
         vscode.Uri.joinPath(this._extensionUri, 'media'),
         vscode.Uri.joinPath(this._extensionUri, 'out'),
+        vscode.Uri.joinPath(this._extensionUri, 'node_modules'),
       ],
     } as vscode.WebviewOptions & { devToolsEnabled?: boolean }
 
@@ -277,12 +344,19 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
     // Create message handler
     const messageHandler = new MessageHandler(this.extension, this)
 
+    this.extension.channel.appendLine(
+      `[SearchReplaceViewProvider] Attaching onDidReceiveMessage listener`
+    )
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     webviewView.webview.onDidReceiveMessage((message) => {
+      // this.extension.channel.appendLine(`[SearchReplaceViewProvider] Received message: ${message.type}`)
       messageHandler.handle(message)
     })
 
     webviewView.onDidDispose(() => {
+      this.extension.channel.appendLine(
+        `[SearchReplaceViewProvider] Webview disposed`
+      )
       this._view = undefined
       this._isWebviewMounted = false
       this._pendingMessages = []
@@ -416,6 +490,17 @@ export class SearchReplaceViewProvider implements vscode.WebviewViewProvider {
       }
     }
     this._pendingMessages = []
+  }
+
+  // Method to trigger an action in the webview (for command redirection)
+  triggerAction(action: 'copy' | 'cut' | 'paste'): void {
+    this.extension.channel.appendLine(
+      `[Provider] triggerAction calling webview with action: ${action}`
+    )
+    this.postMessage({
+      type: 'triggerAction',
+      action,
+    })
   }
 
   // Method to send notification about replacement completion

@@ -267,36 +267,12 @@ export class SearchCache {
     if (parentNode) {
       parentNode.children.set(query, newNode)
 
-      // If the parent node is complete, copy its results to the new node
-      if (parentNode.isComplete) {
-        // Only attempt to filter results if the new query is related to the parent query.
-        // If it's a completely different query (e.g. searching 'con' in results of 'Data'),
-        // checking the *previous matches* (Data) for 'con' is incorrect.
-        // We must rescan the files.
-        const parentQ = parentNode.query.toLowerCase()
-        const newQ = query.toLowerCase()
-
-        // Check for strict refinement to allow result reuse
-        const isQueryRefinement = newQ.includes(parentQ)
-        const isCaseRefinement = !parentNode.params.matchCase || matchCase
-        const isWholeWordRefinement = !parentNode.params.wholeWord || wholeWord
-
-        const canOptimize =
-          isQueryRefinement && isCaseRefinement && isWholeWordRefinement
-
-        if (canOptimize) {
-          // Copy only files that match the new query
-          // let filteredFiles = 0
-          for (const [uri, result] of parentNode.results.entries()) {
-            if (this.resultMatchesQuery(result, query, matchCase, wholeWord)) {
-              newNode.results.set(uri, result)
-              newNode.processedFiles.add(uri) // Mark as processed so we don't rescan
-            } else {
-              newNode.excludedFiles.add(uri)
-            }
-          }
-        }
-      }
+      // NOTE: We used to have an optimization here to copy results if the query was a refinement.
+      // However, we cannot simply copy the *Result Objects* because they contain specific match ranges (e.g. for "f")
+      // that are invalid for the new query (e.g. "fun").
+      // To properly optimize, we would need to re-scan the *content* of the matching files.
+      // For now, we will rely on the SearchWorkflow to re-scan these files (using the parent's file list as a scope).
+      // So we do NOTHING here. The new node starts empty.
     } else {
       // If no parent node found, this node becomes the root
       this.root = newNode
@@ -327,7 +303,11 @@ export class SearchCache {
     // Add only if there are matches
     if (result.matches && result.matches.length > 0) {
       this.currentNode.results.set(uri, result)
+      // Since it has matches, it's not excluded
+      this.currentNode.excludedFiles.delete(uri)
     } else {
+      // If no matches, ensure it's removed from results (in case it was there before)
+      this.currentNode.results.delete(uri)
       this.currentNode.excludedFiles.add(uri)
     }
 
@@ -408,9 +388,10 @@ export class SearchCache {
   }
 
   /**
-   * Clears the cache for a specific file
+   * Removes a file from the cache completely (results, processed, excluded).
+   * Used when a file is deleted.
    */
-  clearCacheForFile(fileUri: vscode.Uri): void {
+  removeFileFromCache(fileUri: vscode.Uri): void {
     if (!this.root) {
       return
     }
@@ -418,7 +399,7 @@ export class SearchCache {
     const filePath = fileUri.toString()
 
     // Clear cache recursively for all nodes
-    const clearRecursive = (node: SearchCacheNode) => {
+    const removeRecursive = (node: SearchCacheNode) => {
       // Remove file from results
       node.results.delete(filePath)
       node.processedFiles.delete(filePath)
@@ -426,11 +407,41 @@ export class SearchCache {
 
       // Clear for all child nodes
       for (const childNode of node.children.values()) {
-        clearRecursive(childNode)
+        removeRecursive(childNode)
       }
     }
 
-    clearRecursive(this.root)
+    removeRecursive(this.root)
+  }
+
+  /**
+   * Invalidates a file in the cache (processed, excluded) but KEEPS it in results.
+   * Used when a file is modified (so it stays in scope for nested search).
+   * It will be re-scanned, and addResult will update/remove the result.
+   */
+  invalidateFileInCache(fileUri: vscode.Uri): void {
+    if (!this.root) {
+      return
+    }
+
+    const filePath = fileUri.toString()
+
+    // Invalidate cache recursively for all nodes
+    const invalidateRecursive = (node: SearchCacheNode) => {
+      // DO NOT delete from results (preserve scope)
+      // node.results.delete(filePath)
+
+      // Remove from processed/excluded so it gets picked up again
+      node.processedFiles.delete(filePath)
+      node.excludedFiles.delete(filePath)
+
+      // Clear for all child nodes
+      for (const childNode of node.children.values()) {
+        invalidateRecursive(childNode)
+      }
+    }
+
+    invalidateRecursive(this.root)
   }
 
   /**
@@ -546,6 +557,23 @@ export class SearchCache {
   }
 
   /**
+   * Gets the nearest ancestor (or self) that is a global search node.
+   * Used for stabilizing the scope of nested searches.
+   */
+  getNearestGlobalNode(
+    startNode: SearchCacheNode | null = this.currentNode
+  ): SearchCacheNode | null {
+    let node = startNode
+    while (node) {
+      if (node.isGlobal) {
+        return node
+      }
+      node = node.parent
+    }
+    return null
+  }
+
+  /**
    * Gets results from the current cache
    */
   getCurrentResults(): Map<string, TransformResultEvent> | null {
@@ -591,6 +619,10 @@ export class SearchCache {
     }
 
     let filePath = fileUri.toString()
+    // Normalization check: console log what we start with
+    // console.log(`[CacheService] Excluding: ${filePath}`)
+
+    // Potentially flawed logic check
     if (filePath.startsWith('/file:///')) {
       filePath = filePath.replace('/file://', '')
     }
@@ -598,9 +630,33 @@ export class SearchCache {
     // Рекурсивно удаляем файл из всех узлов кэша
     const excludeRecursive = (node: SearchCacheNode) => {
       // Удаляем файл из результатов
-      node.results.delete(filePath)
+
+      // Optimization: Check for direct match first
+      if (node.results.has(filePath)) {
+        node.results.delete(filePath)
+      }
+
+      // Check for folder match (iterate keys)
+      // This is necessary because excluded path might be a folder (e.g. .venv)
+      // but results only contain files (e.g. .venv/lib/foo.py)
+      for (const key of node.results.keys()) {
+        if (key.startsWith(filePath + '/') || key.startsWith(filePath + '\\')) {
+          node.results.delete(key)
+        }
+      }
+
       node.processedFiles.delete(filePath)
-      node.excludedFiles.delete(filePath)
+      node.excludedFiles.delete(filePath) // Wait, if it's excluded, maybe we should ADD it?
+      // Current logic: remove it so it's not "remembered" as processed outcome?
+      // But we generally want to PREVENT it from being searched.
+      // SearchWorkflow: .filter((f) => !processedFiles.has(f) && !excludedFiles.has(f))
+      // If we delete from excludedFiles, it is NOT excluded?
+      // Wait. The method name is excludeFileFromCache.
+      // If we want it excluded, we should ADD it to excludedFiles!
+      // But if we want to remove 'memory' of it, we delete?
+
+      // FIX?: We should ADD it to excludedFiles so SearchWorkflow filters it out!
+      node.excludedFiles.add(filePath)
 
       // Удаляем из всех дочерних узлов
       for (const childNode of node.children.values()) {

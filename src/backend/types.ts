@@ -43,7 +43,7 @@ export interface IMdSearchExtension {
   transformResultProvider: any
   searchReplaceViewProvider: any
   getParams(): Params
-  setParams(params: Params): void
+  setParams(params: Params, triggerRestart?: boolean): void
   logError(error: Error): void
   resolveFsPath(fsPath: string): vscode.Uri
   replace(): Promise<void>
@@ -52,6 +52,8 @@ export interface IMdSearchExtension {
   pasteToMatches(fileOrder?: string[]): Promise<number>
   copyFileNames(): Promise<number>
   undoLastOperation(): Promise<boolean>
+  undoLastOperation(): Promise<boolean>
   setCustomFileOrder(order: { [key: string]: number }): void
+  getCustomFileOrder(): { [key: string]: number }
   triggerSearch(): void
 }
