@@ -1,10 +1,10 @@
-import { IpcMatch } from 'astx/node'
+import { IpcMatch } from '../backend/types'
 import { TreeItem } from 'vscode'
 import { TreeNode } from './TreeNode'
 import FileNode from './FileNode'
 import * as vscode from 'vscode'
 import path from 'path'
-import { ASTX_RESULT_SCHEME } from '../constants'
+import { MD_SEARCH_RESULT_SCHEME } from '../constants'
 
 type MatchNodeProps = {
   match: IpcMatch
@@ -25,12 +25,11 @@ export default class MatchNode extends TreeNode<MatchNodeProps> {
   }
   getTreeItem(): TreeItem {
     const { source, transformed } = this.parent.props
-    const { nodes } = this.props.match
-    if (!nodes.length) {
-      throw new Error(`missing matched nodes`)
-    }
-    const { start, startLine, startColumn } = nodes[0].location
-    const { end, endLine, endColumn } = nodes[nodes.length - 1].location
+    const { start, end, loc } = this.props.match
+    const startLine = loc?.start.line
+    const startColumn = loc?.start.column
+    const endLine = loc?.end.line
+    const endColumn = loc?.end.column
     if (start == null || end == null || startColumn == null) {
       throw new Error(`missing complete location information`)
     }
@@ -47,7 +46,7 @@ export default class MatchNode extends TreeNode<MatchNodeProps> {
         this.parent.props.file,
         ...(transformed
           ? [
-              this.parent.props.file.with({ scheme: ASTX_RESULT_SCHEME }),
+              this.parent.props.file.with({ scheme: MD_SEARCH_RESULT_SCHEME }),
               path.basename(this.parent.props.file.path),
             ]
           : []),

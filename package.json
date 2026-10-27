@@ -1,11 +1,12 @@
 {
-  "name": "vscode-astx",
-  "version": "0.0.1",
-  "displayName": "astx",
-  "description": "structural search and replace for JavaScript and TypeScript",
-  "publisher": "jedwards1211",
+  "name": "md-search",
+  "version": "1.0.0",
+  "displayName": "MD Search",
+  "description": "VSCode extension for nested code search and replace functionality",
+  "icon": "media/logo.jpeg",
+  "publisher": "drboria",
   "engines": {
-    "vscode": "^1.84.0"
+    "vscode": "^1.90.0"
   },
   "categories": [
     "Other"
@@ -15,24 +16,20 @@
     "workspace"
   ],
   "activationEvents": [
-    "onView:astx.SearchReplaceView"
+    "*"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "configuration": {
       "type": "object",
-      "title": "astx",
+      "title": "mdSearch",
       "properties": {
-        "astx.showErrorNotifications": {
+        "mdSearch.showErrorNotifications": {
           "type": "boolean",
           "default": true,
           "description": "Whether to show notifications when errors occur in this extension"
         },
-        "astx.astxPath": {
-          "type": "string",
-          "description": "Path to the astx module, eg: ./node_modules/astx."
-        },
-        "astx.parser": {
+        "mdSearch.parser": {
           "enum": [
             "babel",
             "babel/auto",
@@ -42,17 +39,37 @@
           "default": "babel",
           "description": "JS/TS parser to use"
         },
-        "astx.prettier": {
+        "mdSearch.cacheEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable search results caching for improved performance"
+        },
+        "mdSearch.cacheExpiration": {
+          "type": "integer",
+          "default": 900,
+          "description": "Number of seconds to keep search results in cache (default: 15 minutes)"
+        },
+        "mdSearch.maxCacheEntries": {
+          "type": "integer",
+          "default": 20,
+          "description": "Maximum number of search queries to keep in cache"
+        },
+        "mdSearch.concurrentWorkers": {
+          "type": "integer",
+          "default": 4,
+          "description": "Number of concurrent workers for text search (0 = auto)"
+        },
+        "mdSearch.prettier": {
           "type": "boolean",
           "default": true,
           "description": "reformat transformed code with prettier"
         },
-        "astx.preferSimpleReplacement": {
+        "mdSearch.preferSimpleReplacement": {
           "type": "boolean",
           "default": false,
           "description": "Replace using string splicing if possible, instead of regenerating code from modified AST"
         },
-        "astx.babelGeneratorHack": {
+        "mdSearch.babelGeneratorHack": {
           "type": "boolean",
           "default": false,
           "description": "Use @babel/generator hack to preserve formatting in transformed code"
@@ -61,143 +78,149 @@
     },
     "commands": [
       {
-        "command": "astx.restartWorkerPool",
-        "title": "astx: Restart Worker Pool"
+        "command": "mdSearch.restartWorkerPool",
+        "title": "MD: Restart Worker Pool"
       },
       {
-        "command": "astx.showOutput",
-        "title": "astx: Show Debug Output"
+        "command": "mdSearch.showOutput",
+        "title": "MD: Show Debug Output"
       },
       {
-        "command": "astx.search",
-        "title": "astx: Find/Replace..."
+        "command": "mdSearch.findInFolder",
+        "title": "MD: Find in Folder..."
       },
       {
-        "command": "astx.setAsTransformFile",
-        "title": "astx: Set as Transform File"
+        "command": "mdSearch.search",
+        "title": "MD: Find..."
       },
       {
-        "command": "astx.findInFile",
-        "title": "astx: Find in File..."
+        "command": "mdSearch.replace",
+        "title": "MD: Replace in Files..."
       },
       {
-        "command": "astx.findInFolder",
-        "title": "astx: Find in Folder..."
+        "command": "mdSearch.findInFile",
+        "title": "MD: Find in File..."
       },
       {
-        "command": "astx.transformInFile",
-        "title": "astx: Transform in File..."
+        "command": "mdSearch.copyMatches",
+        "title": "MD: Copy All Matches"
       },
       {
-        "command": "astx.transformInFolder",
-        "title": "astx: Transform in Folder..."
+        "command": "mdSearch.cutMatches",
+        "title": "MD: Cut All Matches"
+      },
+      {
+        "command": "mdSearch.pasteToMatches",
+        "title": "MD: Paste to All Matches"
+      },
+      {
+        "command": "mdSearch.copyFileNames",
+        "title": "MD: Copy File Names"
+      },
+      {
+        "command": "mdSearch.undoLastOperation",
+        "title": "MD: Undo Last Operation"
+      },
+      {
+        "command": "mdSearch.clearAllState",
+        "title": "MD: Clear All Extension State"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "mdSearch.search",
+        "key": "ctrl+shift+f",
+        "mac": "cmd+shift+f"
+      },
+      {
+        "command": "mdSearch.replace",
+        "key": "ctrl+shift+h",
+        "mac": "cmd+shift+h"
+      },
+      {
+        "command": "mdSearch.copyMatches",
+        "key": "ctrl+shift+c",
+        "mac": "cmd+shift+o"
+      },
+      {
+        "command": "mdSearch.cutMatches",
+        "key": "ctrl+shift+x",
+        "mac": "cmd+shift+x"
+      },
+      {
+        "command": "mdSearch.pasteToMatches",
+        "key": "ctrl+shift+v",
+        "mac": "cmd+shift+v"
+      },
+      {
+        "command": "mdSearch.copyFileNames",
+        "key": "ctrl+shift+n",
+        "mac": "cmd+shift+n"
+      },
+      {
+        "command": "mdSearch.undoLastOperation",
+        "key": "ctrl+shift+z",
+        "mac": "cmd+shift+z"
       }
     ],
     "menus": {
       "explorer/context": [
         {
           "when": "explorerResourceIsFolder",
-          "command": "astx.findInFolder",
-          "group": "astx"
-        },
-        {
-          "when": "explorerResourceIsFolder",
-          "command": "astx.transformInFolder",
-          "group": "astx"
-        },
-        {
-          "when": "!explorerResourceIsFolder",
-          "command": "astx.findInFile",
-          "group": "astx"
-        },
-        {
-          "when": "!explorerResourceIsFolder",
-          "command": "astx.transformInFile",
-          "group": "astx"
-        },
-        {
-          "when": "resourceExtname == .js || resourceExtname == .cjs || resourceExtname == .mjs || resourceExtname == .ts",
-          "command": "astx.setAsTransformFile",
-          "group": "astx"
+          "command": "mdSearch.findInFolder",
+          "group": "mdSearch"
         }
       ],
-      "editor/context": [
+      "commandPalette": [
         {
-          "when": "resourceExtname == .js || resourceExtname == .cjs || resourceExtname == .mjs || resourceExtname == .ts",
-          "command": "astx.setAsTransformFile",
-          "group": "astx"
-        },
-        {
-          "when": "resourceExtname == .js || resourceExtname == .cjs || resourceExtname == .mjs || resourceExtname == .jsx || resourceExtname == .ts || resourceExtname == .tsx || resourceExtname == .cts || resourceExtname == .mts",
-          "command": "astx.findInFile",
-          "group": "astx"
-        },
-        {
-          "when": "resourceExtname == .js || resourceExtname == .cjs || resourceExtname == .mjs || resourceExtname == .jsx || resourceExtname == .ts || resourceExtname == .tsx || resourceExtname == .cts || resourceExtname == .mts",
-          "command": "astx.transformInFile",
-          "group": "astx"
-        }
-      ],
-      "editor/title/context": [
-        {
-          "when": "resourceExtname == .js || resourceExtname == .cjs || resourceExtname == .mjs || resourceExtname == .ts",
-          "command": "astx.setAsTransformFile",
-          "group": "astx"
-        },
-        {
-          "when": "resourceExtname == .js || resourceExtname == .cjs || resourceExtname == .mjs || resourceExtname == .jsx || resourceExtname == .ts || resourceExtname == .tsx || resourceExtname == .cts || resourceExtname == .mts",
-          "command": "astx.findInFile",
-          "group": "astx"
-        },
-        {
-          "when": "resourceExtname == .js || resourceExtname == .cjs || resourceExtname == .mjs || resourceExtname == .jsx || resourceExtname == .ts || resourceExtname == .tsx || resourceExtname == .cts || resourceExtname == .mts",
-          "command": "astx.transformInFile",
-          "group": "astx"
+          "command": "mdSearch.clearAllState",
+          "group": "mdSearch"
         }
       ]
     },
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "astx-astx",
-          "title": "Astx",
-          "icon": "media/astx.svg"
+          "id": "mdSearch-mdSearch",
+          "title": "MD Search",
+          "icon": "media/mdSearch.svg"
         }
       ]
     },
     "views": {
-      "astx-astx": [
+      "mdSearch-mdSearch": [
         {
           "type": "webview",
-          "id": "astx.SearchReplaceView",
+          "id": "mdSearch.SearchReplaceView",
           "name": "Search"
-        },
-        {
-          "id": "astx.MatchesView",
-          "name": "Matches"
         }
       ]
     }
   },
   "scripts": {
+    "compile": "tsc -p ./",
     "lint": "eslint $npm_package_config_lint",
     "lint:fix": "eslint $npm_package_config_lint",
     "prettier": "prettier --write $npm_package_config_prettier",
     "prettier:check": "prettier --list-different $npm_package_config_prettier",
-    "clean": "rimraf out",
+    "clean": "rimraf out node_modules/.vite",
     "check:types": "tsc --noEmit",
-    "build": "npm run clean && npm run build:extension && npm run build:webviews",
-    "build:extension": "NODE_ENV=production webpack --config extension.webpack.config.js",
-    "watch:extension": "webpack --config extension.webpack.config.js --watch",
-    "build:webviews": "NODE_ENV=production webpack --config webviews.webpack.config.js",
-    "watch:webviews": "webpack serve --config webviews.webpack.config.js",
+    "build": "pnpm run clean && pnpm run build:extension && pnpm run build:webviews",
+    "build:extension": "vite build -c vite.extension.config.ts",
+    "watch:extension": "pnpm i && pnpm build && pnpm run copy-icon-assets && vite build -c vite.extension.config.ts --watch",
+    "build:webviews": "vite build",
+    "watch:webviews": "rimraf node_modules/.vite && vite build --watch",
+    "dev:webviews-debug": "vite",
     "test": "rimraf .nyc_output; npm run test:unit && node ./out/extension/test/runTest.js && nyc report && nyc report --reporter=lcov",
     "codecov": "nyc report --reporter=text-lcov > coverage.lcov; codecov",
     "open:coverage": "open coverage/lcov-report/index.html",
     "semantic-release": "semantic-release",
-    "build:watch": "nodemon -e js,ts,json --watch src --exec \"(pnpm build)\"",
+    "build:watch": "nodemon -e js,ts,json --watch src --exec \"(npm build)\"",
     "pretest": "BABEL_ENV=coverage npm run build",
-    "vscode:prepublish": "npm run clean && npm run prettier:check && npm run lint && npm run build"
+    "copy-icon-assets": "mkdir -p out/codicons && cp -r node_modules/@vscode/codicons/dist/* out/codicons/ && mkdir -p out/icons/generated && cp -r node_modules/vscode-material-icons/generated/icons/* out/icons/generated/",
+    "prepare-package": "pnpm run build && pnpm run copy-icon-assets",
+    "package": "pnpm run prepare-package && pnpm exec vsce package --no-dependencies",
+    "vscode:prepublish": "pnpm run clean && pnpm run prettier:check && pnpm run lint && pnpm run build && pnpm run copy-icon-assets"
   },
   "release": {
     "plugins": [
@@ -206,7 +229,7 @@
       [
         "@semantic-release/exec",
         {
-          "prepareCmd": "vsce package 0.0.1 --no-git-tag-version --out vscode-astx-${nextRelease.version}.vsix"
+          "prepareCmd": "vsce package 0.0.1 --no-git-tag-version --out md-search-${nextRelease.version}.vsix"
         }
       ],
       [
@@ -228,7 +251,15 @@
   },
   "vsce": {
     "dependencies": true,
-    "yarn": false
+    "yarn": false,
+    "bundleIconPaths": [
+      "out/fonts/**/*",
+      "out/css/**/*",
+      "out/images/**/*",
+      "out/codicons/**/*",
+      "out/icons/**/*",
+      "media/**/*"
+    ]
   },
   "config": {
     "lint": "--cache --ext .js,.ts src",
@@ -239,19 +270,12 @@
   },
   "husky": {
     "hooks": {
-      "pre-commit": "lint-staged && npm run lint && npm run check:types",
-      "commit-msg": "commitlint -e $GIT_PARAMS",
-      "pre-push": "npm run test:unit"
+      "pre-commit": "lint-staged && npm run lint && npm run check:types"
     }
   },
   "lint-staged": {
     "*.{js,ts,json,css,md}": [
       "prettier --write"
-    ]
-  },
-  "commitlint": {
-    "extends": [
-      "@jedwards1211/commitlint-config"
     ]
   },
   "prettier": {
@@ -274,11 +298,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/codemodsquad/vscode-astx.git"
+    "url": "https://github.com/codemodsquad/md-search.git"
   },
   "keywords": [
-    "ast",
-    "astx",
+    "mdSearch",
     "automated",
     "codemod",
     "find",
@@ -299,85 +322,91 @@
     "transformation",
     "typescript"
   ],
-  "author": "Andy Edwards",
+  "author": "Mikita Du",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/codemodsquad/vscode-astx/issues"
+    "url": "https://github.com/codemodsquad/md-search/issues"
   },
-  "homepage": "https://github.com/codemodsquad/vscode-astx#readme",
+  "homepage": "https://github.com/codemodsquad/md-search#readme",
   "devDependencies": {
-    "@babel/node": "^7.19.1",
-    "@commitlint/cli": "^11.0.0",
-    "@commitlint/config-conventional": "^11.0.0",
+    "@babel/node": "^7.28.6",
+    "@commitlint/cli": "^20.3.1",
+    "@commitlint/config-conventional": "^20.3.1",
     "@jedwards1211/commitlint-config": "^1.0.2",
     "@jedwards1211/eslint-config": "^2.0.2",
     "@jedwards1211/eslint-config-typescript": "^2.0.2",
-    "@semantic-release/commit-analyzer": "^9.0.2",
-    "@semantic-release/exec": "^6.0.3",
-    "@semantic-release/github": "^8.0.6",
-    "@semantic-release/release-notes-generator": "^10.0.3",
-    "@types/chai": "^4.2.14",
-    "@types/fs-extra": "^9.0.13",
-    "@types/glob": "^7.2.0",
-    "@types/lodash": "^4.14.185",
-    "@types/lodash-es": "^4.17.6",
-    "@types/minimatch": "^5.1.2",
-    "@types/mocha": "^8.2.0",
-    "@types/node": "^16.9.6",
-    "@types/react": "^18.0.18",
-    "@types/react-dom": "^18.0.6",
+    "@semantic-release/commit-analyzer": "^13.0.1",
+    "@semantic-release/exec": "^7.1.0",
+    "@semantic-release/github": "^12.0.2",
+    "@semantic-release/release-notes-generator": "^14.1.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/babel__generator": "^7.27.0",
+    "@types/debug": "^4.1.12",
+    "@types/fs-extra": "^11.0.4",
+    "@types/lodash": "^4.17.23",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^20.0.0",
+    "@types/path-browserify": "^1.0.3",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
     "@types/vscode": "^1.84.0",
-    "@types/vscode-webview": "^1.57.3",
-    "@types/webpack-env": "^1.18.0",
-    "@typescript-eslint/eslint-plugin": "^4.32.0",
-    "@typescript-eslint/parser": "^4.32.0",
-    "@typescript-eslint/typescript-estree": "^4.32.0",
-    "babel-plugin-istanbul": "^6.0.0",
-    "chai": "^4.2.0",
+    "@types/vscode-webview": "^1.57.5",
+    "@types/webpack-env": "^1.18.8",
+    "@typescript-eslint/eslint-plugin": "^4.33.0",
+    "@typescript-eslint/parser": "^4.33.0",
+    "@typescript-eslint/typescript-estree": "^4.33.0",
+    "@vitejs/plugin-react": "^5.1.2",
+    "@vscode/test-electron": "^2.4.1",
+    "@vscode/vsce": "^3.3.2",
+    "autoprefixer": "^10.4.23",
     "codecov": "^3.8.1",
     "copy": "^0.3.2",
-    "cross-env": "^7.0.3",
-    "css-loader": "^6.7.2",
+    "cross-env": "^10.1.0",
     "eslint": "^7.32.0",
-    "eslint-config-prettier": "^8.3.0",
-    "fs-extra": "^8.1.0",
-    "glob": "^7.2.3",
-    "html-webpack-plugin": "^5.5.0",
+    "eslint-config-prettier": "^8.10.0",
+    "fs-extra": "^11.3.3",
+    "glob": "^13.0.0",
     "husky": "^4.3.8",
-    "lint-staged": "^10.5.3",
-    "mini-css-extract-plugin": "^2.7.1",
-    "mocha": "^8.2.1",
-    "nodemon": "^2.0.1",
-    "nyc": "^15.1.0",
-    "prettier": "^2.2.1",
-    "rimraf": "^3.0.2",
-    "semantic-release": "^19.0.5",
-    "semantic-release-vsce": "^5.1.1",
-    "style-loader": "^3.3.1",
-    "ts-loader": "^9.3.1",
-    "ts-node": "^10.9.1",
-    "typescript": "^4.9.3",
-    "vsce": "^2.14.0",
-    "vscode-test": "^1.2.3",
-    "webpack": "^5.74.0",
-    "webpack-cli": "^4.10.0",
-    "webpack-dev-server": "^4.11.0"
+    "jsdom": "^27.4.0",
+    "lint-staged": "^10.5.4",
+    "nodemon": "^3.1.11",
+    "postcss": "^8.5.6",
+    "prettier": "^3.8.0",
+    "rimraf": "^6.1.2",
+    "semantic-release": "^25.0.2",
+    "tailwindcss": "^3.4.17",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1",
+    "vitest": "^4.0.17"
   },
   "dependencies": {
-    "@emotion/css": "^11.10.0",
-    "@emotion/styled": "^11.10.4",
-    "@repeaterjs/repeater": "^3.0.4",
-    "@vscode/codicons": "^0.0.32",
-    "@vscode/webview-ui-toolkit": "^1.2.2",
-    "astx": "3.0.0-beta.29",
-    "babel-parse-wild-code": "^1.2.0",
-    "empty": "^0.10.1",
-    "gitignore-fs": "^2.1.0",
+    "@formkit/auto-animate": "^0.9.0",
+    "@radix-ui/react-checkbox": "^1.3.3",
+    "@radix-ui/react-dialog": "^1.1.15",
+    "@radix-ui/react-popover": "^1.1.15",
+    "@radix-ui/react-scroll-area": "^1.2.10",
+    "@radix-ui/react-slot": "^1.2.4",
+    "@radix-ui/react-toggle": "^1.1.10",
+    "@vscode/codicons": "^0.0.44",
+    "@vscode/ripgrep": "^1.17.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "lodash": "^4.17.21",
-    "minimatch": "^5.1.0",
-    "p-event": "^4.0.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "tiny-typed-emitter": "^2.1.0"
+    "micromatch": "^4.0.8",
+    "minimatch": "^10.1.1",
+    "path-browserify": "^1.0.1",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "react-virtualized-auto-sizer": "^2.0.2",
+    "react-window": "^2.2.5",
+    "react-window-infinite-loader": "^2.0.1",
+    "tailwind-merge": "^3.4.0",
+    "tiny-typed-emitter": "^2.1.0",
+    "vscode-material-icons": "^0.1.1",
+    "vscode-uri": "^3.1.0",
+    "zod": "^4.3.5"
   }
 }

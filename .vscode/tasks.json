@@ -10,19 +10,20 @@
       "args": ["run", "watch:extension"],
       "isBackground": true,
       "problemMatcher": {
-        "owner": "webpack",
-        "fileLocation": "relative",
+        "owner": "typescript",
+        "fileLocation": "absolute",
         "pattern": {
-          "regexp": "(ERROR|WARNING) in (.+) (\\d+:\\d+(-\\d+)?)\\n([^\\n]+)",
-          "severity": 1,
-          "file": 2,
-          "location": 3,
+          "regexp": "^([^\\s].*)\\((\\d+|\\d+,\\d+|\\d+,\\d+,\\d+,\\d+)\\):\\s+(error|warning|info)\\s+(TS\\d+)\\s*:\\s*(.*)$",
+          "file": 1,
+          "location": 2,
+          "severity": 3,
+          "code": 4,
           "message": 5
         },
         "background": {
           "activeOnStart": true,
-          "beginsPattern": "assets by status",
-          "endsPattern": "webpack (\\d+)\\.(\\d+)\\.(\\d+) compiled"
+          "beginsPattern": "vite .* building",
+          "endsPattern": "built in"
         }
       },
       "presentation": {
@@ -39,8 +40,8 @@
       "args": ["run", "watch:webviews"],
       "isBackground": true,
       "problemMatcher": {
-        "owner": "webpack",
-        "fileLocation": "relative",
+        "owner": "typescript",
+        "fileLocation": "absolute",
         "pattern": {
           "regexp": "^([^\\s].*)\\((\\d+|\\d+,\\d+|\\d+,\\d+,\\d+,\\d+)\\):\\s+(error|warning|info)\\s+(TS\\d+)\\s*:\\s*(.*)$",
           "file": 1,
@@ -51,8 +52,8 @@
         },
         "background": {
           "activeOnStart": true,
-          "beginsPattern": "assets by status",
-          "endsPattern": "webpack (\\d+)\\.(\\d+)\\.(\\d+) compiled"
+          "beginsPattern": "vite .* building",
+          "endsPattern": "built in"
         }
       },
       "presentation": {
@@ -63,8 +64,46 @@
       }
     },
     {
+      "type": "shell",
+      "label": "dev:webviews-debug",
+      "command": "npm",
+      "args": ["run", "dev:webviews-debug"],
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "typescript",
+        "fileLocation": "absolute",
+        "pattern": {
+          "regexp": "^([^\\s].*)\\((\\d+|\\d+,\\d+|\\d+,\\d+,\\d+,\\d+)\\):\\s+(error|warning|info)\\s+(TS\\d+)\\s*:\\s*(.*)$",
+          "file": 1,
+          "location": 2,
+          "severity": 3,
+          "code": 4,
+          "message": 5
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "VITE v.* ready",
+          "endsPattern": "Local:"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "group": {
+        "kind": "build"
+      }
+    },
+    {
       "label": "watch",
       "dependsOn": ["watch:extension", "watch:webviews"],
+      "group": {
+        "kind": "build"
+      }
+    },
+    {
+      "label": "watch:debug",
+      "dependsOn": ["watch:extension", "dev:webviews-debug"],
       "group": {
         "kind": "build"
       }
@@ -117,6 +156,14 @@
         "kind": "build",
         "isDefault": true
       }
+    },
+    {
+      "type": "npm",
+      "script": "compile",
+      "group": "build",
+      "problemMatcher": [],
+      "label": "npm: compile",
+      "detail": "tsc -p ./"
     }
   ]
 }
